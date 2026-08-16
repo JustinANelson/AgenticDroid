@@ -1,0 +1,30 @@
+# Build and cache
+.gradle/
+build/
+.kotlin/
+.tmp/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local configuration
+local.properties
+.secrets
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project specific data
+.cast/
+# .artifacts/ # Uncomment if you want to ignore AI agent artifacts
+
+# Logs
+*.log
