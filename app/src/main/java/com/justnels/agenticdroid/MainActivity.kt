@@ -167,6 +167,7 @@ fun MainScreen(viewModel: MainViewModel) {
                             onProjectSelected = { viewModel.selectProject(it) },
                             onCreateProject = { viewModel.createProject(it) },
                             onCloneProject = { url, name -> viewModel.cloneProject(url, name) },
+                            onDeleteProject = { viewModel.deleteProject(it) },
                             onFetchRepos = { viewModel.fetchGithubRepos() },
                             onDismissHint = { viewModel.markHintShown(it) }
                         )

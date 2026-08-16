@@ -147,6 +147,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteProject(project: Project) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // Delete the directory locally.
+            // In a real multi-environment app, we'd check if the project is remote.
+            // For now, assuming local project management as per WorkspaceManager.
+            if (File(project.path).deleteRecursively()) {
+                withContext(Dispatchers.Main) {
+                    if (selectedProject?.path == project.path) {
+                        selectProject(null)
+                    }
+                    refreshProjects()
+                }
+            }
+        }
+    }
+
     fun cloneProject(url: String, name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val authenticatedUrl = if (githubToken.isNotBlank() && url.startsWith("https://github.com/")) {

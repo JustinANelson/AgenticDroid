@@ -38,26 +38,37 @@ object SyntaxHighlighter {
     }
 
     private fun AnnotatedString.Builder.highlightKotlin(code: String) {
-        val words = code.split(Regex("(?<=[\\s.(),:;])|(?=[\\s.(),:;])"))
+        val words = code.split(Regex("(?<=[\\s.(),:;{}\\[\\]])|(?=[\\s.(),:;{}\\[\\]])"))
+        var inComment = false
         words.forEach { word ->
             when {
+                word.startsWith("//") -> {
+                    inComment = true
+                    withStyle(style = SpanStyle(color = Color(0xFF6A9955))) { // Green comments
+                        append(word)
+                    }
+                }
+                word == "\n" -> {
+                    inComment = false
+                    append(word)
+                }
+                inComment -> {
+                    withStyle(style = SpanStyle(color = Color(0xFF6A9955))) {
+                        append(word)
+                    }
+                }
                 keywords.contains(word) -> {
-                    withStyle(style = SpanStyle(color = Color(0xFFD73A49), fontWeight = FontWeight.Bold)) {
+                    withStyle(style = SpanStyle(color = Color(0xFF569CD6), fontWeight = FontWeight.Bold)) { // Blue keywords
                         append(word)
                     }
                 }
                 word.startsWith("\"") && word.endsWith("\"") -> {
-                    withStyle(style = SpanStyle(color = Color(0xFF032F62))) {
+                    withStyle(style = SpanStyle(color = Color(0xFFCE9178))) { // String color
                         append(word)
                     }
                 }
                 word.all { it.isDigit() } -> {
-                    withStyle(style = SpanStyle(color = Color(0xFF005CC5))) {
-                        append(word)
-                    }
-                }
-                word.startsWith("//") -> {
-                    withStyle(style = SpanStyle(color = Color(0xFF6A737D))) {
+                    withStyle(style = SpanStyle(color = Color(0xFFB5CEA8))) { // Number color
                         append(word)
                     }
                 }

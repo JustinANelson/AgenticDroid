@@ -44,6 +44,9 @@ class TerminalViewModel(
     var sessionTitle by mutableStateOf<String?>(null)
         private set
 
+    var lastDetectedUrl by mutableStateOf<String?>(null)
+        private set
+
     private var terminalService: TerminalService? = null
     private val sessionKey = "terminal_${env.getEnvironmentInfo().name}_${workingDirectory.hashCode()}"
 
@@ -134,6 +137,43 @@ class TerminalViewModel(
 
     override fun onTextChanged(changedSession: TerminalSession) {
         onScreenUpdate?.invoke()
+        
+        try {
+            val emulator = changedSession.emulator
+            val screen = emulator.screen
+            
+            // 1. Get the raw text and split into lines.
+            val rawTranscript = screen.transcriptText
+            val lines = rawTranscript.lines()
+            
+            // 2. Join lines for the URL scanner.
+            // We join with NO spaces, but we trim each line to remove 
+            // both leading indentation and trailing padding.
+            val joinedText = lines.joinToString("") { it.trim() }
+            
+            // 3. Greedy regex to capture EVERYTHING until whitespace or terminal symbols
+            val urlRegex = Regex("https?://[^\\s\"\'<>|\\[\\]]+", RegexOption.IGNORE_CASE)
+            val matches = urlRegex.findAll(joinedText)
+            
+            // 4. Pick the longest match (auth URLs are significantly longer than others)
+            val match = matches.maxByOrNull { it.value.length }
+
+            if (match != null) {
+                var cleanUrl = match.value
+                // Remove trailing punctuation that commonly gets trapped by greedy regex
+                val toStrip = setOf('.', ',', ')', '!', '?', ';', ':', '>', ']', '}', '\'')
+                while (cleanUrl.isNotEmpty() && cleanUrl.last() in toStrip) {
+                    cleanUrl = cleanUrl.dropLast(1)
+                }
+                
+                if (cleanUrl.length > 15 && cleanUrl != lastDetectedUrl) {
+                    Log.d(TAG, "Reconstructed URL: $cleanUrl")
+                    lastDetectedUrl = cleanUrl
+                }
+            }
+        } catch (e: Exception) {
+            // Screen access might fail if session is finishing
+        }
     }
 
     override fun onTitleChanged(changedSession: TerminalSession) {

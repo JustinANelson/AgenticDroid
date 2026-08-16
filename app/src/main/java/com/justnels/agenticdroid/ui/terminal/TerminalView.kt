@@ -1,5 +1,7 @@
 package com.justnels.agenticdroid.ui.terminal
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Typeface
 import android.view.KeyEvent
@@ -15,7 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -41,6 +46,8 @@ fun TerminalScreen(
 ) {
     val session = viewModel.session
     val textSizePx = with(LocalDensity.current) { 14.sp.toPx().toInt() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isShiftActive by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -89,16 +96,48 @@ fun TerminalScreen(
         }
 
         TerminalAccessoryRow(
+            lastUrl = viewModel.lastDetectedUrl,
+            isShiftActive = isShiftActive,
             onKeyClick = { key ->
                 when (key) {
                     "ESC" -> viewModel.sendRawInput(ESC)
                     "CTRL-C" -> viewModel.sendRawInput(CTRL_C)
-                    "TAB" -> viewModel.sendRawInput("\t")
-                    "↑" -> viewModel.sendRawInput("$ESC[A")
-                    "↓" -> viewModel.sendRawInput("$ESC[B")
-                    "←" -> viewModel.sendRawInput("$ESC[D")
-                    "→" -> viewModel.sendRawInput("$ESC[C")
+                    "TAB" -> viewModel.sendRawInput(if (isShiftActive) "$ESC[Z" else "\t")
+                    "ENTER" -> viewModel.sendRawInput("\r")
+                    "SHIFT" -> isShiftActive = !isShiftActive
+                    "↑" -> {
+                        viewModel.sendRawInput(if (isShiftActive) "$ESC[1;2A" else "$ESC[A")
+                        isShiftActive = false
+                    }
+                    "↓" -> {
+                        viewModel.sendRawInput(if (isShiftActive) "$ESC[1;2B" else "$ESC[B")
+                        isShiftActive = false
+                    }
+                    "←" -> {
+                        viewModel.sendRawInput(if (isShiftActive) "$ESC[1;2D" else "$ESC[D")
+                        isShiftActive = false
+                    }
+                    "→" -> {
+                        viewModel.sendRawInput(if (isShiftActive) "$ESC[1;2C" else "$ESC[C")
+                        isShiftActive = false
+                    }
                     "DIAG" -> viewModel.runDiagnostics()
+                    "OPEN-LINK" -> {
+                        viewModel.lastDetectedUrl?.let { url ->
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        }
+                    }
+                    "COPY" -> {
+                        viewModel.lastDetectedUrl?.let { url ->
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("terminal-url", url))
+                        }
+                    }
+                    "Y" -> viewModel.sendRawInput(if (isShiftActive) "Y" else "y")
+                    "N" -> viewModel.sendRawInput(if (isShiftActive) "N" else "n")
                     else -> viewModel.sendRawInput(key)
                 }
             }
@@ -116,6 +155,29 @@ private fun defaultTerminalViewClient(context: Context, view: TermuxTerminalView
         override fun onScale(scale: Float): Float = 1f
 
         override fun onSingleTapUp(e: MotionEvent) {
+            // Try to find a URL at the tapped location using several common Termux library methods
+            val url = try {
+                val method = view.javaClass.getMethod("getStoredURL", MotionEvent::class.java)
+                method.invoke(view, e) as? String
+            } catch (ex: Exception) {
+                try {
+                    val method = view.javaClass.getMethod("getURLAtLocation", Float::class.java, Float::class.java)
+                    method.invoke(view, e.x, e.y) as? String
+                } catch (ex2: Exception) { null }
+            }
+
+            if (url != null) {
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    return // Handled
+                } catch (ex: Exception) {
+                    android.util.Log.e("TerminalView", "Failed to open tapped URL: $url", ex)
+                }
+            }
+
             view.requestFocus()
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
@@ -149,22 +211,63 @@ private fun defaultTerminalViewClient(context: Context, view: TermuxTerminalView
 
 @Composable
 fun TerminalAccessoryRow(
+    lastUrl: String? = null,
+    isShiftActive: Boolean = false,
     onKeyClick: (String) -> Unit
 ) {
-    val keys = listOf("ESC", "CTRL-C", "TAB", "↑", "↓", "←", "→", "DIAG")
+    val keys = mutableListOf("ENTER", "Y", "N", "ESC", "CTRL-C", "TAB", "SHIFT", "↑", "↓", "←", "→", "DIAG")
+    if (lastUrl != null) {
+        keys.add(0, "COPY")
+    }
+    
+    val displayUrl = remember(lastUrl) {
+        lastUrl?.substringAfter("://")?.take(15)?.let { "$it..." }
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .height(48.dp)
             .background(Color.DarkGray)
+            .horizontalScroll(rememberScrollState())
             .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        if (lastUrl != null) {
+            Surface(
+                onClick = { onKeyClick("OPEN-LINK") },
+                color = MaterialTheme.colorScheme.primary,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.padding(start = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInBrowser,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "OPEN: $displayUrl",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         keys.forEach { key ->
+            val isActive = (key == "SHIFT" && isShiftActive)
             Surface(
                 onClick = { onKeyClick(key) },
-                color = Color.Gray,
+                color = if (isActive) MaterialTheme.colorScheme.primary else Color.Gray,
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(

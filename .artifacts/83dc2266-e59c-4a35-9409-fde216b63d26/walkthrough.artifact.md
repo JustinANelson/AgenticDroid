@@ -27,7 +27,7 @@ The Git screen is now powered by the real `git` binary in the terminal environme
 ### 3. Multi-Project Support
 The Workspace now supports multiple isolated projects instead of a single root folder.
 - **Project Selector**: A new screen for listing and selecting projects.
-- **Project Creation**: Users can create new project directories from the UI.
+- **Project Lifecycle**: Users can create, clone, and now **delete** project directories from the UI. Deletion includes a confirmation prompt to prevent accidental data loss.
 - **GitHub Clone**: Added the ability to clone existing repositories from GitHub directly into the workspace. The app automatically uses your stored GitHub Token for authenticated cloning of private repos.
 - **File Management**: Added the ability to create, delete, copy, and rename files within a project directly from the Files tab. Context menus are available via long-press or the 'more' icon on each file.
 - **Project Context**: The Terminal, Git, and File Explorer now all operate within the context of the `selectedProject`.
@@ -57,10 +57,23 @@ Added a user-friendly onboarding system with dismissible tooltips to help new us
 - **Persistent State**: User interactions with hints are saved in shared preferences so they don't reappear after being dismissed.
 - **Developer Tools**: Added a "Wipe App Data" action in Settings to clear all projects, toolchains, and preferences—perfect for testing the clean-install experience.
 
-## Verification
-- [x] Verified `HintBox` animates out smoothly when dismissed.
-- [x] Verified "Wipe App Data" successfully clears storage and terminates the app.
-- [x] Verified hints re-appear correctly after a data wipe.
+### 8. Pro Editor Experience
+Polished the Code Editor to provide a professional, dark-mode-first coding experience on mobile.
+- **VS Code Theme**: Implemented a dark theme with VS Code-inspired colors for background, line numbers, and syntax highlighting.
+- **Enhanced Syntax Highlighting**: Improved the highlighter to support multi-line comments and more robust keyword detection.
+- **Mobile-First Navigation**: Added a symbol accessory row above the keyboard for quick access to common coding characters like `{ } [ ] ; =`.
+- **Horizontal Scrolling**: Enabled horizontal scrolling for long lines of code, preventing unwanted wrapping.
+- **Smart Insertion**: The accessory row now correctly inserts symbols at the current cursor position rather than just at the end of the file.
+- **Synchronized Line Numbers**: Fixed line numbering to stay in sync with vertical scrolling.
+
+### 9. Terminal URL Detection & TUI Polish
+Improved the AI agent authorization experience by adding smart URL detection and TUI-friendly navigation.
+- **Buffer Scanning**: The terminal now scans both primary and alternate screen buffers (used by TUIs like Antigravity) for web links.
+- **Smart Punctuation Filtering**: URL detection now automatically strips trailing punctuation (like `.`, `,`, or `)`) that often breaks terminal-detected links.
+- **Contextual Auth Detection**: The app prioritizes links containing "login" or "auth", making it more likely to pick the right URL when multiple links are present.
+- **Visual Feedback**: The "OPEN-LINK" button now displays a preview of the detected URL (e.g., `OPEN: github.com...`), so you know exactly what you're opening.
+- **Pager Awareness**: Optimized detection for agent outputs that use pagers (like "1-24 of 38 lines"), ensuring links hidden in the scrollback or alternate buffers are still captured.
+- **Enhanced Shortcuts**: Added dedicated **ENTER** and **SHIFT** buttons to the terminal shortcut bar. The SHIFT button acts as a sticky modifier for Arrow keys and Tab, enabling more complex terminal navigation and TUI interactions.
 
 ## Next Steps
 - **Editor Enhancements**: Add syntax highlighting for more languages.
