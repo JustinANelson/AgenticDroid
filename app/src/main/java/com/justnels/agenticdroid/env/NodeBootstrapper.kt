@@ -4,10 +4,14 @@ import android.util.Log
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Installs a natively-executing (no proot/chroot) toolchain: Termux's Bionic-built
@@ -27,7 +31,8 @@ import java.net.URL
  */
 class NodeBootstrapper(private val context: Context) {
     private val tag = "NodeBootstrapper"
-    private val provisioningVersion = "8"
+    private val provisioningVersion = "10"
+    private val maxArtifactBytes = 512L * 1024L * 1024L
 
     // Bionic-native Termux packages, resolved by name against Termux's live index and
     // merged into one usr/ tree (matching Termux's own layout, just relocated).
@@ -46,6 +51,8 @@ class NodeBootstrapper(private val context: Context) {
         // AgentProfile's Antigravity install command.
         "tar", "libacl", "libandroid-glob", "libandroid-selinux"
     )
+    // This is a path *inside Termux package archives*, not an Android filesystem path.
+    @Suppress("SdCardPath")
     private val DEB_PATH_PREFIX = "/data/data/com.termux/files/usr/"
 
     private fun qemuPackageName(abi: String): String = when (abi) {
@@ -61,10 +68,21 @@ class NodeBootstrapper(private val context: Context) {
         else -> throw IOException("Unsupported architecture for musl: $abi")
     }
 
-    private val ALPINE_APK_INDEX_URL_TEMPLATE =
-        "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/%s/APKINDEX.tar.gz"
-    private fun alpinePackagesUrlTemplate(arch: String) =
-        "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/$arch"
+    private data class AlpineMuslPin(val version: String, val sha256: String)
+
+    private val alpineMuslPins = mapOf(
+        "aarch64" to AlpineMuslPin(
+            version = "1.2.6-r2",
+            sha256 = "5e9674b7f41152fe2119093b5cb4c13eaaadb19c2d5422b2d7267913e663ee6e"
+        ),
+        "x86_64" to AlpineMuslPin(
+            version = "1.2.6-r2",
+            sha256 = "573712e2f49c15bfc20a2699f204acdfc74c772722b15e7353d768057fae0e71"
+        )
+    )
+
+    private fun alpinePackagesUrl(arch: String) =
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/$arch"
 
     /**
      * QEMU-user needs musl's own dynamic loader (ld-musl-<arch>.so.1) present inside the
@@ -73,16 +91,12 @@ class NodeBootstrapper(private val context: Context) {
      * This is unrelated to (and doesn't re-enable) direct musl-loader invocation, which
      * stays blocked by Zygote's seccomp filter - see AgentProfile's install command.
      */
-    private fun downloadMuslLoader(cacheDir: File, abi: String): File {
+    private suspend fun downloadMuslLoader(cacheDir: File, abi: String): File {
         val arch = muslArch(abi)
-        val indexFile = File(cacheDir, "APKINDEX.tar.gz")
-        downloadFile(ALPINE_APK_INDEX_URL_TEMPLATE.format(arch), indexFile)
-        val version = ArchiveExtractor.readApkIndexVersion(indexFile, "musl")
-            ?: throw IOException("Could not resolve musl package version from Alpine index")
-        indexFile.delete()
-        val apkFilename = "musl-$version.apk"
+        val pin = alpineMuslPins[arch] ?: throw IOException("No pinned Alpine musl package for $arch")
+        val apkFilename = "musl-${pin.version}.apk"
         val apkFile = File(cacheDir, apkFilename)
-        downloadFile("${alpinePackagesUrlTemplate(arch)}/$apkFilename", apkFile)
+        downloadFile("${alpinePackagesUrl(arch)}/$apkFilename", apkFile, pin.sha256)
         return apkFile
     }
 
@@ -108,20 +122,20 @@ class NodeBootstrapper(private val context: Context) {
      * binary was linked against; Debian's package ships it under usr/ instead, so this
      * copies it into place afterward.
      */
-    private fun downloadGlibcSysroot(cacheDir: File, abi: String, onProgress: (String) -> Unit) {
+    private suspend fun downloadGlibcSysroot(cacheDir: File, abi: String, onProgress: (String) -> Unit) {
         val glibcRoot = NodeRuntime.glibcSysrootDir(context)
         glibcRoot.mkdirs()
         val debianArch = DebianPackageIndex.debianArch(abi)
         val packages = setOf("libc6", "libgcc-s1")
         onProgress("Resolving glibc package versions...")
         val indexFile = File(cacheDir, "Packages.gz")
-        val filenames = DebianPackageIndex.fetchIndex(debianArch, packages, indexFile)
+        val artifacts = DebianPackageIndex.fetchIndex(debianArch, packages, indexFile)
         indexFile.delete()
         for (pkg in packages) {
             onProgress("Installing $pkg (glibc)...")
-            val filename = filenames[pkg] ?: throw IOException("Package not found in Debian index: $pkg")
-            val deb = File(cacheDir, filename.substringAfterLast('/'))
-            downloadFile(DebianPackageIndex.downloadUrlFor(filename), deb)
+            val artifact = artifacts[pkg] ?: throw IOException("Package not found in Debian index: $pkg")
+            val deb = File(cacheDir, artifact.filename.substringAfterLast('/'))
+            downloadFile(DebianPackageIndex.downloadUrlFor(artifact.filename), deb, artifact.sha256, artifact.size)
             ArchiveExtractor.extractDeb(deb, glibcRoot, "")
             deb.delete()
         }
@@ -184,16 +198,23 @@ class NodeBootstrapper(private val context: Context) {
         val termuxArch = TermuxPackageIndex.termuxArch(abi)
         val cacheDir = File(context.cacheDir, "node-bootstrap-dl").also { it.mkdirs() }
 
+        // Total download steps across the whole bootstrap, so progress text can show
+        // "(n/total)" instead of an unbounded spinner during a multi-minute install.
+        val totalSteps = termuxPackages.size + 1 /* qemu */ + 1 /* musl loader */ + 2 /* glibc: libc6, libgcc-s1 */
+        var completedSteps = 0
+
         try {
-            onProgress("Resolving package versions...")
+            onProgress("Resolving package versions... (0/$totalSteps)")
             val index = TermuxPackageIndex.fetchIndex(termuxArch)
 
             for (pkg in termuxPackages + qemuPackageName(abi)) {
-                onProgress("Installing $pkg...")
-                val filename = index[pkg] ?: throw IOException("Package not found in Termux index: $pkg")
-                val deb = downloadPackage(filename, cacheDir)
+                currentCoroutineContext().ensureActive()
+                onProgress("Installing $pkg... (${completedSteps + 1}/$totalSteps)")
+                val artifact = index[pkg] ?: throw IOException("Package not found in Termux index: $pkg")
+                val deb = downloadPackage(artifact, cacheDir)
                 ArchiveExtractor.extractDeb(deb, usr, DEB_PATH_PREFIX)
                 deb.delete()
+                completedSteps++
             }
             
             // Thoroughly ensure all binaries and shared libraries have correct permissions.
@@ -225,12 +246,20 @@ class NodeBootstrapper(private val context: Context) {
 
             NodeRuntime.qemuBinary(context).setExecutable(true)
 
-            onProgress("Installing musl loader (for QEMU-user)...")
+            onProgress("Installing musl loader (for QEMU-user)... (${completedSteps + 1}/$totalSteps)")
             val muslApk = downloadMuslLoader(cacheDir, abi)
             ArchiveExtractor.extractApk(muslApk, usr, "")
             muslApk.delete()
+            completedSteps++
 
-            downloadGlibcSysroot(cacheDir, abi, onProgress)
+            downloadGlibcSysroot(cacheDir, abi) { status ->
+                if (status.startsWith("Installing")) {
+                    onProgress("$status (${completedSteps + 1}/$totalSteps)")
+                    completedSteps++
+                } else {
+                    onProgress(status)
+                }
+            }
             ensureResolvConf()
 
             NodeRuntime.readyMarker(context).writeText("$provisioningVersion\n")
@@ -245,16 +274,25 @@ class NodeBootstrapper(private val context: Context) {
         onProgress("Node environment ready!")
     }
 
-    private fun downloadPackage(filename: String, cacheDir: File): File {
-        val dest = File(cacheDir, filename.substringAfterLast('/'))
-        downloadFile(TermuxPackageIndex.downloadUrlFor(filename), dest)
+    private suspend fun downloadPackage(artifact: PackageArtifact, cacheDir: File): File {
+        val dest = File(cacheDir, artifact.filename.substringAfterLast('/'))
+        downloadFile(TermuxPackageIndex.downloadUrlFor(artifact.filename), dest, artifact.sha256, artifact.size)
         return dest
     }
 
 
-    private fun downloadFile(url: String, destination: File) {
+    private suspend fun downloadFile(
+        url: String,
+        destination: File,
+        expectedSha256: String? = null,
+        expectedSize: Long? = null
+    ) {
+        if (expectedSize != null && expectedSize !in 1..maxArtifactBytes) {
+            throw IOException("Invalid package size for ${destination.name}: $expectedSize")
+        }
         var lastException: Exception? = null
         repeat(3) { attempt ->
+            currentCoroutineContext().ensureActive()
             try {
                 val partialFile = File(destination.parentFile, "${destination.name}.part")
                 partialFile.delete()
@@ -266,10 +304,44 @@ class NodeBootstrapper(private val context: Context) {
                     connection.readTimeout = 120_000
                     val responseCode = connection.responseCode
                     if (responseCode !in 200..299) throw IOException("HTTP $responseCode downloading $url")
+                    val contentLength = connection.contentLengthLong
+                    if (contentLength > maxArtifactBytes) throw IOException("Download is too large: ${destination.name}")
+                    if (expectedSize != null && contentLength > 0 && contentLength != expectedSize) {
+                        throw IOException("Unexpected package size for ${destination.name}")
+                    }
                     connection.inputStream.use { input ->
-                        partialFile.outputStream().use { output -> input.copyTo(output) }
+                        partialFile.outputStream().use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total = 0L
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                total += read
+                                if (total > maxArtifactBytes) throw IOException("Download is too large: ${destination.name}")
+                                output.write(buffer, 0, read)
+                            }
+                            if (expectedSize != null && total != expectedSize) {
+                                throw IOException("Unexpected package size for ${destination.name}")
+                            }
+                        }
                     }
                     if (partialFile.length() == 0L) throw IOException("Downloaded an empty file from $url")
+                    if (expectedSha256 != null) {
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        partialFile.inputStream().buffered().use { input ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                digest.update(buffer, 0, read)
+                            }
+                        }
+                        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                        if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                            throw IOException("SHA-256 mismatch for ${destination.name}")
+                        }
+                    }
                     if (destination.exists()) destination.delete()
                     if (!partialFile.renameTo(destination)) {
                         throw IOException("Could not finalize download at ${destination.absolutePath}")
@@ -282,7 +354,8 @@ class NodeBootstrapper(private val context: Context) {
             } catch (e: Exception) {
                 lastException = e
                 Log.w(tag, "Download attempt ${attempt + 1} failed for $url: ${e.message}")
-                Thread.sleep(2000) // Wait before retry
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                delay(2000)
             }
         }
         throw lastException ?: IOException("Failed to download $url after 3 attempts")

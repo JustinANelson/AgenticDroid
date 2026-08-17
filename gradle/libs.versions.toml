@@ -14,8 +14,9 @@ lifecycleViewmodelCompose = "2.11.0"
 sshj = "0.40.0"
 commonsCompress = "1.28.0"
 xz = "1.12"
+zstd = "1.5.7-15"
 work = "2.11.2"
-termux = "v0.117"
+termux = "v0.118.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -38,6 +39,7 @@ androidx-activity-compose = { group = "androidx.activity", name = "activity-comp
 sshj = { group = "com.hierynomus", name = "sshj", version.ref = "sshj" }
 apache-commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 tukaani-xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
+zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstd" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version = "1.1.0" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodelCompose" }
@@ -48,4 +50,3 @@ termux-terminal-view = { group = "com.github.termux.termux-app", name = "termina
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-

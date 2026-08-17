@@ -5,9 +5,14 @@ import java.io.InputStream
 import java.io.OutputStream
 
 class LocalExecutionEnvironment : ExecutionEnvironment {
-    override fun exec(command: String, workingDirectory: String): ProcessSession {
+    override fun exec(
+        command: String,
+        workingDirectory: String,
+        environment: Map<String, String>
+    ): ProcessSession {
         val process = ProcessBuilder("/system/bin/sh", "-c", command)
             .directory(File(workingDirectory))
+            .apply { environment().putAll(environment) }
             .start()
         return LocalProcessSession(process)
     }
@@ -21,7 +26,7 @@ class LocalExecutionEnvironment : ExecutionEnvironment {
             name = "Local Android",
             os = System.getProperty("os.name") ?: "Android",
             architecture = System.getProperty("os.arch") ?: "unknown",
-            installedTools = listOf("git", "sh") // Placeholder
+            installedTools = listOf("sh")
         )
     }
 
@@ -53,8 +58,7 @@ class LocalProcessSession(private val process: Process) : ProcessSession {
     override val outputStream: OutputStream = process.outputStream
     override val errorStream: InputStream = process.errorStream
 
-    val isAlive: Boolean
-        get() = process.isAlive
+    override fun isRunning(): Boolean = process.isAlive
 
     @Synchronized
     fun sendInput(input: String) {
@@ -69,11 +73,19 @@ class LocalProcessSession(private val process: Process) : ProcessSession {
     override fun waitFor(): Int {
         return process.waitFor()
     }
+
+    override fun close() {
+        runCatching { outputStream.close() }
+        runCatching { inputStream.close() }
+        runCatching { errorStream.close() }
+    }
 }
 
 class LocalFileSystemAccess : FileSystemAccess {
-    override fun listFiles(path: String): List<File> {
-        return File(path).listFiles()?.toList() ?: emptyList()
+    override fun listEntries(path: String): List<FileSystemEntry> {
+        return File(path).listFiles()?.map {
+            FileSystemEntry(it.name, it.absolutePath, it.isDirectory, it.length())
+        }?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() })) ?: emptyList()
     }
 
     override fun readFile(path: String): String {

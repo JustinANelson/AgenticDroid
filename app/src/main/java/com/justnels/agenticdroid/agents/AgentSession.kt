@@ -14,17 +14,19 @@ class AgentSession(
     private var activeSession: ProcessSession? = null
 
     fun start() {
-        if (activeSession == null) {
+        if (activeSession?.isRunning() != true) {
+            activeSession?.close()
             activeSession = env.exec(profile.launchCommand(), workingDirectory)
         }
     }
 
     fun stop() {
         activeSession?.kill()
+        activeSession?.close()
         activeSession = null
     }
 
     fun isRunning(): Boolean {
-        return activeSession != null
+        return activeSession?.isRunning() == true
     }
 }

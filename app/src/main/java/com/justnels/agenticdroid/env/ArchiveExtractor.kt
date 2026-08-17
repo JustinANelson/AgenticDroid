@@ -5,11 +5,13 @@ import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
+import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream
 import java.io.BufferedInputStream
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FilterInputStream
 import java.io.InputStream
+import java.io.IOException
+import java.io.PushbackInputStream
 
 /**
  * Extracts Termux .deb packages (ar archive containing data.tar.xz) and Alpine .apk
@@ -20,6 +22,47 @@ import java.io.InputStream
  * package already placed on disk.
  */
 object ArchiveExtractor {
+    private const val MAX_ENTRIES = 100_000
+    private const val MAX_ENTRY_BYTES = 512L * 1024L * 1024L
+    private const val MAX_TOTAL_BYTES = 4L * 1024L * 1024L * 1024L
+    private const val TAR_RECORD_SIZE = 512
+
+    private class NonClosingInputStream(input: InputStream) : FilterInputStream(input) {
+        override fun close() = Unit
+    }
+
+    private data class ExtractionBudget(var entries: Int = 0, var bytes: Long = 0)
+
+    private fun resolveInside(root: File, relativePath: String): File {
+        if (relativePath.isBlank() || File(relativePath).isAbsolute) {
+            throw IOException("Unsafe archive path: $relativePath")
+        }
+        val canonicalRoot = root.canonicalFile
+        val candidate = File(canonicalRoot, relativePath).canonicalFile
+        val rootPrefix = canonicalRoot.path + File.separator
+        if (candidate != canonicalRoot && !candidate.path.startsWith(rootPrefix)) {
+            throw IOException("Archive path escapes extraction root: $relativePath")
+        }
+        return candidate
+    }
+
+    private fun InputStream.copyEntryTo(outFile: File, declaredSize: Long): Long {
+        if (declaredSize < 0 || declaredSize > MAX_ENTRY_BYTES) {
+            throw IOException("Archive entry has invalid or excessive size: $declaredSize")
+        }
+        var copied = 0L
+        outFile.outputStream().buffered().use { output ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = read(buffer)
+                if (read < 0) break
+                copied += read
+                if (copied > MAX_ENTRY_BYTES) throw IOException("Archive entry exceeds size limit")
+                output.write(buffer, 0, read)
+            }
+        }
+        return copied
+    }
 
     fun extractDeb(debFile: File, outDir: File, pathPrefix: String) {
         outDir.mkdirs()
@@ -27,39 +70,78 @@ object ArchiveExtractor {
             var entry = ar.nextEntry
             while (entry != null) {
                 if (entry.name.startsWith("data.tar")) {
-                    val bytes = ByteArrayOutputStream().also { ar.copyTo(it) }.toByteArray()
-                    extractTar(XZCompressorInputStream(ByteArrayInputStream(bytes)), outDir, pathPrefix)
+                    val entryStream = NonClosingInputStream(ar)
+                    val decompressed = when {
+                        entry.name.endsWith(".xz") -> XZCompressorInputStream(entryStream)
+                        entry.name.endsWith(".gz") -> GzipCompressorInputStream(entryStream)
+                        entry.name.endsWith(".zst") || entry.name.endsWith(".zstd") ->
+                            ZstdCompressorInputStream(entryStream)
+                        entry.name == "data.tar" -> entryStream
+                        else -> throw IOException("Unsupported Debian data archive: ${entry.name}")
+                    }
+                    extractTar(decompressed, outDir, pathPrefix, ExtractionBudget())
                     return
                 }
                 entry = ar.nextEntry
             }
         }
-        throw IllegalStateException("No data.tar.xz found in ${debFile.name}")
+        throw IllegalStateException("No supported data.tar archive found in ${debFile.name}")
     }
 
     fun extractApk(apkFile: File, outDir: File, pathPrefix: String) {
         outDir.mkdirs()
-        extractTar(GzipCompressorInputStream(BufferedInputStream(apkFile.inputStream()), true), outDir, pathPrefix)
+        GzipCompressorInputStream.builder()
+            .setInputStream(BufferedInputStream(apkFile.inputStream()))
+            .setDecompressConcatenated(true)
+            .get().use { gzip ->
+            val input = PushbackInputStream(gzip, TAR_RECORD_SIZE)
+            val budget = ExtractionBudget()
+            val record = ByteArray(TAR_RECORD_SIZE)
+            while (true) {
+                var read = 0
+                while (read < record.size) {
+                    val count = input.read(record, read, record.size - read)
+                    if (count < 0) break
+                    read += count
+                }
+                if (read == 0) break
+                if (read != record.size) throw IOException("Truncated Alpine package tar header")
+                if (record.all { it == 0.toByte() }) continue
+                input.unread(record)
+                extractTar(NonClosingInputStream(input), outDir, pathPrefix, budget)
+            }
+        }
     }
 
-    private fun extractTar(rawStream: InputStream, outDir: File, pathPrefix: String) {
+    private fun extractTar(
+        rawStream: InputStream,
+        outDir: File,
+        pathPrefix: String,
+        budget: ExtractionBudget
+    ) {
         data class PendingLink(val relPath: String, val linkName: String)
         val pending = mutableListOf<PendingLink>()
-        TarArchiveInputStream(rawStream).use { tar ->
-            var entry: TarArchiveEntry? = tar.nextTarEntry
+        TarArchiveInputStream(rawStream, TAR_RECORD_SIZE).use { tar ->
+            var entry: TarArchiveEntry? = tar.nextEntry
             while (entry != null) {
+                budget.entries++
+                if (budget.entries > MAX_ENTRIES) throw IOException("Archive contains too many entries")
                 val idx = entry.name.indexOf(pathPrefix)
                 if (!entry.isDirectory && idx >= 0) {
                     val relPath = entry.name.substring(idx + pathPrefix.length).trimStart('/')
                     if (relPath.isNotEmpty()) {
-                        val outFile = File(outDir, relPath)
+                        val outFile = resolveInside(outDir, relPath)
                         if (entry.isSymbolicLink) {
-                            if (!entry.linkName.startsWith("/")) {
+                            if (!File(entry.linkName).isAbsolute) {
                                 pending.add(PendingLink(relPath, entry.linkName))
                             } // absolute symlinks outside this tree aren't resolvable; skip
-                        } else {
+                        } else if (entry.isFile) {
                             outFile.parentFile?.mkdirs()
-                            outFile.outputStream().use { out -> tar.copyTo(out) }
+                            budget.bytes += tar.copyEntryTo(outFile, entry.size)
+                            if (budget.bytes > MAX_TOTAL_BYTES) {
+                                outFile.delete()
+                                throw IOException("Archive exceeds total extraction size limit")
+                            }
                             
                             // On Android, we should be aggressive about setting execute permissions
                             // for anything in bin/ or libexec/ or if the tar entry has it.
@@ -72,7 +154,7 @@ object ArchiveExtractor {
                         }
                     }
                 }
-                entry = tar.nextTarEntry
+                entry = tar.nextEntry
             }
         }
         var remaining = pending
@@ -80,8 +162,10 @@ object ArchiveExtractor {
             if (remaining.isEmpty()) return
             val stillPending = mutableListOf<PendingLink>()
             for (link in remaining) {
-                val outFile = File(outDir, link.relPath)
-                val targetFile = File(outFile.parentFile, link.linkName).canonicalFile
+                val outFile = resolveInside(outDir, link.relPath)
+                val targetRelative = File(link.relPath).parentFile?.let { File(it, link.linkName).path }
+                    ?: link.linkName
+                val targetFile = resolveInside(outDir, targetRelative)
                 if (targetFile.isFile) {
                     outFile.parentFile?.mkdirs()
                     targetFile.copyTo(outFile, overwrite = true)
@@ -93,30 +177,4 @@ object ArchiveExtractor {
         }
     }
 
-    /** Parses Alpine's APKINDEX.tar.gz for a package's `P:name` / `V:version` stanza. */
-    fun readApkIndexVersion(indexTarGz: File, packageName: String): String? {
-        var version: String? = null
-        TarArchiveInputStream(GzipCompressorInputStream(BufferedInputStream(indexTarGz.inputStream()), true)).use { tar ->
-            var entry: TarArchiveEntry? = tar.nextTarEntry
-            while (entry != null) {
-                if (entry.name == "APKINDEX") {
-                    val text = ByteArrayOutputStream().also { tar.copyTo(it) }.toByteArray()
-                        .toString(Charsets.UTF_8)
-                    var currentName: String? = null
-                    for (line in text.lineSequence()) {
-                        when {
-                            line.startsWith("P:") -> currentName = line.removePrefix("P:").trim()
-                            line.startsWith("V:") && currentName == packageName -> {
-                                version = line.removePrefix("V:").trim()
-                                return@use
-                            }
-                            line.isEmpty() -> currentName = null
-                        }
-                    }
-                }
-                entry = tar.nextTarEntry
-            }
-        }
-        return version
-    }
 }

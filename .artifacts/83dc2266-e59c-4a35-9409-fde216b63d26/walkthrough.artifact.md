@@ -56,6 +56,7 @@ Added a user-friendly onboarding system with dismissible tooltips to help new us
 - **Dismissible Hints**: Added `HintBox` components across all major screens (Workspace, Git, Terminal, Agents, Environments) explaining key concepts like persistent sessions and remote deployment.
 - **Persistent State**: User interactions with hints are saved in shared preferences so they don't reappear after being dismissed.
 - **Developer Tools**: Added a "Wipe App Data" action in Settings to clear all projects, toolchains, and preferences—perfect for testing the clean-install experience.
+- **Bug Fixes**: Ensured hints and tooltips can be dismissed while inside an active AI agent session.
 
 ### 8. Pro Editor Experience
 Polished the Code Editor to provide a professional, dark-mode-first coding experience on mobile.

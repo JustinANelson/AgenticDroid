@@ -47,18 +47,17 @@ class TerminalViewModel(
     var lastDetectedUrl by mutableStateOf<String?>(null)
         private set
 
-    private var terminalService: TerminalService? = null
+    private var isServiceBound = false
+    private var terminalBinder: TerminalService.TerminalServiceBinder? = null
     private val sessionKey = "terminal_${env.getEnvironmentInfo().name}_${workingDirectory.hashCode()}"
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as TerminalService.TerminalServiceBinder
-            val srv = binder.getService()
-            terminalService = srv
-            
+            terminalBinder = binder
             val spec = env.ptyShellSpec(workingDirectory)
             if (spec != null) {
-                session = srv.getOrCreateSession(
+                session = binder.getOrCreateSession(
                     sessionKey,
                     spec.shellPath,
                     spec.cwd,
@@ -70,7 +69,7 @@ class TerminalViewModel(
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            terminalService = null
+            terminalBinder = null
             session = null
         }
     }
@@ -86,7 +85,7 @@ class TerminalViewModel(
             unavailableReason = null
             val intent = Intent(application, TerminalService::class.java)
             application.startForegroundService(intent)
-            application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+            isServiceBound = application.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         } else {
             unavailableReason = "Interactive terminal isn't available for ${env.getEnvironmentInfo().name}."
         }
@@ -96,7 +95,6 @@ class TerminalViewModel(
     fun sendCommand(command: String) {
         // A real terminal sends carriage return for the Enter key. Raw-mode TUIs (Claude,
         // Codex, Antigravity) do not interpret a bare LF as Enter.
-        Log.d(TAG, "Sending command: $command")
         session?.write("$command\r")
     }
 
@@ -123,14 +121,22 @@ class TerminalViewModel(
     /** Kills the forked shell. Public because this ViewModel is manually `remember`'d in
      * Compose rather than lifecycle-scoped, so callers must dispose of it explicitly. */
     fun dispose() {
-        getApplication<Application>().unbindService(serviceConnection)
-        // We don't kill the session here because the service owns it and should persist it.
-        // If we want to allow killing it, we'd add an explicit "Close Terminal" button.
+        onScreenUpdate = null
+        terminalBinder?.detachSessionClient(sessionKey, this)
+        if (isServiceBound) {
+            getApplication<Application>().unbindService(serviceConnection)
+            isServiceBound = false
+        }
+        terminalBinder = null
+    }
+
+    fun closeTerminal() {
+        terminalBinder?.removeSession(sessionKey)
+        session = null
     }
 
     override fun onCleared() {
         dispose()
-        super.onCleared()
     }
 
     // --- TerminalSessionClient ---
@@ -167,9 +173,11 @@ class TerminalViewModel(
                 }
                 
                 if (cleanUrl.length > 15 && cleanUrl != lastDetectedUrl) {
-                    Log.d(TAG, "Reconstructed URL: $cleanUrl")
                     lastDetectedUrl = cleanUrl
                 }
+            } else if (lastDetectedUrl != null) {
+                // Clear the URL if it's no longer on screen
+                lastDetectedUrl = null
             }
         } catch (e: Exception) {
             // Screen access might fail if session is finishing
@@ -182,13 +190,20 @@ class TerminalViewModel(
 
     override fun onSessionFinished(finishedSession: TerminalSession) {
         Log.i(TAG, "Shell exited with status ${finishedSession.exitStatus}")
+        terminalBinder?.removeSession(sessionKey)
+        session = null
     }
 
-    /** OSC 52: a terminal program (e.g. an editor running inside a TUI) asked to set the
-     * system clipboard - not a paste request, there is no callback for that in this version. */
-    override fun onClipboardText(session: TerminalSession, text: String?) {
+    /** OSC 52: a terminal program asked to copy text to the system clipboard. */
+    override fun onCopyTextToClipboard(session: TerminalSession, text: String?) {
         val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("terminal", text ?: ""))
+    }
+
+    override fun onPasteTextFromClipboard(session: TerminalSession) {
+        val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(getApplication())?.toString()
+        if (!text.isNullOrEmpty()) session.write(text)
     }
 
     override fun onBell(session: TerminalSession) {}

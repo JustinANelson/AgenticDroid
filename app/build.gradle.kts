@@ -14,6 +14,23 @@ if (secretsFile.exists()) {
     }
 }
 
+fun releaseValue(propertyName: String, environmentName: String): String? =
+    providers.gradleProperty(propertyName)
+        .orElse(providers.environmentVariable(environmentName))
+        .orNull
+        ?.takeIf(String::isNotBlank)
+
+val releaseKeystorePath = releaseValue("agenticdroid.release.storeFile", "AGENTICDROID_RELEASE_STORE_FILE")
+val releaseStorePassword = releaseValue("agenticdroid.release.storePassword", "AGENTICDROID_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = releaseValue("agenticdroid.release.keyAlias", "AGENTICDROID_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = releaseValue("agenticdroid.release.keyPassword", "AGENTICDROID_RELEASE_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { it != null }
+
 android {
     namespace = "com.justnels.agenticdroid"
     compileSdk = 37
@@ -34,13 +51,26 @@ android {
             useSupportLibrary = true
         }
 
+        // OAuth device flow is designed for public clients. A client secret must never
+        // be compiled into an APK, where it is recoverable by anyone with the artifact.
         buildConfigField("String", "GH_CLIENT_ID", "\"${secrets["gh_client_id"] ?: ""}\"")
-        buildConfigField("String", "GH_CLIENT_SECRET", "\"${secrets["gh_client_token"] ?: ""}\"")
+    }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = rootProject.file(requireNotNull(releaseKeystorePath))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -63,6 +93,12 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    lint {
+        // AgenticDroid currently executes its sideloaded toolchain from app-private
+        // storage, which requires the API 28 compatibility policy. Keep this explicit
+        // and narrowly scoped; this build is not eligible for Play distribution.
+        disable += "ExpiredTargetSdkVersion"
+    }
 }
 
 dependencies {
@@ -81,6 +117,7 @@ dependencies {
     implementation(libs.sshj)
     implementation(libs.apache.commons.compress)
     implementation(libs.tukaani.xz)
+    implementation(libs.zstd.jni)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.termux.terminal.emulator)
     implementation(libs.termux.terminal.view)

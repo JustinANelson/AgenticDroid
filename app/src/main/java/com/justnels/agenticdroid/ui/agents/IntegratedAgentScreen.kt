@@ -9,10 +9,14 @@ import com.justnels.agenticdroid.ui.terminal.TerminalViewModel
 @Composable
 fun IntegratedAgentScreen(
     terminalViewModel: TerminalViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hintsShown: Set<String> = emptySet(),
+    onDismissHint: (String) -> Unit = {}
 ) {
     TerminalScreen(
         modifier = modifier.fillMaxSize(),
-        viewModel = terminalViewModel
+        viewModel = terminalViewModel,
+        hintsShown = hintsShown,
+        onDismissHint = onDismissHint
     )
 }

@@ -18,10 +18,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.termux.terminal.TerminalSession
@@ -122,9 +124,10 @@ fun TerminalScreen(
                         isShiftActive = false
                     }
                     "DIAG" -> viewModel.runDiagnostics()
+                    "CLOSE" -> viewModel.closeTerminal()
                     "OPEN-LINK" -> {
                         viewModel.lastDetectedUrl?.let { url ->
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()).apply {
                                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                             context.startActivity(intent)
@@ -168,7 +171,7 @@ private fun defaultTerminalViewClient(context: Context, view: TermuxTerminalView
 
             if (url != null) {
                 try {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()).apply {
                         addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(intent)
@@ -180,12 +183,13 @@ private fun defaultTerminalViewClient(context: Context, view: TermuxTerminalView
 
             view.requestFocus()
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+            imm.showSoftInput(view, 0)
         }
 
         override fun shouldBackButtonBeMappedToEscape(): Boolean = false
         override fun shouldEnforceCharBasedInput(): Boolean = false
         override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
+        override fun isTerminalViewSelected(): Boolean = view.hasFocus()
 
         override fun copyModeChanged(copyMode: Boolean) {}
 
@@ -195,6 +199,8 @@ private fun defaultTerminalViewClient(context: Context, view: TermuxTerminalView
 
         override fun readControlKey(): Boolean = false
         override fun readAltKey(): Boolean = false
+        override fun readShiftKey(): Boolean = false
+        override fun readFnKey(): Boolean = false
 
         override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession): Boolean = false
 
@@ -215,13 +221,10 @@ fun TerminalAccessoryRow(
     isShiftActive: Boolean = false,
     onKeyClick: (String) -> Unit
 ) {
-    val keys = mutableListOf("ENTER", "Y", "N", "ESC", "CTRL-C", "TAB", "SHIFT", "↑", "↓", "←", "→", "DIAG")
-    if (lastUrl != null) {
-        keys.add(0, "COPY")
-    }
+    val keys = mutableListOf("ENTER", "Y", "N", "ESC", "CTRL-C", "TAB", "SHIFT", "↑", "↓", "←", "→", "DIAG", "CLOSE")
     
     val displayUrl = remember(lastUrl) {
-        lastUrl?.substringAfter("://")?.take(15)?.let { "$it..." }
+        lastUrl?.substringAfter("://")?.take(10)?.let { "$it.." }
     }
 
     Row(
@@ -242,7 +245,7 @@ fun TerminalAccessoryRow(
                 modifier = Modifier.padding(start = 4.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -251,15 +254,31 @@ fun TerminalAccessoryRow(
                         modifier = Modifier.size(16.dp),
                         tint = Color.White
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "OPEN: $displayUrl",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
+                    if (displayUrl != null) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = displayUrl,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
+            }
+
+            // Compact COPY button
+            Surface(
+                onClick = { onKeyClick("COPY") },
+                color = Color.Gray,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Copy Link",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).size(16.dp),
+                    tint = Color.White
+                )
             }
         }
 

@@ -18,9 +18,12 @@ class AgentProfileTest {
     }
 
     @Test
-    fun defaultAgentsUseOfficialNativeInstallers() {
-        assertTrue(DefaultAgents.Codex.installCommand.contains("chatgpt.com/codex/install.sh"))
-        assertTrue(DefaultAgents.Claude.installCommand.contains("claude.ai/install.sh"))
-        assertTrue(DefaultAgents.Antigravity.installCommand.contains("antigravity.google/cli/install.sh"))
+    fun defaultAgentsUseExpectedUpstreamDistributionEndpoints() {
+        assertTrue(DefaultAgents.Codex.installCommand.contains("@openai/codex"))
+        assertTrue(DefaultAgents.Claude.installCommand.contains("@anthropic-ai/claude-code"))
+        // Antigravity's official installer cannot run directly in the Android/QEMU
+        // environment; the profile consumes Google's updater manifest instead.
+        assertTrue(DefaultAgents.Antigravity.installCommand.contains("antigravity-cli-auto-updater"))
+        assertTrue(DefaultAgents.Antigravity.installCommand.contains("/manifests/"))
     }
 }

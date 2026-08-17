@@ -4,6 +4,8 @@ import java.util.zip.GZIPInputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Resolves current download filenames from Termux's live apt package index instead of
@@ -25,8 +27,8 @@ object TermuxPackageIndex {
         else -> throw IOException("Unsupported architecture for Termux packages: $abi")
     }
 
-    /** package name -> Filename (relative to BASE_URL) */
-    fun fetchIndex(arch: String): Map<String, String> {
+    /** package name -> authenticated artifact metadata from Packages.gz. */
+    suspend fun fetchIndex(arch: String): Map<String, PackageArtifact> {
         return try {
             activeBaseUrl = BASE_URL
             fetchFromUrl(activeBaseUrl, arch)
@@ -37,7 +39,7 @@ object TermuxPackageIndex {
         }
     }
 
-    private fun fetchFromUrl(baseUrl: String, arch: String): Map<String, String> {
+    private suspend fun fetchFromUrl(baseUrl: String, arch: String): Map<String, PackageArtifact> {
         // Use Packages.gz for efficiency and to avoid incomplete plain-text downloads
         val url = "$baseUrl/dists/stable/main/binary-$arch/Packages.gz"
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -45,28 +47,48 @@ object TermuxPackageIndex {
         connection.connectTimeout = 30_000
         connection.readTimeout = 60_000
         
-        val code = connection.responseCode
-        if (code !in 200..299) throw IOException("HTTP $code fetching $url")
-        
-        val result = mutableMapOf<String, String>()
-        GZIPInputStream(connection.inputStream).bufferedReader().use { reader ->
+        try {
+            val code = connection.responseCode
+            if (code !in 200..299) throw IOException("HTTP $code fetching $url")
+
+            val result = mutableMapOf<String, PackageArtifact>()
+            GZIPInputStream(connection.inputStream).bufferedReader().use { reader ->
             var currentName: String? = null
-            reader.forEachLine { line ->
+            var currentFile: String? = null
+            var currentSha256: String? = null
+            var currentSize: Long? = null
+            var decodedCharacters = 0L
+            fun commitEntry() {
+                val name = currentName
+                val filename = currentFile
+                val sha256 = currentSha256
+                if (name != null && filename != null && sha256 != null && !result.containsKey(name)) {
+                    result[name] = PackageArtifact(filename, sha256, currentSize)
+                }
+                currentName = null
+                currentFile = null
+                currentSha256 = null
+                currentSize = null
+            }
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val line = reader.readLine() ?: break
+                decodedCharacters += line.length
+                if (decodedCharacters > 128L * 1024L * 1024L) throw IOException("Termux package index is too large")
                 when {
-                    line.startsWith("Package: ") -> {
-                        currentName = line.removePrefix("Package: ").trim()
-                    }
-                    line.startsWith("Filename: ") -> {
-                        val currentFile = line.removePrefix("Filename: ").trim()
-                        val name = currentName
-                        if (name != null && !result.containsKey(name)) {
-                            result[name] = currentFile
-                        }
-                    }
+                    line.startsWith("Package: ") -> currentName = line.removePrefix("Package: ").trim()
+                    line.startsWith("Filename: ") -> currentFile = line.removePrefix("Filename: ").trim()
+                    line.startsWith("SHA256: ") -> currentSha256 = line.removePrefix("SHA256: ").trim()
+                    line.startsWith("Size: ") -> currentSize = line.removePrefix("Size: ").trim().toLongOrNull()
+                    line.isEmpty() -> commitEntry()
                 }
             }
+            commitEntry()
+            }
+            return result
+        } finally {
+            connection.disconnect()
         }
-        return result
     }
 
     fun downloadUrlFor(filename: String): String {

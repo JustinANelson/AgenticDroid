@@ -12,8 +12,12 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.switchMap
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
+import androidx.core.content.edit
 import com.justnels.agenticdroid.agents.AgentManager
+import com.justnels.agenticdroid.auth.CredentialManager
 import com.justnels.agenticdroid.env.EnvironmentManager
+import com.justnels.agenticdroid.env.ProcessSession
+import com.justnels.agenticdroid.env.capture
 import com.justnels.agenticdroid.git.GitManager
 import com.justnels.agenticdroid.util.ApkInstaller
 import com.justnels.agenticdroid.workspace.Project
@@ -50,8 +54,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     var currentScreen by mutableStateOf(Screen.Workspace)
     var openedFile by mutableStateOf<File?>(null)
+    private var openedFileEnvironment: com.justnels.agenticdroid.env.EnvironmentConfig? = null
     var fileContent by mutableStateOf("")
+    var fileError by mutableStateOf<String?>(null)
     var isCreatingFile by mutableStateOf(false)
+    var resetRequested by mutableStateOf(false)
+        private set
 
     var selectedProject by mutableStateOf<Project?>(null)
     var projects by mutableStateOf<List<Project>>(emptyList())
@@ -65,10 +73,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var gitLog by mutableStateOf<List<String>>(emptyList())
     var gitError by mutableStateOf<String?>(null)
     var lastGitOutput by mutableStateOf<String?>(null)
+    var gitDiff by mutableStateOf<String?>(null)
+        private set
+    var gitDiffUntracked by mutableStateOf<List<String>>(emptyList())
+        private set
+    var isGitDiffLoading by mutableStateOf(false)
+        private set
+    var showGitDiff by mutableStateOf(false)
+        private set
 
     var githubUsername by mutableStateOf("")
         private set
-    var githubToken by mutableStateOf("")
+    private var githubToken = ""
+    var hasGithubToken by mutableStateOf(false)
         private set
     var githubRepos by mutableStateOf<List<GithubRepo>>(emptyList())
         private set
@@ -76,10 +93,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var githubDeviceFlowState by mutableStateOf<GithubDeviceFlowState?>(null)
         private set
 
-    // OAuth 2.0 Web Flow Constants
+    // GitHub OAuth device flow uses a public client ID and does not require a secret.
     private val CLIENT_ID = BuildConfig.GH_CLIENT_ID
-    private val CLIENT_SECRET = BuildConfig.GH_CLIENT_SECRET
-    private val REDIRECT_URI = "agenticdroid://github-auth"
 
     var hintsShown by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -88,25 +103,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     private val prefs = application.getSharedPreferences("agentic_prefs", Context.MODE_PRIVATE)
+    private val credentialManager = CredentialManager(application)
+
+    private fun openHttp(url: String): HttpURLConnection =
+        (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 30_000
+            readTimeout = 30_000
+        }
+
+    private fun HttpURLConnection.readResponse(limit: Int = 1_000_000): String {
+        val stream = if (responseCode in 200..299) inputStream else errorStream
+        return stream?.bufferedReader()?.use { reader ->
+            val result = StringBuilder(minOf(limit, 16_384))
+            val buffer = CharArray(4096)
+            while (result.length < limit) {
+                val read = reader.read(buffer, 0, minOf(buffer.size, limit - result.length))
+                if (read < 0) break
+                result.append(buffer, 0, read)
+            }
+            result.toString()
+        }.orEmpty()
+    }
 
     fun markHintShown(hintId: String) {
         val newSet = hintsShown + hintId
         hintsShown = newSet
-        prefs.edit().putStringSet("hints_shown", newSet).apply()
+        prefs.edit { putStringSet("hints_shown", newSet) }
     }
 
     fun wipeAppData() {
-        prefs.edit().clear().apply()
-        workspaceRoot.deleteRecursively()
-        environmentManager.bootstrapper.clear()
-        isNodeInstalled = false
-        // The app will likely need a restart to fully reset state, 
-        // but this clears the persistent storage.
-        System.exit(0) 
+        viewModelScope.launch(Dispatchers.IO) {
+            activeBuildSession?.kill()
+            environmentManager.close()
+            runCatching { environmentManager.cancelBootstrap().result.get() }
+            getApplication<Application>().stopService(
+                android.content.Intent(getApplication(), com.justnels.agenticdroid.terminal.TerminalService::class.java)
+            )
+            prefs.edit { clear() }
+            getApplication<Application>().getSharedPreferences("environment", Context.MODE_PRIVATE).edit { clear() }
+            credentialManager.clearAll()
+            workspaceRoot.deleteRecursively()
+            environmentManager.bootstrapper.clear()
+            withContext(Dispatchers.Main) {
+                isNodeInstalled = false
+                resetRequested = true
+            }
+        }
     }
 
     val isNodeEnvironment: Boolean
         get() = environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.Node
+
+    val executionWorkingDirectory: String
+        get() = when (val active = environmentManager.activeEnvironment) {
+            is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> active.config.workingDirectory
+            else -> selectedProject?.path ?: workspaceRoot.absolutePath
+        }
 
     fun refreshNodeInstalledStatus() {
         isNodeInstalled = environmentManager.bootstrapper.isInstalled()
@@ -115,11 +167,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val gitManager: GitManager
         get() {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
-            val path = selectedProject?.path ?: workspaceRoot.absolutePath
+            val path = executionWorkingDirectory
             val sslPath = com.justnels.agenticdroid.env.NodeRuntime.usrDir(getApplication()).let { usr ->
                 File(usr, "etc/tls/cert.pem").absolutePath
             }
-            return GitManager(env, path, sslPath)
+            return GitManager(env, path, sslPath, githubToken.takeIf(String::isNotBlank))
         }
 
     fun refreshProjects() {
@@ -149,10 +201,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteProject(project: Project) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Delete the directory locally.
-            // In a real multi-environment app, we'd check if the project is remote.
-            // For now, assuming local project management as per WorkspaceManager.
-            if (File(project.path).deleteRecursively()) {
+            // Projects managed by WorkspaceManager are always local app workspace directories.
+            if (workspaceManager.deleteProject(project)) {
                 withContext(Dispatchers.Main) {
                     if (selectedProject?.path == project.path) {
                         selectProject(null)
@@ -165,14 +215,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cloneProject(url: String, name: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val authenticatedUrl = if (githubToken.isNotBlank() && url.startsWith("https://github.com/")) {
-                url.replace("https://github.com/", "https://$githubToken@github.com/")
-            } else {
-                url
+            val destination = workspaceManager.projectPath(name)
+            if (destination == null) {
+                gitError = "Project name must be a single safe directory name."
+                return@launch
             }
-            
-            val destination = File(workspaceRoot, name).absolutePath
-            val result = gitManager.clone(authenticatedUrl, destination)
+            val result = gitManager.clone(url, destination)
             if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
                 gitError = result.message
             } else {
@@ -190,39 +238,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createFile(name: String) {
         val project = selectedProject ?: return
-        val file = File(project.path, name)
-        if (!file.exists()) {
-            file.createNewFile()
+        fileError = null
+        runCatching { workspaceManager.createFile(project, name) }
+            .onSuccess { created ->
+                if (!created) fileError = "Could not create that file inside the selected project."
+            }
+            .onFailure { fileError = it.localizedMessage }
+        if (fileError == null) {
             refreshCurrentProject()
         }
     }
 
     fun deleteFile(path: String) {
+        val project = selectedProject ?: return
+        val safePath = workspaceManager.resolveInsideProject(project, path)?.absolutePath ?: run {
+            fileError = "Refusing to delete a file outside the selected project."
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
-            if (env.filesystem().deleteFile(path)) {
-                refreshCurrentProject()
+            val deleted = env.filesystem().deleteFile(safePath)
+            withContext(Dispatchers.Main) {
+                if (deleted) refreshCurrentProject() else fileError = "Could not delete the file."
             }
         }
     }
 
     fun renameFile(oldPath: String, newName: String) {
+        val project = selectedProject ?: return
+        val safeOld = workspaceManager.resolveInsideProject(project, oldPath)?.absolutePath
+        val safeNew = workspaceManager.safeSibling(project, oldPath, newName)?.absolutePath
+        if (safeOld == null || safeNew == null) {
+            fileError = "The rename must stay inside the selected project."
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
-            val newPath = File(File(oldPath).parent, newName).absolutePath
-            if (env.filesystem().renameFile(oldPath, newPath)) {
-                refreshCurrentProject()
+            val renamed = env.filesystem().renameFile(safeOld, safeNew)
+            withContext(Dispatchers.Main) {
+                if (renamed) refreshCurrentProject() else fileError = "Could not rename the file."
             }
         }
     }
 
     fun copyFile(path: String, newName: String) {
+        val project = selectedProject ?: return
+        val safeSource = workspaceManager.resolveInsideProject(project, path)?.absolutePath
+        val safeDestination = workspaceManager.safeSibling(project, path, newName)?.absolutePath
+        if (safeSource == null || safeDestination == null) {
+            fileError = "The copy must stay inside the selected project."
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
-            val newPath = File(File(path).parent, newName).absolutePath
-            if (env.filesystem().copyFile(path, newPath)) {
-                refreshCurrentProject()
+            val copied = env.filesystem().copyFile(safeSource, safeDestination)
+            withContext(Dispatchers.Main) {
+                if (copied) refreshCurrentProject() else fileError = "Could not copy the file."
             }
+        }
+    }
+
+    fun openFile(path: String) {
+        val project = selectedProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { workspaceManager.readTextFile(project, path) }
+                .onSuccess { content -> withContext(Dispatchers.Main) {
+                    openedFile = workspaceManager.resolveInsideProject(project, path)
+                    openedFileEnvironment = null
+                    fileContent = content
+                    fileError = null
+                } }
+                .onFailure { error -> withContext(Dispatchers.Main) {
+                    fileError = error.localizedMessage ?: "Could not open the file."
+                } }
+        }
+    }
+
+    fun openRemoteFile(path: String) {
+        val config = environmentManager.activeEnvironment
+        if (config !is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { environmentManager.getExecutionEnvironment(config).filesystem().readFile(path) }
+                .onSuccess { content -> withContext(Dispatchers.Main) {
+                    openedFile = File(path)
+                    openedFileEnvironment = config
+                    fileContent = content
+                    fileError = null
+                } }
+                .onFailure { error -> withContext(Dispatchers.Main) {
+                    fileError = error.localizedMessage ?: "Could not open the remote file."
+                } }
+        }
+    }
+
+    fun saveOpenedFile() {
+        val project = selectedProject
+        val file = openedFile ?: return
+        val content = fileContent
+        val fileEnvironment = openedFileEnvironment
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                if (fileEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
+                    environmentManager.getExecutionEnvironment(fileEnvironment).filesystem().writeFile(file.path, content)
+                } else {
+                    workspaceManager.writeTextFile(requireNotNull(project) { "No local project is selected" }, file.path, content)
+                }
+            }
+                .onSuccess { withContext(Dispatchers.Main) {
+                    openedFile = null
+                    openedFileEnvironment = null
+                    fileError = null
+                } }
+                .onFailure { error -> withContext(Dispatchers.Main) {
+                    fileError = error.localizedMessage ?: "Could not save the file."
+                } }
         }
     }
 
@@ -268,6 +397,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             gitRemoteStatuses = statuses
         }
+    }
+
+    fun showDiffReview() {
+        showGitDiff = true
+        isGitDiffLoading = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val manager = gitManager
+            val diffResult = manager.getDiff()
+            val untracked = manager.getStatus()
+                .filter { it.startsWith("??") }
+                .map { it.removePrefix("??").trim() }
+            withContext(Dispatchers.Main) {
+                gitDiff = (diffResult as? com.justnels.agenticdroid.git.GitResult.Success)?.output
+                gitDiffUntracked = untracked
+                isGitDiffLoading = false
+            }
+        }
+    }
+
+    fun dismissDiffReview() {
+        showGitDiff = false
+        gitDiff = null
+        gitDiffUntracked = emptyList()
     }
 
     fun gitCommit(message: String) {
@@ -409,14 +561,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun gitAddRemote(name: String, url: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            gitManager.addRemote(name, url)
+            val result = gitManager.addRemote(name, url)
+            if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
+                withContext(Dispatchers.Main) { gitError = result.message }
+            }
             refreshGitStatus()
         }
     }
 
     fun gitSetConfig(key: String, value: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            gitManager.setConfig(key, value)
+            val result = gitManager.setConfig(key, value)
+            if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
+                withContext(Dispatchers.Main) { gitError = result.message }
+            }
         }
     }
 
@@ -441,7 +599,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // 0. Ensure we have something to push
             if (!manager.hasCommits()) {
                 Log.d("MainViewModel", "Repo has no commits. Performing initial commit.")
-                manager.addAll()
+                val addResult = manager.addAll()
+                if (addResult is com.justnels.agenticdroid.git.GitResult.Failure) {
+                    withContext(Dispatchers.Main) { gitError = "Failed to stage initial files: ${addResult.message}" }
+                    return@launch
+                }
                 val commitResult = manager.commit("Initial commit from AgenticDroid")
                 if (commitResult is com.justnels.agenticdroid.git.GitResult.Failure) {
                     gitError = "Failed to perform initial commit: ${commitResult.message}"
@@ -450,7 +612,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             
             // Ensure branch is named 'main' for GitHub compatibility
-            manager.renameBranch("main")
+            val renameResult = manager.renameBranch("main")
+            if (renameResult is com.justnels.agenticdroid.git.GitResult.Failure) {
+                withContext(Dispatchers.Main) { gitError = renameResult.message }
+                return@launch
+            }
             refreshGitStatus() // Update gitBranch state
             val currentBranch = manager.getCurrentBranch()
 
@@ -466,8 +632,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // 2. Add Remote
             Log.d("MainViewModel", "Step 2: Adding remote 'origin'")
             val encodedName = java.net.URLEncoder.encode(cleanName, "UTF-8").replace("+", "%20")
-            val url = "https://$githubToken@github.com/$cleanUsername/$encodedName.git"
-            manager.addRemote("origin", url)
+            val url = "https://github.com/$cleanUsername/$encodedName.git"
+            val remoteResult = manager.addRemote("origin", url)
+            if (remoteResult is com.justnels.agenticdroid.git.GitResult.Failure) {
+                withContext(Dispatchers.Main) {
+                    gitError = "Repo created, but adding origin failed: ${remoteResult.message}"
+                }
+                return@launch
+            }
             
             // 3. Initial Push
             Log.d("MainViewModel", "Step 3: Initial push to branch $currentBranch")
@@ -486,14 +658,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateGithubUsername(username: String) {
         githubUsername = username
-        prefs.edit().putString("github_username", username).apply()
+        prefs.edit { putString("github_username", username) }
     }
 
     fun updateGithubToken(token: String) {
-        githubToken = token
-        prefs.edit().putString("github_token", token).apply()
+        githubToken = token.trim()
+        hasGithubToken = githubToken.isNotBlank()
+        if (githubToken.isBlank()) {
+            credentialManager.clearCredential(CredentialManager.GITHUB_TOKEN)
+        } else {
+            credentialManager.saveCredential(CredentialManager.GITHUB_TOKEN, githubToken)
+        }
+        // Remove any value left by versions that used plaintext SharedPreferences.
+        prefs.edit { remove("github_token") }
         // Automatically fetch username when token is set
-        fetchGithubUsername(token)
+        fetchGithubUsername(githubToken)
         fetchGithubRepos()
     }
 
@@ -501,14 +680,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val url = "https://api.github.com/user"
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.setRequestProperty("Authorization", "token $token")
-                connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("User-Agent", "AgenticDroid/1.0")
-                
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(response)
-                val login = json.getString("login")
+                val connection = openHttp(url)
+                val login = try {
+                    connection.setRequestProperty("Authorization", "Bearer $token")
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.setRequestProperty("User-Agent", "AgenticDroid/1.0")
+                    val response = connection.readResponse()
+                    if (connection.responseCode !in 200..299) throw IOException("GitHub returned HTTP ${connection.responseCode}")
+                    JSONObject(response).getString("login")
+                } finally {
+                    connection.disconnect()
+                }
                 
                 withContext(Dispatchers.Main) {
                     updateGithubUsername(login)
@@ -524,12 +706,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val url = "https://api.github.com/user/repos?sort=updated&per_page=100"
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.setRequestProperty("Authorization", "token $githubToken")
-                connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("User-Agent", "AgenticDroid/1.0")
-                
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val connection = openHttp(url)
+                val response = try {
+                    connection.setRequestProperty("Authorization", "Bearer $githubToken")
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.setRequestProperty("User-Agent", "AgenticDroid/1.0")
+                    val body = connection.readResponse()
+                    if (connection.responseCode !in 200..299) throw IOException("GitHub returned HTTP ${connection.responseCode}")
+                    body
+                } finally {
+                    connection.disconnect()
+                }
                 val jsonArray = org.json.JSONArray(response)
                 val repos = mutableListOf<GithubRepo>()
                 for (i in 0 until jsonArray.length()) {
@@ -553,34 +740,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startGithubDeviceFlow() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                if (CLIENT_ID.isBlank()) {
+                    throw IOException("GitHub OAuth client ID is not configured")
+                }
                 // 1. Request device code
-                // Reverting to the standard 20-character Client ID for GitHub CLI
-                val clientID = "178ee327b43477bc2214" 
+                val clientID = CLIENT_ID
                 // The correct endpoint for the initial code request
                 val url = "https://github.com/login/device/code"
                 
                 // Constructing the body manually to ensure no double-encoding issues
                 val body = "client_id=$clientID&scope=repo%20read:user"
                 
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.doOutput = true
-                connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                connection.setRequestProperty("User-Agent", "gh/2.0.0")
-                
-                connection.outputStream.use { it.write(body.toByteArray()) }
-                
-                val code = connection.responseCode
-                if (code !in 200..299) {
-                    val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } 
-                                    ?: connection.inputStream?.bufferedReader()?.use { it.readText() }
-                                    ?: "No response body"
-                    Log.e("MainViewModel", "GitHub API Error: $code - $errorBody")
-                    throw IOException("GitHub Error $code: $errorBody")
+                val connection = openHttp(url)
+                val response = try {
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    connection.setRequestProperty("User-Agent", "AgenticDroid/1.0")
+                    connection.outputStream.use { it.write(body.toByteArray()) }
+                    val responseBody = connection.readResponse(64_000)
+                    if (connection.responseCode !in 200..299) {
+                        throw IOException("GitHub returned HTTP ${connection.responseCode}")
+                    }
+                    responseBody
+                } finally {
+                    connection.disconnect()
                 }
-
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(response)
                 
                 val deviceCode = json.getString("device_code")
@@ -610,19 +796,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         while (githubDeviceFlowState != null) {
             delay(interval * 1000 + 1000)
             try {
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.doOutput = true
-                connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                connection.setRequestProperty("User-Agent", "gh/2.0.0")
-                
-                connection.outputStream.use { it.write(body.toByteArray()) }
-                
-                val code = connection.responseCode
-                if (code !in 200..299) continue // Retry on next interval
-
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val connection = openHttp(url)
+                val response = try {
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                    connection.setRequestProperty("User-Agent", "AgenticDroid/1.0")
+                    connection.outputStream.use { it.write(body.toByteArray()) }
+                    val responseBody = connection.readResponse(64_000)
+                    if (connection.responseCode !in 200..299) {
+                        throw IOException("GitHub returned HTTP ${connection.responseCode}")
+                    }
+                    responseBody
+                } finally {
+                    connection.disconnect()
+                }
                 val json = JSONObject(response)
                 
                 if (json.has("access_token")) {
@@ -650,7 +839,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Exception) {
-                // Log and maybe retry or stop
+                Log.w("MainViewModel", "GitHub device-flow polling failed", e)
+                withContext(Dispatchers.Main) {
+                    githubDeviceFlowState = null
+                    gitError = "GitHub login polling failed: ${e.localizedMessage ?: "network error"}"
+                }
+                return
             }
         }
     }
@@ -659,60 +853,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         githubDeviceFlowState = null
     }
 
-    fun startGithubWebLogin(context: Context) {
-        val url = "https://github.com/login/oauth/authorize" +
-                  "?client_id=$CLIENT_ID" +
-                  "&scope=repo%20read:user" +
-                  "&redirect_uri=$REDIRECT_URI"
-        
-        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-        context.startActivity(intent)
-    }
-
-    fun handleGithubCallback(uri: android.net.Uri) {
-        val code = uri.getQueryParameter("code") ?: return
-        
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val url = "https://github.com/login/oauth/access_token"
-                val body = "client_id=$CLIENT_ID" +
-                          "&client_secret=$CLIENT_SECRET" +
-                          "&code=$code" +
-                          "&redirect_uri=$REDIRECT_URI"
-                
-                val connection = URL(url).openConnection() as HttpURLConnection
-                connection.requestMethod = "POST"
-                connection.doOutput = true
-                connection.setRequestProperty("Accept", "application/json")
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                
-                connection.outputStream.use { it.write(body.toByteArray()) }
-                
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(response)
-                
-                if (json.has("access_token")) {
-                    val token = json.getString("access_token")
-                    withContext(Dispatchers.Main) {
-                        updateGithubToken(token)
-                    }
-                    refreshGitStatus()
-                } else {
-                    val error = json.optString("error_description", "Unknown error")
-                    withContext(Dispatchers.Main) {
-                        gitError = "GitHub Auth Failed: $error"
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    gitError = "Error exchanging code for token: ${e.message}"
-                }
-            }
-        }
-    }
-
     var isBuilding by mutableStateOf(false)
     var buildStatus by mutableStateOf<String?>(null)
+    var buildLog by mutableStateOf("")
+        private set
+    @Volatile private var activeBuildSession: ProcessSession? = null
 
     fun buildAndInstall(buildCommand: String = "./gradlew assembleDebug") {
         viewModelScope.launch(Dispatchers.IO) {
@@ -720,13 +865,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             buildStatus = "Running build..."
             
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
-            val path = selectedProject?.path ?: workspaceRoot.absolutePath
+            val path = executionWorkingDirectory
             
             try {
                 val session = env.exec(buildCommand, path)
-                val exitCode = session.waitFor()
-                
-                if (exitCode == 0) {
+                activeBuildSession = session
+                val result = session.capture(timeoutMillis = 30 * 60 * 1000L, maxOutputBytes = 4 * 1024 * 1024)
+                buildLog = buildString {
+                    append(result.stdout)
+                    append(result.stderr)
+                    if (result.truncated) append("\n[build output truncated]")
+                }.trim()
+
+                if (result.exitCode == 0) {
                     buildStatus = "Build successful. Searching for APK..."
                     // Try to find the APK. Usually in app/build/outputs/apk/debug/app-debug.apk
                     // We'll search for .apk files in the project
@@ -747,14 +898,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         buildStatus = "Error: Could not find generated APK."
                     }
                 } else {
-                    buildStatus = "Build failed with exit code $exitCode"
+                    buildStatus = "Build failed with exit code ${result.exitCode}"
                 }
             } catch (e: Exception) {
                 buildStatus = "Error: ${e.message}"
             } finally {
+                activeBuildSession = null
                 isBuilding = false
             }
         }
+    }
+
+    fun cancelBuild() {
+        activeBuildSession?.kill()
+        activeBuildSession = null
+        isBuilding = false
+        buildStatus = "Build cancelled."
     }
 
     private fun findApk(fs: com.justnels.agenticdroid.env.FileSystemAccess, path: String): File? {
@@ -771,14 +930,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return File(fullPath)
             }
         }
-        
-        // Fallback: try to find any .apk in common build folders
-        return try {
-            // This is a bit expensive but robust
-            null // For now stay with common locations
-        } catch (e: Exception) {
-            null
+
+        if (fs is com.justnels.agenticdroid.env.LocalFileSystemAccess) {
+            return File(path).walkTopDown()
+                .onEnter { directory -> directory.name !in setOf(".git", ".gradle", "node_modules") }
+                .maxDepth(8)
+                .filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
+                .maxByOrNull(File::lastModified)
         }
+        return null
     }
 
     private val bootstrapWorkId = MutableLiveData<java.util.UUID?>()
@@ -802,19 +962,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissBootstrap() {
         bootstrapWorkId.value = null
-        environmentManager.bootstrapWorkId = null
+        environmentManager.dismissBootstrap()
+    }
+
+    fun retryBootstrap() {
+        dismissBootstrap()
+        startBootstrap()
     }
 
     fun clearBootstrap() {
-        environmentManager.bootstrapper.clear()
-        isNodeInstalled = false
-        dismissBootstrap()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { environmentManager.cancelBootstrap().result.get() }
+            environmentManager.bootstrapper.clear()
+            withContext(Dispatchers.Main) {
+                isNodeInstalled = false
+                dismissBootstrap()
+            }
+        }
+    }
+
+    override fun onCleared() {
+        activeBuildSession?.kill()
+        environmentManager.close()
+    }
+
+    fun dismissFileError() {
+        fileError = null
     }
 
     init {
         isNodeInstalled = environmentManager.bootstrapper.isInstalled()
+        viewModelScope.launch(Dispatchers.IO) {
+            environmentManager.reattachBootstrapWork()
+            withContext(Dispatchers.Main) {
+                bootstrapWorkId.value = environmentManager.bootstrapWorkId
+            }
+        }
         githubUsername = prefs.getString("github_username", "") ?: ""
-        githubToken = prefs.getString("github_token", "") ?: ""
+        val legacyToken = prefs.getString("github_token", null)
+        githubToken = credentialManager.getCredential(CredentialManager.GITHUB_TOKEN)
+            ?: legacyToken.orEmpty()
+        hasGithubToken = githubToken.isNotBlank()
+        if (!legacyToken.isNullOrBlank()) {
+            credentialManager.saveCredential(CredentialManager.GITHUB_TOKEN, legacyToken)
+            prefs.edit { remove("github_token") }
+        }
         hintsShown = prefs.getStringSet("hints_shown", emptySet()) ?: emptySet()
         if (githubToken.isNotBlank()) fetchGithubRepos()
         if (!workspaceRoot.exists()) workspaceRoot.mkdirs()

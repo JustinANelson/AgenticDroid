@@ -23,9 +23,10 @@ fun GitScreen(
     remoteStatuses: Map<String, Boolean>,
     history: List<String>,
     githubUsername: String,
-    githubToken: String,
+    hasGithubToken: Boolean,
     githubDeviceFlow: com.justnels.agenticdroid.GithubDeviceFlowState?,
     hintsShown: Set<String>,
+    modifier: Modifier = Modifier,
     lastOutput: String? = null,
     error: String? = null,
     onCommit: (String) -> Unit,
@@ -39,21 +40,18 @@ fun GitScreen(
     onUpdateGithubUsername: (String) -> Unit,
     onUpdateGithubToken: (String) -> Unit,
     onStartGithubDeviceFlow: () -> Unit,
-    onStartGithubWebFlow: (android.content.Context) -> Unit,
     onCancelGithubDeviceFlow: () -> Unit,
     onRenameToMain: () -> Unit,
+    onReviewChanges: () -> Unit,
     onDismissHint: (String) -> Unit,
     onDismissError: () -> Unit,
-    onDismissOutput: () -> Unit,
-    modifier: Modifier = Modifier
+    onDismissOutput: () -> Unit
 ) {
     var commitMessage by remember { mutableStateOf("") }
     var showRemoteDialog by remember { mutableStateOf(false) }
     var showConfigDialog by remember { mutableStateOf(false) }
     var showCreateRepoDialog by remember { mutableStateOf(false) }
     
-    val context = androidx.compose.ui.platform.LocalContext.current
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -122,7 +120,7 @@ fun GitScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = { 
-                        if (githubToken.isBlank()) showConfigDialog = true
+                        if (!hasGithubToken) showConfigDialog = true
                         else showCreateRepoDialog = true 
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -219,10 +217,21 @@ fun GitScreen(
         }
 
         if (error == null) {
-            Text(
-                text = "Changes",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Changes",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                if (changes.isNotEmpty()) {
+                    TextButton(onClick = onReviewChanges) {
+                        Text("Review Diff")
+                    }
+                }
+            }
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -329,7 +338,7 @@ fun GitScreen(
         var userName by remember { mutableStateOf("") }
         var userEmail by remember { mutableStateOf("") }
         var githubUser by remember { mutableStateOf(githubUsername) }
-        var githubTokenValue by remember { mutableStateOf(githubToken) }
+        var githubTokenValue by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showConfigDialog = false },
             title = { Text("Git Configuration") },
@@ -359,18 +368,15 @@ fun GitScreen(
                         value = githubTokenValue,
                         onValueChange = { githubTokenValue = it },
                         label = { Text("GitHub Token (PAT)") },
-                        placeholder = { Text("ghp_...") },
+                        placeholder = { Text(if (hasGithubToken) "Configured — leave blank to keep" else "github_pat_...") },
                         modifier = Modifier.fillMaxWidth(),
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
                     )
                     
                     if (githubDeviceFlow == null) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                             TextButton(onClick = { onStartGithubDeviceFlow() }) {
-                                Text("Device Flow")
-                            }
-                            TextButton(onClick = { onStartGithubWebFlow(context) }) {
-                                Text("Web Flow (Recommended)")
+                                Text("Sign in with GitHub Device Flow")
                             }
                         }
                     } else {
@@ -400,7 +406,7 @@ fun GitScreen(
                     if (userName.isNotBlank()) onSetConfig("user.name", userName)
                     if (userEmail.isNotBlank()) onSetConfig("user.email", userEmail)
                     onUpdateGithubUsername(githubUser)
-                    onUpdateGithubToken(githubTokenValue)
+                    if (githubTokenValue.isNotBlank()) onUpdateGithubToken(githubTokenValue)
                     showConfigDialog = false
                 }) {
                     Text("Save")

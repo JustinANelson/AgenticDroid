@@ -3,8 +3,13 @@ package com.justnels.agenticdroid
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +20,8 @@ import com.justnels.agenticdroid.ui.terminal.TerminalScreen
 import com.justnels.agenticdroid.ui.git.GitScreen
 import com.justnels.agenticdroid.ui.workspace.FileTree
 import com.justnels.agenticdroid.ui.workspace.SearchScreen
+import com.justnels.agenticdroid.ui.workspace.RemoteBrowserScreen
+import com.justnels.agenticdroid.env.EnvironmentConfig
 import com.justnels.agenticdroid.ui.editor.CodeEditor
 import com.justnels.agenticdroid.ui.settings.SettingsScreen
 import com.justnels.agenticdroid.ui.env.EnvironmentScreen
@@ -31,8 +38,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        handleIntent(intent)
-
         setContent {
             viewModel = viewModel()
             MaterialTheme {
@@ -41,56 +46,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
-        super.onNewIntent(intent)
-        handleIntent(intent)
-    }
-
-    private fun handleIntent(intent: android.content.Intent?) {
-        val data = intent?.data
-        if (data != null && data.scheme == "agenticdroid" && data.host == "github-auth") {
-            // Need to wait until viewModel is initialized if called from onCreate
-            // but for now, we'll just check if it's there
-            if (::viewModel.isInitialized) {
-                viewModel.handleGithubCallback(data)
-            } else {
-                // If viewModel isn't ready yet (first launch), 
-                // MainScreen will pick it up via its own LaunchedEffect
-            }
-        }
-    }
 }
 
 @Composable
 fun MainScreen(viewModel: MainViewModel) {
     val environmentManager = viewModel.environmentManager
     
-    // Handle deep links when the screen starts
-    val context = androidx.compose.ui.platform.LocalContext.current
-    LaunchedEffect(Unit) {
-        val activity = context as? MainActivity
-        activity?.intent?.data?.let { uri ->
-            if (uri.scheme == "agenticdroid" && uri.host == "github-auth") {
-                viewModel.handleGithubCallback(uri)
-                // Clear the data so we don't handle it twice
-                activity.intent.data = null
-            }
-        }
-    }
-    
     // Dynamically update terminal when active environment changes
     val activeEnv = remember(environmentManager.activeEnvironment) {
         environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
     }
     val application = androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
+    val activity = LocalActivity.current
+    LaunchedEffect(viewModel.resetRequested) {
+        if (viewModel.resetRequested) activity?.finishAndRemoveTask()
+    }
     val terminalViewModel = remember(activeEnv, viewModel.selectedProject) {
-        val path = viewModel.selectedProject?.path ?: viewModel.workspaceRoot.absolutePath
+        val path = viewModel.executionWorkingDirectory
         TerminalViewModel(application, activeEnv, path)
     }
     // TerminalViewModel is manually `remember`'d (not lifecycle-scoped via viewModel()), so
     // switching environments or projects would otherwise leak the previous one's forked shell process.
     DisposableEffect(terminalViewModel) {
         onDispose { terminalViewModel.dispose() }
+    }
+
+    viewModel.fileError?.let { error ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissFileError,
+            title = { Text("File operation failed") },
+            text = { Text(error) },
+            confirmButton = { TextButton(onClick = viewModel::dismissFileError) { Text("OK") } }
+        )
     }
 
     Scaffold(
@@ -147,8 +134,7 @@ fun MainScreen(viewModel: MainViewModel) {
                             ) {
                                 Text(viewModel.openedFile!!.name, style = MaterialTheme.typography.titleMedium)
                                 IconButton(onClick = { 
-                                    viewModel.openedFile?.writeText(viewModel.fileContent)
-                                    viewModel.openedFile = null 
+                                    viewModel.saveOpenedFile()
                                 }) {
                                     Icon(Icons.Default.Close, contentDescription = "Close")
                                 }
@@ -159,6 +145,13 @@ fun MainScreen(viewModel: MainViewModel) {
                                 fileName = viewModel.openedFile!!.name
                             )
                         }
+                    } else if (environmentManager.activeEnvironment is EnvironmentConfig.SSH) {
+                        val ssh = environmentManager.activeEnvironment as EnvironmentConfig.SSH
+                        RemoteBrowserScreen(
+                            filesystem = activeEnv.filesystem(),
+                            rootPath = ssh.config.workingDirectory,
+                            onOpenFile = viewModel::openRemoteFile
+                        )
                     } else if (viewModel.selectedProject == null) {
                         ProjectList(
                             projects = viewModel.projects,
@@ -209,16 +202,18 @@ fun MainScreen(viewModel: MainViewModel) {
                                 ) {
                                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                         IconButton(onClick = { viewModel.selectProject(null) }) {
-                                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                                         }
                                         Text(viewModel.selectedProject!!.name, style = MaterialTheme.typography.titleMedium)
                                     }
                                     Row {
                                         IconButton(onClick = { viewModel.isCreatingFile = true }) {
-                                            Icon(Icons.Default.NoteAdd, contentDescription = "New File")
+                                            Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "New File")
                                         }
                                         if (viewModel.isBuilding) {
-                                            CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(4.dp))
+                                            IconButton(onClick = viewModel::cancelBuild) {
+                                                Icon(Icons.Default.Stop, contentDescription = "Cancel build")
+                                            }
                                         } else {
                                             IconButton(onClick = { viewModel.buildAndInstall() }) {
                                                 Icon(Icons.Default.Build, contentDescription = "Build & Install")
@@ -257,13 +252,38 @@ fun MainScreen(viewModel: MainViewModel) {
                                     )
                                 }
                                 if (viewModel.buildStatus != null) {
-                                    Text(
-                                        text = viewModel.buildStatus!!,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                        color = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                                    var showBuildLog by remember { mutableStateOf(false) }
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Text(
+                                            text = viewModel.buildStatus!!,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        if (viewModel.buildLog.isNotBlank()) {
+                                            TextButton(onClick = { showBuildLog = true }) { Text("View log") }
+                                        }
+                                    }
+                                    if (showBuildLog) {
+                                        AlertDialog(
+                                            onDismissRequest = { showBuildLog = false },
+                                            title = { Text("Build output") },
+                                            text = {
+                                                androidx.compose.foundation.text.selection.SelectionContainer {
+                                                    Text(
+                                                        viewModel.buildLog,
+                                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                                        modifier = Modifier.heightIn(max = 420.dp)
+                                                            .verticalScroll(rememberScrollState())
+                                                    )
+                                                }
+                                            },
+                                            confirmButton = {
+                                                TextButton(onClick = { showBuildLog = false }) { Text("Close") }
+                                            }
+                                        )
+                                    }
+                                }
                             com.justnels.agenticdroid.ui.components.HintBox(
                                 hintId = "hint_build_install",
                                 title = "Remote Deployment",
@@ -276,8 +296,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 onFileSelected = { path ->
                                     val file = File(path)
                                     if (file.isFile) {
-                                        viewModel.openedFile = file
-                                        viewModel.fileContent = file.readText()
+                                        viewModel.openFile(file.path)
                                     }
                                 },
                                 onDelete = { viewModel.deleteFile(it) },
@@ -307,7 +326,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         remoteStatuses = viewModel.gitRemoteStatuses,
                         history = viewModel.gitLog,
                         githubUsername = viewModel.githubUsername,
-                        githubToken = viewModel.githubToken,
+                        hasGithubToken = viewModel.hasGithubToken,
                         githubDeviceFlow = viewModel.githubDeviceFlowState,
                         hintsShown = viewModel.hintsShown,
                         lastOutput = viewModel.lastGitOutput,
@@ -323,13 +342,21 @@ fun MainScreen(viewModel: MainViewModel) {
                         onUpdateGithubUsername = { viewModel.updateGithubUsername(it) },
                         onUpdateGithubToken = { viewModel.updateGithubToken(it) },
                         onStartGithubDeviceFlow = { viewModel.startGithubDeviceFlow() },
-                        onStartGithubWebFlow = { viewModel.startGithubWebLogin(it) },
                         onCancelGithubDeviceFlow = { viewModel.cancelGithubDeviceFlow() },
                         onRenameToMain = { viewModel.gitRenameToMain() },
+                        onReviewChanges = { viewModel.showDiffReview() },
                         onDismissHint = { viewModel.markHintShown(it) },
                         onDismissError = { viewModel.dismissGitError() },
                         onDismissOutput = { viewModel.dismissGitOutput() }
                     )
+                    if (viewModel.showGitDiff) {
+                        com.justnels.agenticdroid.ui.git.DiffReviewDialog(
+                            rawDiff = viewModel.gitDiff,
+                            untrackedFiles = viewModel.gitDiffUntracked,
+                            isLoading = viewModel.isGitDiffLoading,
+                            onDismiss = { viewModel.dismissDiffReview() }
+                        )
+                    }
                 }
                 Screen.Agents -> {
                     if (!viewModel.isNodeEnvironment || !viewModel.isNodeInstalled) {
@@ -357,15 +384,16 @@ fun MainScreen(viewModel: MainViewModel) {
                 }
                 Screen.AgentSession -> {
                     IntegratedAgentScreen(
-                        terminalViewModel = terminalViewModel
+                        terminalViewModel = terminalViewModel,
+                        hintsShown = viewModel.hintsShown,
+                        onDismissHint = { viewModel.markHintShown(it) }
                     )
                 }
                 Screen.Search -> {
                     SearchScreen(
                         onSearch = { query -> viewModel.workspaceManager.searchInFiles(query) },
                         onResultSelected = { result ->
-                            viewModel.openedFile = File(result.path)
-                            viewModel.fileContent = viewModel.openedFile!!.readText()
+                            viewModel.openFile(result.path)
                             viewModel.currentScreen = Screen.Workspace
                         }
                     )

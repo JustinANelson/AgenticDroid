@@ -10,6 +10,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CancellationException
 
 class BootstrapWorker(
     context: Context,
@@ -22,10 +23,8 @@ class BootstrapWorker(
         // Setup notification channel
         val channelId = "bootstrap_channel"
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (android.os.Build.VERSION.SDK_INT >= 26) {
-            val channel = NotificationChannel(channelId, "Node Setup", NotificationManager.IMPORTANCE_LOW)
-            notificationManager.createNotificationChannel(channel)
-        }
+        val channel = NotificationChannel(channelId, "Node Setup", NotificationManager.IMPORTANCE_LOW)
+        notificationManager.createNotificationChannel(channel)
 
         val notificationBuilder = NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle("Setting up Node Environment")
@@ -56,11 +55,13 @@ class BootstrapWorker(
                     // Ignore
                 }
             }
-            notificationManager.cancel(1)
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            notificationManager.cancel(1)
             Result.failure(Data.Builder().putString("error", e.message).build())
+        } finally {
+            notificationManager.cancel(1)
         }
     }
 }

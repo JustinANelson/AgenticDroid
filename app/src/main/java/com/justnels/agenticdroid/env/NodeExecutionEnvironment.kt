@@ -10,7 +10,11 @@ import java.io.File
  */
 class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironment {
 
-    override fun exec(command: String, workingDirectory: String): ProcessSession {
+    override fun exec(
+        command: String,
+        workingDirectory: String,
+        environment: Map<String, String>
+    ): ProcessSession {
         // Resolve the first word (the tool) to an absolute path if it exists in our bin dir.
         // This bypasses any issues with /system/bin/sh not picking up our PATH for its own lookup.
         val firstWord = command.substringBefore(" ").trim()
@@ -33,6 +37,7 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
                 NodeRuntime.configureEnvironment(context, environment())
                 environment()["TERM"] = "xterm-256color"
                 environment()["COLORTERM"] = "truecolor"
+                environment().putAll(environment)
             }
             .start()
         return LocalProcessSession(process)

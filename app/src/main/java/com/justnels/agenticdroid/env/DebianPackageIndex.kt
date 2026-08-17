@@ -5,6 +5,8 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * Resolves a Debian binary package's current pool filename by downloading and scanning
@@ -24,38 +26,58 @@ object DebianPackageIndex {
     }
 
     /** Downloads and parses Packages.gz for [arch], returning package name -> pool Filename. */
-    fun fetchIndex(arch: String, packagesOfInterest: Set<String>, downloadTo: File): Map<String, String> {
+    suspend fun fetchIndex(
+        arch: String,
+        packagesOfInterest: Set<String>,
+        downloadTo: File
+    ): Map<String, PackageArtifact> {
         val url = "$MIRROR/dists/stable/main/binary-$arch/Packages.gz"
         downloadFile(url, downloadTo)
-        val result = mutableMapOf<String, String>()
+        val result = mutableMapOf<String, PackageArtifact>()
         GzipCompressorInputStream(BufferedInputStream(downloadTo.inputStream())).use { gz ->
             var currentName: String? = null
             var currentFilename: String? = null
-            InputStreamReader(gz, Charsets.UTF_8).buffered().forEachLine { line ->
+            var currentSha256: String? = null
+            var currentSize: Long? = null
+            fun commitEntry() {
+                val name = currentName
+                val filename = currentFilename
+                val sha256 = currentSha256
+                if (name != null && name in packagesOfInterest && filename != null && sha256 != null) {
+                    result[name] = PackageArtifact(filename, sha256, currentSize)
+                }
+                currentName = null
+                currentFilename = null
+                currentSha256 = null
+                currentSize = null
+            }
+            val reader = InputStreamReader(gz, Charsets.UTF_8).buffered()
+            var decodedCharacters = 0L
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val line = reader.readLine() ?: break
+                decodedCharacters += line.length
+                if (decodedCharacters > 256L * 1024L * 1024L) throw IOException("Debian package index is too large")
                 when {
                     line.startsWith("Package: ") -> {
                         currentName = line.removePrefix("Package: ").trim()
                         currentFilename = null
+                        currentSha256 = null
                     }
                     line.startsWith("Filename: ") -> currentFilename = line.removePrefix("Filename: ").trim()
-                    line.isEmpty() -> {
-                        val name = currentName
-                        val filename = currentFilename
-                        if (name != null && name in packagesOfInterest && filename != null) {
-                            result[name] = filename
-                        }
-                        currentName = null
-                        currentFilename = null
-                    }
+                    line.startsWith("SHA256: ") -> currentSha256 = line.removePrefix("SHA256: ").trim()
+                    line.startsWith("Size: ") -> currentSize = line.removePrefix("Size: ").trim().toLongOrNull()
+                    line.isEmpty() -> commitEntry()
                 }
             }
+            commitEntry()
         }
         return result
     }
 
     fun downloadUrlFor(filename: String): String = "$MIRROR/$filename"
 
-    private fun downloadFile(url: String, destination: File) {
+    private suspend fun downloadFile(url: String, destination: File) {
         val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
         try {
             connection.instanceFollowRedirects = true
@@ -63,8 +85,20 @@ object DebianPackageIndex {
             connection.readTimeout = 120_000
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) throw IOException("HTTP $responseCode downloading $url")
+            if (connection.contentLengthLong > 64L * 1024L * 1024L) throw IOException("Debian package index is too large")
             connection.inputStream.use { input ->
-                destination.outputStream().use { output -> input.copyTo(output) }
+                destination.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > 64L * 1024L * 1024L) throw IOException("Debian package index is too large")
+                        output.write(buffer, 0, read)
+                    }
+                }
             }
         } finally {
             connection.disconnect()

@@ -221,10 +221,16 @@ object DefaultAgents {
         const https = require("https");
         const fs = require("fs");
         const zlib = require("zlib");
-        function get(url, cb) {
+        const crypto = require("crypto");
+        function get(url, cb, redirects = 0) {
+          const parsed = new URL(url);
+          if (parsed.protocol !== "https:" || redirects > 5) {
+            process.stderr.write("Refusing unsafe download URL\n");
+            process.exit(1);
+          }
           https.get(url, res => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-              get(res.headers.location, cb);
+              get(new URL(res.headers.location, parsed).toString(), cb, redirects + 1);
               return;
             }
             if (res.statusCode !== 200) {
@@ -241,10 +247,33 @@ object DefaultAgents {
           res.on("data", c => data += c);
           res.on("end", () => {
             const manifest = JSON.parse(data);
+            if (!/^[a-f0-9]{128}$/i.test(manifest.sha512 || "")) {
+              process.stderr.write("Manifest did not provide a valid SHA-512 digest\n");
+              process.exit(1);
+            }
             get(manifest.url, res2 => {
-              const file = fs.createWriteStream(outTar);
-              res2.pipe(zlib.createGunzip()).pipe(file);
-              file.on("finish", () => file.close());
+              const compressed = outTar + ".gz";
+              const file = fs.createWriteStream(compressed);
+              res2.pipe(file);
+              file.on("finish", () => {
+                file.close(() => {
+                  const hash = crypto.createHash("sha512");
+                  const input = fs.createReadStream(compressed);
+                  input.on("data", chunk => hash.update(chunk));
+                  input.on("end", () => {
+                    const actual = hash.digest("hex");
+                    if (actual.toLowerCase() !== manifest.sha512.toLowerCase()) {
+                      fs.rmSync(compressed, { force: true });
+                      process.stderr.write("Antigravity archive checksum mismatch\n");
+                      process.exit(1);
+                    }
+                    const output = fs.createWriteStream(outTar);
+                    fs.createReadStream(compressed).pipe(zlib.createGunzip()).pipe(output);
+                    output.on("finish", () => fs.rmSync(compressed, { force: true }));
+                    output.on("error", e => { process.stderr.write(String(e) + "\n"); process.exit(1); });
+                  });
+                });
+              });
               file.on("error", e => { process.stderr.write(String(e) + "\n"); process.exit(1); });
             });
           });

@@ -1,31 +1,67 @@
 package com.justnels.agenticdroid.env
 
 import net.schmizz.sshj.SSHClient
-import net.schmizz.sshj.common.IOUtils
+import android.content.Context
 import net.schmizz.sshj.connection.channel.direct.Session
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import net.schmizz.sshj.transport.verification.FingerprintVerifier
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.charset.StandardCharsets
+import java.io.ByteArrayOutputStream
 
-class SSHExecutionEnvironment(private val config: SSHConfig) : ExecutionEnvironment {
+class SSHExecutionEnvironment(private val context: Context, private val config: SSHConfig) : ExecutionEnvironment {
     private var client: SSHClient? = null
 
     private fun getClient(): SSHClient {
         if (client == null || !client!!.isConnected) {
             client = SSHClient().apply {
-                addHostKeyVerifier(PromiscuousVerifier())
+                addHostKeyVerifier(FingerprintVerifier.getInstance(config.hostKeyFingerprint))
                 connect(config.host, config.port)
-                authPassword(config.username, config.password)
+                when (config.authType) {
+                    SSHAuthType.PASSWORD -> authPassword(
+                        config.username,
+                        requireNotNull(config.password) { "SSH password is missing" }
+                    )
+                    SSHAuthType.PRIVATE_KEY -> {
+                        val temporaryKey = config.privateKeyContent?.let { content ->
+                            File.createTempFile("ssh-key-", ".key", context.cacheDir).apply {
+                                writeText(content)
+                                setReadable(false, false)
+                                setReadable(true, true)
+                                setWritable(false, false)
+                                setWritable(true, true)
+                            }
+                        }
+                        val path = config.privateKeyPath ?: temporaryKey?.absolutePath
+                            ?: error("SSH private key is missing")
+                        val provider = try {
+                            config.privateKeyPassphrase?.takeIf(String::isNotEmpty)?.let {
+                                loadKeys(path, it)
+                            } ?: loadKeys(path)
+                        } finally {
+                            temporaryKey?.delete()
+                        }
+                        authPublickey(config.username, provider)
+                    }
+                }
             }
         }
         return client!!
     }
 
-    override fun exec(command: String, workingDirectory: String): ProcessSession {
+    override fun exec(
+        command: String,
+        workingDirectory: String,
+        environment: Map<String, String>
+    ): ProcessSession {
         val session = getClient().startSession()
-        session.allocatePTY("xterm", 80, 24, 0, 0, emptyMap())
-        val cmd = session.exec("cd $workingDirectory && $command")
+        val environmentPrefix = environment.entries.joinToString(" ") { (key, value) ->
+            require(key.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "Invalid environment variable name" }
+            "$key=${ShellEscaping.quote(value)}"
+        }
+        val remoteCommand = if (environmentPrefix.isBlank()) command else "env $environmentPrefix $command"
+        val cmd = session.exec("cd ${ShellEscaping.quote(workingDirectory)} && $remoteCommand")
         return SSHProcessSession(session, cmd)
     }
 
@@ -40,6 +76,13 @@ class SSHExecutionEnvironment(private val config: SSHConfig) : ExecutionEnvironm
             architecture = "unknown",
             installedTools = emptyList()
         )
+    }
+
+    @Synchronized
+    override fun close() {
+        runCatching { client?.disconnect() }
+        runCatching { client?.close() }
+        client = null
     }
 }
 
@@ -57,22 +100,52 @@ class SSHProcessSession(private val session: Session, private val cmd: Session.C
 
     override fun waitFor(): Int {
         cmd.join()
-        return cmd.exitStatus ?: 0
+        return cmd.exitStatus ?: throw java.io.IOException("Remote command ended without an SSH exit status")
+    }
+
+    override fun isRunning(): Boolean = cmd.isOpen
+
+    override fun close() {
+        runCatching { cmd.close() }
+        runCatching { session.close() }
     }
 }
 
 class SSHFileSystemAccess(private val client: SSHClient) : FileSystemAccess {
-    override fun listFiles(path: String): List<File> {
-        // This is tricky as SSHJ's SFTP returns RemoteResourceInfo, not java.io.File
-        // For now, returning empty to avoid complex mapping in this snippet
-        return emptyList()
+    override fun listEntries(path: String): List<FileSystemEntry> {
+        val sftp = client.newSFTPClient()
+        return try {
+            sftp.ls(path)
+                .asSequence()
+                .filterNot { it.name == "." || it.name == ".." }
+                .map { FileSystemEntry(it.name, it.path, it.isDirectory, it.attributes.size) }
+                .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                .toList()
+        } finally {
+            sftp.close()
+        }
     }
 
     override fun readFile(path: String): String {
         val sftp = client.newSFTPClient()
         return try {
-            val file = sftp.open(path)
-            IOUtils.readFully(file.RemoteFileInputStream()).toString()
+            val size = sftp.stat(path).size
+            if (size > 5L * 1024L * 1024L) throw java.io.IOException("Remote file is larger than 5 MiB")
+            sftp.open(path).use { file ->
+                file.RemoteFileInputStream().use { input ->
+                    val bytes = ByteArrayOutputStream(minOf(size.toInt().coerceAtLeast(0), 64 * 1024))
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        if (bytes.size() + read > 5 * 1024 * 1024) throw java.io.IOException("Remote file is larger than 5 MiB")
+                        bytes.write(buffer, 0, read)
+                    }
+                    val data = bytes.toByteArray()
+                    if (data.take(4096).any { it == 0.toByte() }) throw java.io.IOException("Remote file appears to be binary")
+                    data.toString(StandardCharsets.UTF_8)
+                }
+            }
         } finally {
             sftp.close()
         }
@@ -80,10 +153,28 @@ class SSHFileSystemAccess(private val client: SSHClient) : FileSystemAccess {
 
     override fun writeFile(path: String, content: String) {
         val sftp = client.newSFTPClient()
+        val temporaryPath = "$path.agenticdroid-${System.nanoTime()}.tmp"
         try {
-            val file = sftp.open(path, setOf(net.schmizz.sshj.sftp.OpenMode.WRITE, net.schmizz.sshj.sftp.OpenMode.CREAT))
-            file.RemoteFileOutputStream().write(content.toByteArray())
+            sftp.open(
+                temporaryPath,
+                setOf(
+                    net.schmizz.sshj.sftp.OpenMode.WRITE,
+                    net.schmizz.sshj.sftp.OpenMode.CREAT,
+                    net.schmizz.sshj.sftp.OpenMode.TRUNC
+                )
+            ).use { file ->
+                file.RemoteFileOutputStream().use { output ->
+                    output.write(content.toByteArray(StandardCharsets.UTF_8))
+                }
+            }
+            try {
+                sftp.rename(temporaryPath, path)
+            } catch (first: Exception) {
+                runCatching { sftp.rm(path) }
+                sftp.rename(temporaryPath, path)
+            }
         } finally {
+            runCatching { sftp.rm(temporaryPath) }
             sftp.close()
         }
     }
@@ -127,14 +218,16 @@ class SSHFileSystemAccess(private val client: SSHClient) : FileSystemAccess {
         // SFTP doesn't have a native 'copy' (server-side). 
         // We'd have to download and re-upload, or use a shell command.
         // Let's use a shell command for efficiency if possible.
+        var session: Session? = null
         return try {
-            val session = client.startSession()
-            val cmd = session.exec("cp \"$srcPath\" \"$destPath\"")
+            session = client.startSession()
+            val cmd = session.exec("cp ${ShellEscaping.quote(srcPath)} ${ShellEscaping.quote(destPath)}")
             cmd.join()
-            session.close()
             cmd.exitStatus == 0
         } catch (e: Exception) {
             false
+        } finally {
+            runCatching { session?.close() }
         }
     }
 
@@ -152,5 +245,28 @@ data class SSHConfig(
     val host: String,
     val port: Int = 22,
     val username: String,
-    val password: String // Should use key-based auth in production
-)
+    val password: String? = null,
+    /** Complete SHA-256 fingerprint shown by the trusted SSH server administrator. */
+    val hostKeyFingerprint: String,
+    val workingDirectory: String = ".",
+    val authType: SSHAuthType = SSHAuthType.PASSWORD,
+    val privateKeyPath: String? = null,
+    val privateKeyPassphrase: String? = null,
+    val privateKeyContent: String? = null
+) {
+    init {
+        require(host.isNotBlank()) { "SSH host is required" }
+        require(port in 1..65535) { "SSH port is invalid" }
+        require(username.isNotBlank()) { "SSH username is required" }
+        require(workingDirectory.isNotBlank()) { "Remote workspace is required" }
+        require(hostKeyFingerprint.matches(Regex("^SHA256:[A-Za-z0-9+/]{43}=?$"))) {
+            "A complete SHA-256 host key fingerprint is required"
+        }
+        require(
+            (authType == SSHAuthType.PASSWORD && !password.isNullOrBlank()) ||
+                (authType == SSHAuthType.PRIVATE_KEY && (!privateKeyPath.isNullOrBlank() || !privateKeyContent.isNullOrBlank()))
+        ) { "SSH authentication material is missing" }
+    }
+}
+
+enum class SSHAuthType { PASSWORD, PRIVATE_KEY }
