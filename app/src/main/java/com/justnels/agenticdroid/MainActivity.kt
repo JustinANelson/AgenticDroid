@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -56,18 +58,25 @@ fun MainScreen(viewModel: MainViewModel) {
     val activeEnv = remember(environmentManager.activeEnvironment) {
         environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
     }
-    val application = androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val application = context.applicationContext as android.app.Application
     val activity = LocalActivity.current
+    val installApkLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.installApkFromUri(uri)
+    }
     LaunchedEffect(viewModel.resetRequested) {
         if (viewModel.resetRequested) activity?.finishAndRemoveTask()
     }
     val terminalViewModel = remember(activeEnv, viewModel.selectedProject) {
         val path = viewModel.executionWorkingDirectory
-        TerminalViewModel(application, activeEnv, path)
+        TerminalViewModel(application, activeEnv, path, onSessionEnded = viewModel::onAgentStopped)
     }
     // TerminalViewModel is manually `remember`'d (not lifecycle-scoped via viewModel()), so
     // switching environments or projects would otherwise leak the previous one's forked shell process.
     DisposableEffect(terminalViewModel) {
+        // A new TerminalViewModel means a brand new shell - whatever agent was tracked as
+        // running belonged to the previous (now-disposed) one.
+        viewModel.onAgentStopped()
         onDispose { terminalViewModel.dispose() }
     }
 
@@ -371,12 +380,33 @@ fun MainScreen(viewModel: MainViewModel) {
                             }
                         }
                     } else {
+                        LaunchedEffect(environmentManager.activeEnvironment) {
+                            viewModel.refreshInstalledAgents()
+                        }
                         AgentLauncherScreen(
                             agents = viewModel.agentManager.agents,
+                            activeAgent = viewModel.activeAgent,
+                            installedAgentIds = viewModel.installedAgentIds,
+                            isCheckingInstalled = viewModel.isCheckingInstalledAgents,
                             hintsShown = viewModel.hintsShown,
                             onLaunchAgent = { agent ->
-                                terminalViewModel.sendCommand(agent.launchCommand())
+                                // Guard against typing a launch script into an already-running
+                                // agent's TUI - see MainViewModel.activeAgent. Re-launching the
+                                // already-active agent just reattaches to it instead of resending.
+                                // KNOWN ISSUE (see sendCommand's doc): a cold-start tap here -
+                                // before ever visiting the Terminal tab - can silently fail to
+                                // reach the visible session, but this still marks the agent as
+                                // launched. Visiting Terminal once first, or retrying Launch,
+                                // works around it until the underlying race is found.
+                                if (viewModel.activeAgent == null) {
+                                    terminalViewModel.sendCommand(agent.launchCommand())
+                                    viewModel.onAgentLaunched(agent)
+                                }
                                 viewModel.currentScreen = Screen.AgentSession
+                            },
+                            onStopAgent = {
+                                terminalViewModel.sendRawInput("\u0003")
+                                viewModel.onAgentStopped()
                             },
                             onDismissHint = { viewModel.markHintShown(it) }
                         )
@@ -401,7 +431,12 @@ fun MainScreen(viewModel: MainViewModel) {
                 Screen.Settings -> {
                     SettingsScreen(
                         onNavigateToEnvironments = { viewModel.currentScreen = Screen.Environments },
-                        onWipeHistory = { viewModel.wipeAppData() }
+                        onWipeHistory = { viewModel.wipeAppData() },
+                        onInstallApkFromFiles = {
+                            installApkLauncher.launch(arrayOf("application/vnd.android.package-archive"))
+                        },
+                        onRestoreLastKnownGood = { viewModel.restoreLastKnownGoodApk() },
+                        hasLastKnownGoodBackup = viewModel.hasLastKnownGoodApk()
                     )
                 }
                 Screen.Environments -> {

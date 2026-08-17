@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -51,245 +53,265 @@ fun GitScreen(
     var showRemoteDialog by remember { mutableStateOf(false) }
     var showConfigDialog by remember { mutableStateOf(false) }
     var showCreateRepoDialog by remember { mutableStateOf(false) }
+    var historyExpanded by remember { mutableStateOf(true) }
     
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "Project: $projectName",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-                Text(
-                    text = "Branch: $currentBranch",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-                if (currentBranch == "master") {
-                    TextButton(
-                        onClick = onRenameToMain,
-                        modifier = Modifier.height(32.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text("Rename to 'main' (Recommended)", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-            IconButton(onClick = { showConfigDialog = true }) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Git Config"
-                )
-            }
-        }
-
-        HintBox(
-            hintId = "hint_git_config",
-            title = "Identity Required",
-            text = "Before committing, tap the gear icon to set your name and email. You'll also need a GitHub Token (PAT) for remote actions.",
-            hintsShown = hintsShown,
-            onDismiss = onDismissHint
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (remotes.isEmpty() && error == null) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                if (githubUsername.isNotBlank()) {
-                    Button(
-                        onClick = { onAutoAddRemote() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Link to github.com/$githubUsername/$projectName")
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                OutlinedButton(
-                    onClick = { showRemoteDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Add Custom Remote")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = { 
-                        if (!hasGithubToken) showConfigDialog = true
-                        else showCreateRepoDialog = true 
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-                ) {
-                    Text("Create Repository on GitHub")
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        } else if (remotes.isNotEmpty()) {
-            Text(text = "Remotes", style = MaterialTheme.typography.titleMedium)
-            remotes.forEach { remote ->
-                val name = remote.split("\t").firstOrNull() ?: remote
-                val isConnected = remoteStatuses[name] ?: false
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (isConnected) Icons.Default.Check 
-                                      else Icons.Default.Warning,
-                        contentDescription = if (isConnected) "Connected" else "Disconnected",
-                        tint = if (isConnected) androidx.compose.ui.graphics.Color.Green 
-                               else androidx.compose.ui.graphics.Color.Red,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(text = remote, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        if (history.isNotEmpty()) {
-            Text(text = "Recent History (Branch: $currentBranch)", style = MaterialTheme.typography.titleMedium)
-            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    history.forEach { log ->
-                        Text(text = log, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { onInit() }) { // Reuse onInit or add refresh
-                Text("Full Status")
-            }
-        }
-
-        if (error != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Text("Git Error", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
-                        IconButton(onClick = onDismissError, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
-                        }
-                    }
-                    Text(error, style = MaterialTheme.typography.bodySmall)
-                    if (error.contains("Not a git repository")) {
-                        Button(onClick = onInit, modifier = Modifier.padding(top = 8.dp)) {
-                            Text("Initialize Git")
-                        }
-                    }
-                }
-            }
-        }
-
-        if (lastOutput != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        Text("Git Output", style = MaterialTheme.typography.titleSmall)
-                        IconButton(onClick = onDismissOutput, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
-                        }
-                    }
-                    Text(lastOutput, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
-
-        if (error == null) {
+        item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Changes",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                if (changes.isNotEmpty()) {
-                    TextButton(onClick = onReviewChanges) {
-                        Text("Review Diff")
+                Column {
+                    Text(
+                        text = "Project: $projectName",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    Text(
+                        text = "Branch: $currentBranch",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    if (currentBranch == "master") {
+                        TextButton(
+                            onClick = onRenameToMain,
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("Rename to 'main' (Recommended)", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
-            }
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                items(changes) { change ->
-                    Text(
-                        text = change,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                IconButton(onClick = { showConfigDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Git Config"
                     )
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            HintBox(
+                hintId = "hint_git_config",
+                title = "Identity Required",
+                text = "Before committing, tap the gear icon to set your name and email. You'll also need a GitHub Token (PAT) for remote actions.",
+                hintsShown = hintsShown,
+                onDismiss = onDismissHint
+            )
 
-        OutlinedTextField(
-            value = commitMessage,
-            onValueChange = { commitMessage = it },
-            label = { Text("Commit Message") },
-            modifier = Modifier.fillMaxWidth()
-        )
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Button(onClick = { onPull(false) }) {
-                Text("Pull")
-            }
-            Button(
-                onClick = { 
-                    if (commitMessage.isNotBlank()) {
-                        onCommit(commitMessage)
-                        commitMessage = ""
+            if (remotes.isEmpty() && error == null) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (githubUsername.isNotBlank()) {
+                        Button(
+                            onClick = { onAutoAddRemote() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Link to github.com/$githubUsername/$projectName")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    OutlinedButton(
+                        onClick = { showRemoteDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Add Custom Remote")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            if (!hasGithubToken) showConfigDialog = true
+                            else showCreateRepoDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Text("Create Repository on GitHub")
                     }
                 }
-            ) {
-                Text("Commit")
+                Spacer(modifier = Modifier.height(16.dp))
+            } else if (remotes.isNotEmpty()) {
+                Text(text = "Remotes", style = MaterialTheme.typography.titleMedium)
+                remotes.forEach { remote ->
+                    val name = remote.split("\t").firstOrNull() ?: remote
+                    val isConnected = remoteStatuses[name] ?: false
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isConnected) Icons.Default.Check
+                                          else Icons.Default.Warning,
+                            contentDescription = if (isConnected) "Connected" else "Disconnected",
+                            tint = if (isConnected) androidx.compose.ui.graphics.Color.Green
+                                   else androidx.compose.ui.graphics.Color.Red,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = remote, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            Button(onClick = { onPush(false) }) {
-                Text("Push")
+
+            if (history.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Text(text = "Recent History (Branch: $currentBranch)", style = MaterialTheme.typography.titleMedium)
+                    IconButton(onClick = { historyExpanded = !historyExpanded }, modifier = Modifier.size(24.dp)) {
+                        Icon(
+                            imageVector = if (historyExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (historyExpanded) "Collapse History" else "Expand History"
+                        )
+                    }
+                }
+                if (historyExpanded) {
+                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            history.forEach { log ->
+                                Text(text = log, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { onInit() }) { // Reuse onInit or add refresh
+                    Text("Full Status")
+                }
+            }
+
+            if (error != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Text("Git Error", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                            IconButton(onClick = onDismissError, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Text(error, style = MaterialTheme.typography.bodySmall)
+                        if (error.contains("Not a git repository")) {
+                            Button(onClick = onInit, modifier = Modifier.padding(top = 8.dp)) {
+                                Text("Initialize Git")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (lastOutput != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Text("Git Output", style = MaterialTheme.typography.titleSmall)
+                            IconButton(onClick = onDismissOutput, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Text(lastOutput, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            if (error == null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Changes",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (changes.isNotEmpty()) {
+                        TextButton(onClick = onReviewChanges) {
+                            Text("Review Diff")
+                        }
+                    }
+                }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            TextButton(onClick = { onPull(true) }) {
-                Text("Pull (Rebase)", style = MaterialTheme.typography.labelSmall)
+        if (error == null) {
+            items(changes) { change ->
+                Text(
+                    text = change,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 0.dp, vertical = 4.dp)
+                )
             }
-            TextButton(onClick = { onPush(true) }) {
-                Text("Force Push", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = commitMessage,
+                onValueChange = { commitMessage = it },
+                label = { Text("Commit Message") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(onClick = { onPull(false) }, modifier = Modifier.weight(1f), contentPadding = ButtonDefaults.TextButtonContentPadding) {
+                    Text("Pull", maxLines = 1)
+                }
+                Button(
+                    onClick = {
+                        if (commitMessage.isNotBlank()) {
+                            onCommit(commitMessage)
+                            commitMessage = ""
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = ButtonDefaults.TextButtonContentPadding
+                ) {
+                    Text("Commit", maxLines = 1)
+                }
+                Button(onClick = { onPush(false) }, modifier = Modifier.weight(1f), contentPadding = ButtonDefaults.TextButtonContentPadding) {
+                    Text("Push", maxLines = 1)
+                }
             }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TextButton(onClick = { onPull(true) }, modifier = Modifier.weight(1f)) {
+                    Text("Pull (Rebase)", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+                TextButton(onClick = { onPush(true) }, modifier = Modifier.weight(1f)) {
+                    Text("Force Push", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, maxLines = 1)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 

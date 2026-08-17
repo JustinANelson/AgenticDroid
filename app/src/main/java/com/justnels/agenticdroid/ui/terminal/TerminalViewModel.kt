@@ -33,7 +33,8 @@ import com.termux.terminal.TerminalSessionClient
 class TerminalViewModel(
     application: Application,
     private val env: ExecutionEnvironment,
-    private val workingDirectory: String
+    private val workingDirectory: String,
+    private val onSessionEnded: () -> Unit = {}
 ) : AndroidViewModel(application), TerminalSessionClient {
 
     var session by mutableStateOf<TerminalSession?>(null)
@@ -51,6 +52,27 @@ class TerminalViewModel(
     private var terminalBinder: TerminalService.TerminalServiceBinder? = null
     private val sessionKey = "terminal_${env.getEnvironmentInfo().name}_${workingDirectory.hashCode()}"
 
+    // getOrCreateSession only constructs the TerminalSession object - per this class's own
+    // top-of-file doc, the shell itself is forked lazily, when a TerminalView first attaches
+    // and reports its size. A caller that sends input right after triggering that attach
+    // (the Agents screen's "Launch" does exactly this: send, then navigate to the screen
+    // that renders the TerminalView) can hit a gap where `session` is already non-null but
+    // the shell hasn't forked yet - Termux's TerminalSession.write() silently drops bytes
+    // written before its process exists. This buffers until the shell reports running
+    // (isRunning(), not just object-non-null) and flushes on its first output
+    // (onTextChanged, below). NOTE: this alone is not sufficient to make a cold-start
+    // Launch tap reliable - see the known issue noted on sendCommand/onLaunchAgent.
+    private val pendingInput = mutableListOf<String>()
+
+    private fun flushPendingInput() {
+        if (pendingInput.isEmpty()) return
+        val current = session ?: return
+        if (!current.isRunning()) return
+        val queued = pendingInput.toList()
+        pendingInput.clear()
+        queued.forEach { current.write(it) }
+    }
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as TerminalService.TerminalServiceBinder
@@ -65,6 +87,10 @@ class TerminalViewModel(
                     spec.env,
                     this@TerminalViewModel
                 )
+                // Usually a no-op here (the shell isn't forked yet) - covers the case where
+                // this session was already running from an earlier attach (e.g. reattaching
+                // after switching screens), where it can flush immediately.
+                flushPendingInput()
             }
         }
 
@@ -91,17 +117,41 @@ class TerminalViewModel(
         }
     }
 
-    /** Sends a full command line, as if the user typed it and pressed Enter. */
+    /** Sends a full command line, as if the user typed it and pressed Enter. Queued if the
+     * PTY session isn't connected yet - see [pendingInput].
+     *
+     * KNOWN ISSUE: a cold-start call from the Agents screen ("Launch" right after opening a
+     * project, before ever visiting the Terminal tab) can still silently fail to reach the
+     * visible session even when this reports the write as delivered to a running,
+     * correctly-keyed [TerminalSession] (confirmed via session-identity logging: same
+     * sessionKey, same identityHashCode, isRunning()==true at write time, yet no process
+     * spawns and the on-screen terminal stays blank). Root cause not yet isolated - ruled
+     * out both a null/not-yet-running session and a stale/duplicate session object; suspect
+     * the AndroidView in TerminalScreen.kt not re-attaching to this exact session in time,
+     * but that needs an attached debugger (breakpoints in TerminalScreen's AndroidView
+     * `update` block and Termux's own TerminalSession/TerminalView) to confirm, not further
+     * blind on-device testing. Warm sessions (Terminal tab visited first, or relaunching
+     * after a prior successful launch) are confirmed working. */
     fun sendCommand(command: String) {
         // A real terminal sends carriage return for the Enter key. Raw-mode TUIs (Claude,
         // Codex, Antigravity) do not interpret a bare LF as Enter.
-        session?.write("$command\r")
+        write("$command\r")
     }
 
-    /** Sends raw bytes (e.g. a control character or escape sequence) with no trailing Enter. */
+    /** Sends raw bytes (e.g. a control character or escape sequence) with no trailing Enter.
+     * Queued if the PTY session isn't connected yet - see [pendingInput]. */
     fun sendRawInput(input: String) {
         Log.v(TAG, "Sending raw input (length: ${input.length})")
-        session?.write(input)
+        write(input)
+    }
+
+    private fun write(input: String) {
+        val current = session
+        if (current != null && current.isRunning()) {
+            current.write(input)
+        } else {
+            pendingInput.add(input)
+        }
     }
 
     fun runDiagnostics() {
@@ -142,8 +192,11 @@ class TerminalViewModel(
     // --- TerminalSessionClient ---
 
     override fun onTextChanged(changedSession: TerminalSession) {
+        // The shell's first output (its prompt) is the real "now running" signal - see
+        // pendingInput above. Cheap to call on every text change since it no-ops once empty.
+        flushPendingInput()
         onScreenUpdate?.invoke()
-        
+
         try {
             val emulator = changedSession.emulator
             val screen = emulator.screen
@@ -192,6 +245,7 @@ class TerminalViewModel(
         Log.i(TAG, "Shell exited with status ${finishedSession.exitStatus}")
         terminalBinder?.removeSession(sessionKey)
         session = null
+        onSessionEnded()
     }
 
     /** OSC 52: a terminal program asked to copy text to the system clipboard. */

@@ -2,6 +2,7 @@ package com.justnels.agenticdroid.env
 
 import android.util.Log
 import android.content.Context
+import android.net.ConnectivityManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
@@ -127,17 +128,27 @@ class NodeBootstrapper(private val context: Context) {
         glibcRoot.mkdirs()
         val debianArch = DebianPackageIndex.debianArch(abi)
         val packages = setOf("libc6", "libgcc-s1")
-        onProgress("Resolving glibc package versions...")
-        val indexFile = File(cacheDir, "Packages.gz")
-        val artifacts = DebianPackageIndex.fetchIndex(debianArch, packages, indexFile)
-        indexFile.delete()
+        val needed = packages.filterNot { isExtracted("glibc:$it") }
+        val artifacts = if (needed.isNotEmpty()) {
+            onProgress("Resolving glibc package versions...")
+            val indexFile = File(cacheDir, "Packages.gz")
+            val result = DebianPackageIndex.fetchIndex(debianArch, needed.toSet(), indexFile)
+            indexFile.delete()
+            result
+        } else emptyMap()
         for (pkg in packages) {
+            val markerKey = "glibc:$pkg"
+            if (isExtracted(markerKey)) {
+                onProgress("Already installed $pkg (glibc)")
+                continue
+            }
             onProgress("Installing $pkg (glibc)...")
             val artifact = artifacts[pkg] ?: throw IOException("Package not found in Debian index: $pkg")
             val deb = File(cacheDir, artifact.filename.substringAfterLast('/'))
             downloadFile(DebianPackageIndex.downloadUrlFor(artifact.filename), deb, artifact.sha256, artifact.size)
             ArchiveExtractor.extractDeb(deb, glibcRoot, "")
             deb.delete()
+            markExtracted(markerKey)
         }
         val interpSource = File(glibcRoot, glibcInterpreterSourcePath(abi))
         val interpDest = File(glibcRoot, glibcInterpreterPath(abi))
@@ -153,17 +164,43 @@ class NodeBootstrapper(private val context: Context) {
      * getaddrinfo() found nothing and every request timed out (confirmed empirically: this
      * is what "installs but can't reach the cloud provider" turned out to be - Claude Code
      * failed with "Failed to connect to api.anthropic.com: ETIMEOUT" with no resolv.conf
-     * present, and connected normally once one existed). Written unconditionally on every
-     * bootstrap() call, including the already-installed fast path, so it's not gated behind
-     * provisioningVersion and reaches devices that installed before this fix.
+     * present, and connected normally once one existed).
+     *
+     * Prefers the network's own resolvers (from ConnectivityManager/LinkProperties) over
+     * the hardcoded public ones: some networks (captive portals, some carrier/enterprise
+     * setups) don't route to third-party resolvers like 8.8.8.8 at all, which would
+     * reproduce the exact same "installs but every request times out" symptom from a
+     * different cause. Public resolvers are kept as a fallback/tail entry for networks
+     * whose own resolver is unreachable from a plain socket (e.g. transparent-proxy-only
+     * setups). Capped at 3 entries - both glibc's and musl's resolvers only consult the
+     * first 3 lines of resolv.conf.
      */
     private fun writeResolvConf(sysroot: File) {
+        val servers = (deviceDnsServers() + listOf("8.8.8.8", "1.1.1.1")).distinct().take(3)
         val etcDir = File(sysroot, "etc")
         etcDir.mkdirs()
-        File(etcDir, "resolv.conf").writeText("nameserver 8.8.8.8\nnameserver 1.1.1.1\n")
+        File(etcDir, "resolv.conf").writeText(servers.joinToString("") { "nameserver $it\n" })
     }
 
-    private fun ensureResolvConf() {
+    private fun deviceDnsServers(): List<String> = try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = cm?.activeNetwork
+        val linkProperties = network?.let { cm.getLinkProperties(it) }
+        linkProperties?.dnsServers?.mapNotNull { it.hostAddress }.orEmpty()
+    } catch (e: Exception) {
+        Log.w(tag, "Could not read device DNS servers", e)
+        emptyList()
+    }
+
+    /**
+     * Refreshes resolv.conf for the bundled sysroots. Unlike the rest of bootstrap(), this
+     * is meant to be called on every agent/terminal session launch (not just at install
+     * time) since the device's own resolvers - and reachability of the public fallbacks -
+     * can change whenever the phone switches between Wi-Fi and mobile data or roams to a
+     * new network; a session started on one network shouldn't keep stale resolvers from
+     * whatever network was active when the toolchain was installed.
+     */
+    fun ensureResolvConf() {
         val usr = NodeRuntime.usrDir(context)
         if (usr.isDirectory) writeResolvConf(usr)
         val glibcRoot = NodeRuntime.glibcSysrootDir(context)
@@ -175,6 +212,30 @@ class NodeBootstrapper(private val context: Context) {
     fun clear() {
         NodeRuntime.rootDir(context).deleteRecursively()
     }
+
+    // Marks (by name) which packages/steps have already been downloaded and extracted
+    // into place, so a bootstrap() that failed partway (a dropped connection on package
+    // 18 of 20, say) can pick up where it left off on retry instead of re-downloading
+    // and re-extracting everything from scratch - a multi-minute install over cellular is
+    // exactly where a transient blip is likely, and previously any single failure there
+    // discarded all prior progress via clear(). Cleared as part of clear() itself (same
+    // directory tree), and swept away on a successful bootstrap() completion.
+    private fun extractionMarkersDir(): File =
+        File(NodeRuntime.rootDir(context), ".agenticdroid-extracted").also { it.mkdirs() }
+
+    private fun isExtracted(key: String): Boolean = File(extractionMarkersDir(), key).isFile
+
+    private fun markExtracted(key: String) {
+        File(extractionMarkersDir(), key).createNewFile()
+    }
+
+    // Recorded once a bootstrap attempt starts populating rootDir, so a later attempt can
+    // tell "a partial install of this same provisioningVersion, safe to resume" apart from
+    // "a partial or completed install of some other version, must be wiped first" - mixing
+    // extracted files across different provisioningVersions could leave an inconsistent
+    // toolchain.
+    private fun inProgressVersionMarker(): File =
+        File(NodeRuntime.rootDir(context), ".agenticdroid-provisioning-version")
 
     private fun abi(): String {
         return android.os.Build.SUPPORTED_ABIS.firstOrNull {
@@ -190,7 +251,15 @@ class NodeBootstrapper(private val context: Context) {
             onProgress("Node environment ready!")
             return@withContext
         }
-        clear()
+        val root = NodeRuntime.rootDir(context)
+        val versionMarker = inProgressVersionMarker()
+        val resuming = root.isDirectory && versionMarker.isFile &&
+            versionMarker.readText().trim() == provisioningVersion
+        if (!resuming) {
+            clear()
+            root.mkdirs()
+            versionMarker.writeText("$provisioningVersion\n")
+        }
         val usr = NodeRuntime.usrDir(context)
         listOf(usr, NodeRuntime.homeDir(context), NodeRuntime.globalDir(context)).forEach { it.mkdirs() }
 
@@ -209,11 +278,17 @@ class NodeBootstrapper(private val context: Context) {
 
             for (pkg in termuxPackages + qemuPackageName(abi)) {
                 currentCoroutineContext().ensureActive()
-                onProgress("Installing $pkg... (${completedSteps + 1}/$totalSteps)")
-                val artifact = index[pkg] ?: throw IOException("Package not found in Termux index: $pkg")
-                val deb = downloadPackage(artifact, cacheDir)
-                ArchiveExtractor.extractDeb(deb, usr, DEB_PATH_PREFIX)
-                deb.delete()
+                val markerKey = "termux:$pkg"
+                if (isExtracted(markerKey)) {
+                    onProgress("$pkg already installed (${completedSteps + 1}/$totalSteps)")
+                } else {
+                    onProgress("Installing $pkg... (${completedSteps + 1}/$totalSteps)")
+                    val artifact = index[pkg] ?: throw IOException("Package not found in Termux index: $pkg")
+                    val deb = downloadPackage(artifact, cacheDir)
+                    ArchiveExtractor.extractDeb(deb, usr, DEB_PATH_PREFIX)
+                    deb.delete()
+                    markExtracted(markerKey)
+                }
                 completedSteps++
             }
             
@@ -246,14 +321,20 @@ class NodeBootstrapper(private val context: Context) {
 
             NodeRuntime.qemuBinary(context).setExecutable(true)
 
-            onProgress("Installing musl loader (for QEMU-user)... (${completedSteps + 1}/$totalSteps)")
-            val muslApk = downloadMuslLoader(cacheDir, abi)
-            ArchiveExtractor.extractApk(muslApk, usr, "")
-            muslApk.delete()
+            val muslMarkerKey = "musl-loader"
+            if (isExtracted(muslMarkerKey)) {
+                onProgress("Musl loader already installed (${completedSteps + 1}/$totalSteps)")
+            } else {
+                onProgress("Installing musl loader (for QEMU-user)... (${completedSteps + 1}/$totalSteps)")
+                val muslApk = downloadMuslLoader(cacheDir, abi)
+                ArchiveExtractor.extractApk(muslApk, usr, "")
+                muslApk.delete()
+                markExtracted(muslMarkerKey)
+            }
             completedSteps++
 
             downloadGlibcSysroot(cacheDir, abi) { status ->
-                if (status.startsWith("Installing")) {
+                if (status.startsWith("Installing") || status.startsWith("Already installed")) {
                     onProgress("$status (${completedSteps + 1}/$totalSteps)")
                     completedSteps++
                 } else {
@@ -263,6 +344,8 @@ class NodeBootstrapper(private val context: Context) {
             ensureResolvConf()
 
             NodeRuntime.readyMarker(context).writeText("$provisioningVersion\n")
+            versionMarker.delete()
+            extractionMarkersDir().deleteRecursively()
         } catch (e: Exception) {
             Log.e(tag, "Node bootstrap failed", e)
             onProgress("Setup failed: ${e.message}")

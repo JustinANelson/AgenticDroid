@@ -14,6 +14,9 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     onNavigateToEnvironments: () -> Unit,
     onWipeHistory: () -> Unit,
+    onInstallApkFromFiles: () -> Unit,
+    onRestoreLastKnownGood: () -> Unit,
+    hasLastKnownGoodBackup: Boolean,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -34,6 +37,25 @@ fun SettingsScreen(
                 title = "Environments",
                 description = "Configure Local, Node Toolchain, or SSH",
                 onClick = onNavigateToEnvironments
+            )
+        }
+
+        item {
+            SettingItem(
+                title = "Install APK from Files",
+                description = "Pick an .apk from device storage and install/update it",
+                onClick = onInstallApkFromFiles
+            )
+        }
+
+        item {
+            SettingItem(
+                title = "Restore Last Working APK",
+                description = if (hasLastKnownGoodBackup)
+                    "Reinstall the build that was running before your last self-update"
+                else
+                    "No backup available yet - one is made automatically before each self-update",
+                onClick = onRestoreLastKnownGood
             )
         }
 

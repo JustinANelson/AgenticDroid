@@ -11,8 +11,7 @@ data class AgentProfile(
     val prepareCommand: String? = null,
     val iconResId: Int? = null,
     val defaultArgs: List<String> = emptyList(),
-    val environmentVariables: Map<String, String> = emptyMap(),
-    val isInstalled: Boolean = false
+    val environmentVariables: Map<String, String> = emptyMap()
 ) {
     /**
      * Starts an existing agent immediately, or installs it first when it is absent.
@@ -180,6 +179,52 @@ object DefaultAgents {
     )
 
     /**
+     * Unlike Claude/Codex/Antigravity, Gemini CLI (@google/gemini-cli) is pure JS/TS end to
+     * end - there's no separate native binary to smuggle past Android's exec restrictions,
+     * so no QEMU wrapping is needed at all. Its own optional native addons (node-pty for a
+     * real PTY when running its own internal shell tool, keytar for OS-keychain credential
+     * storage) publish no linux-arm64 build in the first place (confirmed: their
+     * package.json optionalDependencies only list darwin/win32/linux-x64 variants), so npm
+     * simply can't install them here regardless of Android - gemini-cli already has to
+     * handle that build failing/missing gracefully on any unsupported arch, which is
+     * exactly what optionalDependencies is for.
+     *
+     * One Android-specific landmine, confirmed empirically: a nested dependency
+     * (clipboardy) throws unconditionally at module-load time - not lazily, so it breaks
+     * before gemini even parses argv - when process.platform === "android" (which Node
+     * reports for any Bionic build, including this bundled one) unless $TERMUX_VERSION is
+     * set; it doesn't actually check Termux is present, just that one env var. Set
+     * generically in NodeRuntime.configureEnvironment rather than just here, since any
+     * future pure-JS agent could hit the same check.
+     *
+     * Like Codex, npm's own bin-link (global/bin/gemini) is a symlink to a script starting
+     * with `#!/usr/bin/env node`, and Android has no /usr/bin/env - so this regenerates it
+     * as a plain #!/system/bin/sh wrapper that execs node directly, matching how
+     * NodeBootstrapper already handles npm/npx and how Codex's install command handles its
+     * own JS entry point.
+     */
+    private fun geminiInstallCommand(): String = """
+        node "${'$'}NPM_CLI" install -g --ignore-scripts @google/gemini-cli >/dev/null 2>&1
+        geminijs="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/@google/gemini-cli/bundle/gemini.js"
+        globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
+        mkdir -p "${'$'}globalbin"
+        rm -f "${'$'}globalbin/gemini"
+        printf '#!/system/bin/sh\nexec node "%s" "${'$'}@"\n' "${'$'}geminijs" > "${'$'}globalbin/gemini"
+        chmod 755 "${'$'}globalbin/gemini"
+        if ! gemini --version </dev/null >/dev/null 2>&1; then
+          rm -f "${'$'}globalbin/gemini"
+          echo "Gemini CLI failed to start after install." >&2
+        fi
+    """.trimIndent()
+
+    val Gemini = AgentProfile(
+        id = "gemini",
+        name = "Gemini CLI",
+        command = "gemini",
+        installCommand = geminiInstallCommand()
+    )
+
+    /**
      * Antigravity CLI isn't distributed via npm at all - it's a single compiled Go
      * binary Google publishes behind a manifest API and fetches with a curl|bash
      * installer (antigravity.google/cli/install.sh). This reimplements just enough of
@@ -222,62 +267,88 @@ object DefaultAgents {
         const fs = require("fs");
         const zlib = require("zlib");
         const crypto = require("crypto");
-        function get(url, cb, redirects = 0) {
+        const maxAttempts = 3;
+        function get(url, cb, onError, redirects = 0) {
           const parsed = new URL(url);
           if (parsed.protocol !== "https:" || redirects > 5) {
-            process.stderr.write("Refusing unsafe download URL\n");
-            process.exit(1);
+            onError("Refusing unsafe download URL");
+            return;
           }
           https.get(url, res => {
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-              get(new URL(res.headers.location, parsed).toString(), cb, redirects + 1);
+              get(new URL(res.headers.location, parsed).toString(), cb, onError, redirects + 1);
               return;
             }
             if (res.statusCode !== 200) {
-              process.stderr.write("HTTP " + res.statusCode + " fetching " + url + "\n");
-              process.exit(1);
+              onError("HTTP " + res.statusCode + " fetching " + url);
+              return;
             }
             cb(res);
-          }).on("error", e => { process.stderr.write(String(e) + "\n"); process.exit(1); });
+          }).on("error", e => onError(String(e)));
         }
         const platform = process.argv[2];
         const outTar = process.argv[3];
-        get("https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/" + platform + ".json", res => {
-          let data = "";
-          res.on("data", c => data += c);
-          res.on("end", () => {
-            const manifest = JSON.parse(data);
-            if (!/^[a-f0-9]{128}$/i.test(manifest.sha512 || "")) {
-              process.stderr.write("Manifest did not provide a valid SHA-512 digest\n");
+        // Retries the whole manifest-fetch + download + checksum pipeline, matching
+        // NodeBootstrapper.downloadFile's 3-attempt/2s-backoff behavior - a plain
+        // one-shot download here would fail the entire agent install on a single
+        // transient network blip while every other download in this app retries.
+        function attempt(n) {
+          const compressed = outTar + ".gz";
+          fs.rmSync(compressed, { force: true });
+          fs.rmSync(outTar, { force: true });
+          function fail(msg) {
+            process.stderr.write(msg + "\n");
+            if (n < maxAttempts) {
+              process.stderr.write("Retrying download (attempt " + (n + 1) + "/" + maxAttempts + ")...\n");
+              setTimeout(() => attempt(n + 1), 2000);
+            } else {
               process.exit(1);
             }
-            get(manifest.url, res2 => {
-              const compressed = outTar + ".gz";
-              const file = fs.createWriteStream(compressed);
-              res2.pipe(file);
-              file.on("finish", () => {
-                file.close(() => {
-                  const hash = crypto.createHash("sha512");
-                  const input = fs.createReadStream(compressed);
-                  input.on("data", chunk => hash.update(chunk));
-                  input.on("end", () => {
-                    const actual = hash.digest("hex");
-                    if (actual.toLowerCase() !== manifest.sha512.toLowerCase()) {
-                      fs.rmSync(compressed, { force: true });
-                      process.stderr.write("Antigravity archive checksum mismatch\n");
-                      process.exit(1);
-                    }
-                    const output = fs.createWriteStream(outTar);
-                    fs.createReadStream(compressed).pipe(zlib.createGunzip()).pipe(output);
-                    output.on("finish", () => fs.rmSync(compressed, { force: true }));
-                    output.on("error", e => { process.stderr.write(String(e) + "\n"); process.exit(1); });
+          }
+          get("https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/" + platform + ".json", res => {
+            let data = "";
+            res.on("data", c => data += c);
+            res.on("end", () => {
+              let manifest;
+              try {
+                manifest = JSON.parse(data);
+              } catch (e) {
+                fail("Invalid Antigravity manifest JSON: " + e);
+                return;
+              }
+              if (!/^[a-f0-9]{128}$/i.test(manifest.sha512 || "")) {
+                fail("Manifest did not provide a valid SHA-512 digest");
+                return;
+              }
+              get(manifest.url, res2 => {
+                const file = fs.createWriteStream(compressed);
+                res2.pipe(file);
+                file.on("finish", () => {
+                  file.close(() => {
+                    const hash = crypto.createHash("sha512");
+                    const input = fs.createReadStream(compressed);
+                    input.on("error", e => fail(String(e)));
+                    input.on("data", chunk => hash.update(chunk));
+                    input.on("end", () => {
+                      const actual = hash.digest("hex");
+                      if (actual.toLowerCase() !== manifest.sha512.toLowerCase()) {
+                        fs.rmSync(compressed, { force: true });
+                        fail("Antigravity archive checksum mismatch");
+                        return;
+                      }
+                      const output = fs.createWriteStream(outTar);
+                      fs.createReadStream(compressed).pipe(zlib.createGunzip()).pipe(output);
+                      output.on("finish", () => fs.rmSync(compressed, { force: true }));
+                      output.on("error", e => fail(String(e)));
+                    });
                   });
                 });
-              });
-              file.on("error", e => { process.stderr.write(String(e) + "\n"); process.exit(1); });
+                file.on("error", e => fail(String(e)));
+              }, fail);
             });
-          });
-        });
+          }, fail);
+        }
+        attempt(1);
         JSEOF
         node "${'$'}vendordir/fetch.js" "${'$'}platform" "${'$'}vendordir/agy.tar"
         tar -xf "${'$'}vendordir/agy.tar" -C "${'$'}vendordir" antigravity
@@ -309,5 +380,5 @@ object DefaultAgents {
         defaultArgs = listOf("--sandbox=false")
     )
 
-    val All = listOf(Codex, Claude, Antigravity)
+    val All = listOf(Codex, Claude, Gemini, Antigravity)
 }

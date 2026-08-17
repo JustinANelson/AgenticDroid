@@ -78,6 +78,13 @@ object NodeRuntime {
         // GitHub CLI configuration directory
         environment["GH_CONFIG_DIR"] = File(homeDir(context), ".config/gh").absolutePath
         
+        // Node reports process.platform === "android" for any Bionic build, including this
+        // bundled one - and some npm packages (confirmed: clipboardy, a dependency of
+        // Google's Gemini CLI) throw unconditionally at module-load time on that platform
+        // unless $TERMUX_VERSION is set, without actually checking Termux is present. Set
+        // generically here (not just for one agent) since any future pure-JS agent CLI can
+        // hit the same check.
+        environment["TERMUX_VERSION"] = "0.118.0"
         environment["NPM_CONFIG_PREFIX"] = globalDir(context).absolutePath
         environment["QEMU_BIN"] = qemuBinary(context).absolutePath
         environment["QEMU_SYSROOT"] = usrDir(context).absolutePath

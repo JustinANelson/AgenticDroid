@@ -10,11 +10,17 @@ import java.io.File
  */
 class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironment {
 
+    // Cheap (a couple of small text-file writes) - refreshed on every launch below rather
+    // than once at install time, since the device's DNS servers can change whenever the
+    // phone switches networks after the toolchain was installed. See NodeBootstrapper.
+    private val bootstrapper = NodeBootstrapper(context)
+
     override fun exec(
         command: String,
         workingDirectory: String,
         environment: Map<String, String>
     ): ProcessSession {
+        bootstrapper.ensureResolvConf()
         // Resolve the first word (the tool) to an absolute path if it exists in our bin dir.
         // This bypasses any issues with /system/bin/sh not picking up our PATH for its own lookup.
         val firstWord = command.substringBefore(" ").trim()
@@ -55,6 +61,7 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
     }
 
     override fun ptyShellSpec(workingDirectory: String): PtyShellSpec {
+        bootstrapper.ensureResolvConf()
         val envMap = mutableMapOf<String, String>()
         NodeRuntime.configureEnvironment(context, envMap)
         envMap["TERM"] = "xterm-256color"

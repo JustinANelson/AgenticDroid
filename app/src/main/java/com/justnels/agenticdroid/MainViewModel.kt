@@ -2,6 +2,7 @@ package com.justnels.agenticdroid
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,7 +52,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val workspaceManager = WorkspaceManager(workspaceRoot)
     val agentManager = AgentManager()
     val environmentManager = EnvironmentManager(application)
-    
+
+    // The Terminal screen backs every agent launch with one shared, persistent shell (see
+    // TerminalViewModel) - once an agent's TUI owns that shell's foreground, typing another
+    // agent's launch script into it would just be interpreted as chat input by the running
+    // agent (junk prompts, wasted turns/tokens) rather than executed as shell commands.
+    // Tracks which agent currently owns the shell so the launcher can block/guard against
+    // that instead of silently corrupting whatever is running.
+    var activeAgent by mutableStateOf<com.justnels.agenticdroid.agents.AgentProfile?>(null)
+        private set
+
+    fun onAgentLaunched(agent: com.justnels.agenticdroid.agents.AgentProfile) {
+        activeAgent = agent
+    }
+
+    /** Best-effort: the caller is responsible for actually interrupting/exiting the running
+     * agent (e.g. sending Ctrl+C) before or after calling this - this only clears the
+     * tracked state so the launcher unblocks other agents again. */
+    fun onAgentStopped() {
+        activeAgent = null
+    }
+
+    var installedAgentIds by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var isCheckingInstalledAgents by mutableStateOf(false)
+        private set
+
+    /** Probes `command -v <agent command>` for every known agent against the active
+     * environment, so the launcher can show install status up front instead of only
+     * discovering it (with a multi-minute npm/QEMU-wrap install as the consequence)
+     * after the user taps Launch. Best-effort: an environment that isn't reachable
+     * (e.g. Node toolchain not bootstrapped, SSH host unreachable) just reports
+     * everything as not-installed rather than failing loudly here. */
+    fun refreshInstalledAgents() {
+        if (environmentManager.activeEnvironment == com.justnels.agenticdroid.env.EnvironmentConfig.Node &&
+            !environmentManager.bootstrapper.isInstalled()
+        ) {
+            installedAgentIds = emptySet()
+            return
+        }
+        val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
+            .getOrNull() ?: run { installedAgentIds = emptySet(); return }
+        val agentsToCheck = agentManager.agents
+        val path = executionWorkingDirectory
+        isCheckingInstalledAgents = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val installed = agentsToCheck.filter { agent ->
+                runCatching {
+                    env.exec("command -v ${agent.command} >/dev/null 2>&1", path)
+                        .capture(timeoutMillis = 15_000).exitCode == 0
+                }.getOrDefault(false)
+            }.map { it.id }.toSet()
+            withContext(Dispatchers.Main) {
+                installedAgentIds = installed
+                isCheckingInstalledAgents = false
+            }
+        }
+    }
+
     var currentScreen by mutableStateOf(Screen.Workspace)
     var openedFile by mutableStateOf<File?>(null)
     private var openedFileEnvironment: com.justnels.agenticdroid.env.EnvironmentConfig? = null
@@ -886,14 +944,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     
                     if (apkFile != null) {
                         buildStatus = "Downloading APK..."
-                        val localApk = File(getApplication<Application>().getExternalFilesDir("downloads"), "latest_build.apk")
+                        val app = getApplication<Application>()
+                        val localApk = File(app.getExternalFilesDir("downloads"), "latest_build.apk")
                         fs.downloadFile(apkFile.absolutePath, localApk)
-                        
-                        buildStatus = "Installing..."
-                        withContext(Dispatchers.Main) {
-                            ApkInstaller.installApk(getApplication(), localApk)
+
+                        val isSelfUpdate = ApkInstaller.getArchivePackageName(app, localApk) == app.packageName
+
+                        if (!ApkInstaller.canInstallPackages(app)) {
+                            buildStatus = "Enable \"Install unknown apps\" for AgenticDroid, then retry."
+                            withContext(Dispatchers.Main) { ApkInstaller.requestInstallPermission(app) }
+                        } else if (isSelfUpdate && ApkInstaller.signatureMatchesInstalled(app, localApk) == false) {
+                            buildStatus = "Error: this build is signed differently than the installed app. " +
+                                "Android will reject the install - check the release signing config."
+                        } else {
+                            if (isSelfUpdate) ApkInstaller.backupCurrentApk(app)
+                            buildStatus = "Installing..."
+                            withContext(Dispatchers.Main) {
+                                ApkInstaller.installApk(app, localApk)
+                            }
+                            buildStatus = "Ready to install!"
                         }
-                        buildStatus = "Ready to install!"
                     } else {
                         buildStatus = "Error: Could not find generated APK."
                     }
@@ -914,6 +984,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeBuildSession = null
         isBuilding = false
         buildStatus = "Build cancelled."
+    }
+
+    fun hasLastKnownGoodApk(): Boolean =
+        ApkInstaller.lastKnownGoodBackup(getApplication()) != null
+
+    fun restoreLastKnownGoodApk() {
+        val restored = ApkInstaller.restoreLastKnownGood(getApplication())
+        if (!restored) fileError = "No backed-up build found to restore."
+    }
+
+    /** Installs an APK picked from device storage, applying the same self-update safety checks as [buildAndInstall]. */
+    fun installApkFromUri(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            try {
+                val localApk = File(app.getExternalFilesDir("downloads"), "picked_install.apk")
+                val copied = app.contentResolver.openInputStream(uri)?.use { input ->
+                    localApk.outputStream().use { output -> input.copyTo(output) }
+                    true
+                } ?: false
+
+                if (!copied) {
+                    withContext(Dispatchers.Main) { fileError = "Could not read the selected file." }
+                    return@launch
+                }
+
+                val isSelfUpdate = ApkInstaller.getArchivePackageName(app, localApk) == app.packageName
+
+                when {
+                    !ApkInstaller.canInstallPackages(app) -> withContext(Dispatchers.Main) {
+                        fileError = "Enable \"Install unknown apps\" for AgenticDroid, then retry."
+                        ApkInstaller.requestInstallPermission(app)
+                    }
+                    isSelfUpdate && ApkInstaller.signatureMatchesInstalled(app, localApk) == false -> {
+                        withContext(Dispatchers.Main) {
+                            fileError = "This APK is signed differently than the installed app - Android will reject the install."
+                        }
+                    }
+                    else -> {
+                        if (isSelfUpdate) ApkInstaller.backupCurrentApk(app)
+                        withContext(Dispatchers.Main) { ApkInstaller.installApk(app, localApk) }
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { fileError = "Install failed: ${e.message}" }
+            }
+        }
     }
 
     private fun findApk(fs: com.justnels.agenticdroid.env.FileSystemAccess, path: String): File? {
