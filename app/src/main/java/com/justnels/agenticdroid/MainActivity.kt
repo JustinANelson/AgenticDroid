@@ -105,6 +105,12 @@ fun MainScreen(viewModel: MainViewModel) {
                     label = { Text("Terminal") }
                 )
                 NavigationBarItem(
+                    selected = viewModel.currentScreen == Screen.WebPreview,
+                    onClick = { viewModel.currentScreen = Screen.WebPreview },
+                    icon = { Icon(Icons.Default.Language, contentDescription = "Preview") },
+                    label = { Text("Preview") }
+                )
+                NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Git,
                     onClick = { viewModel.currentScreen = Screen.Git },
                     icon = { Icon(Icons.Default.Source, contentDescription = "Git") },
@@ -167,13 +173,35 @@ fun MainScreen(viewModel: MainViewModel) {
                             githubRepos = viewModel.githubRepos,
                             hintsShown = viewModel.hintsShown,
                             onProjectSelected = { viewModel.selectProject(it) },
-                            onCreateProject = { viewModel.createProject(it) },
+                            onCreateProject = { name, template -> viewModel.createProject(name, template) },
                             onCloneProject = { url, name -> viewModel.cloneProject(url, name) },
                             onDeleteProject = { viewModel.deleteProject(it) },
                             onFetchRepos = { viewModel.fetchGithubRepos() },
                             onDismissHint = { viewModel.markHintShown(it) }
                         )
                     } else {
+                        val currentProject = viewModel.selectedProject!!
+                        val projectType = viewModel.getProjectType(currentProject)
+                        val projectActions = viewModel.getProjectActions(currentProject)
+                        val projectMeta = viewModel.getProjectMetadata(currentProject)
+                        var showActionsDialog by remember { mutableStateOf(false) }
+
+                        if (showActionsDialog) {
+                            com.justnels.agenticdroid.ui.workspace.ProjectActionsDialog(
+                                project = currentProject,
+                                projectType = projectType,
+                                actions = projectActions,
+                                metadata = projectMeta,
+                                onDismiss = { showActionsDialog = false },
+                                onExecuteAction = { action ->
+                                    viewModel.runProjectAction(action, terminalViewModel)
+                                },
+                                onSaveMetadata = { updated ->
+                                    viewModel.saveProjectMetadata(currentProject, updated)
+                                }
+                            )
+                        }
+
                         val nodes = viewModel.projectNodes
                         if (nodes.isEmpty()) {
                             Box(
@@ -209,24 +237,68 @@ fun MainScreen(viewModel: MainViewModel) {
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                 ) {
-                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    ) {
                                         IconButton(onClick = { viewModel.selectProject(null) }) {
                                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                                         }
-                                        Text(viewModel.selectedProject!!.name, style = MaterialTheme.typography.titleMedium)
+                                        Column {
+                                            Text(currentProject.name, style = MaterialTheme.typography.titleMedium)
+                                            Surface(
+                                                color = when (projectType) {
+                                                    com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> MaterialTheme.colorScheme.primaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.WEB -> MaterialTheme.colorScheme.secondaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> MaterialTheme.colorScheme.tertiaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> MaterialTheme.colorScheme.surfaceVariant
+                                                },
+                                                shape = MaterialTheme.shapes.extraSmall
+                                            ) {
+                                                Text(
+                                                    text = projectType.displayName,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
                                     }
-                                    Row {
+                                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                         IconButton(onClick = { viewModel.isCreatingFile = true }) {
                                             Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "New File")
+                                        }
+                                        if (projectType == com.justnels.agenticdroid.workspace.ProjectType.WEB ||
+                                            projectType == com.justnels.agenticdroid.workspace.ProjectType.PYTHON ||
+                                            projectMeta.previewUrl != null
+                                        ) {
+                                            IconButton(onClick = { viewModel.openWebPreview() }) {
+                                                Icon(Icons.Default.Language, contentDescription = "Web Preview")
+                                            }
                                         }
                                         if (viewModel.isBuilding) {
                                             IconButton(onClick = viewModel::cancelBuild) {
                                                 Icon(Icons.Default.Stop, contentDescription = "Cancel build")
                                             }
                                         } else {
-                                            IconButton(onClick = { viewModel.buildAndInstall() }) {
-                                                Icon(Icons.Default.Build, contentDescription = "Build & Install")
+                                            IconButton(onClick = {
+                                                val primary = projectActions.firstOrNull()
+                                                if (primary != null) {
+                                                    viewModel.runProjectAction(primary, terminalViewModel)
+                                                } else {
+                                                    showActionsDialog = true
+                                                }
+                                            }) {
+                                                Icon(
+                                                    imageVector = when (projectType) {
+                                                        com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> Icons.Default.Build
+                                                        else -> Icons.Default.PlayArrow
+                                                    },
+                                                    contentDescription = "Run"
+                                                )
                                             }
+                                        }
+                                        IconButton(onClick = { showActionsDialog = true }) {
+                                            Icon(Icons.Default.MoreVert, contentDescription = "Project Actions")
                                         }
                                     }
                                 }
@@ -439,6 +511,13 @@ fun MainScreen(viewModel: MainViewModel) {
                         hasLastKnownGoodBackup = viewModel.hasLastKnownGoodApk()
                     )
                 }
+                Screen.WebPreview -> {
+                    com.justnels.agenticdroid.ui.preview.WebPreviewScreen(
+                        currentUrl = viewModel.webPreviewUrl,
+                        onUrlChange = { viewModel.webPreviewUrl = it },
+                        onNavigateToTerminal = { viewModel.currentScreen = Screen.Terminal }
+                    )
+                }
                 Screen.Environments -> {
                     EnvironmentScreen(
                         viewModel = viewModel
@@ -450,5 +529,5 @@ fun MainScreen(viewModel: MainViewModel) {
 }
 
 enum class Screen {
-    Workspace, Terminal, Git, Agents, AgentSession, Search, Settings, Environments
+    Workspace, Terminal, WebPreview, Git, Agents, AgentSession, Search, Settings, Environments
 }

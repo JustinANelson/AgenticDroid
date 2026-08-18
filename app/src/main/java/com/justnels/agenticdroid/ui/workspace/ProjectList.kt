@@ -24,7 +24,7 @@ fun ProjectList(
     githubRepos: List<com.justnels.agenticdroid.GithubRepo>,
     hintsShown: Set<String>,
     onProjectSelected: (Project) -> Unit,
-    onCreateProject: (String) -> Unit,
+    onCreateProject: (String, com.justnels.agenticdroid.workspace.ProjectTemplate) -> Unit,
     onCloneProject: (String, String) -> Unit,
     onDeleteProject: (Project) -> Unit,
     onFetchRepos: () -> Unit,
@@ -59,7 +59,7 @@ fun ProjectList(
         HintBox(
             hintId = "hint_workspace_projects",
             title = "Welcome to Workspaces",
-            text = "Create a new project directory or use the cloud icon to clone an existing repository from GitHub.",
+            text = "Create a project from starter templates (Web, Python, Android) or clone an existing repository from GitHub.",
             hintsShown = hintsShown,
             onDismiss = onDismissHint
         )
@@ -73,8 +73,10 @@ fun ProjectList(
         } else {
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(projects) { project ->
+                    val detectedType = com.justnels.agenticdroid.workspace.ProjectType.detect(java.io.File(project.path))
                     ProjectItem(
                         project = project,
+                        projectType = detectedType,
                         onProjectSelected = onProjectSelected,
                         onDeleteClick = { projectToDelete = it }
                     )
@@ -109,21 +111,67 @@ fun ProjectList(
 
     if (showCreateDialog) {
         var name by remember { mutableStateOf("") }
+        var selectedTemplate by remember { mutableStateOf(com.justnels.agenticdroid.workspace.ProjectTemplate.VANILLA_WEB) }
+
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
             title = { Text("New Project") },
             text = {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Project Name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Project Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Starter Template",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 240.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(com.justnels.agenticdroid.workspace.ProjectTemplate.entries) { tmpl ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedTemplate = tmpl },
+                                colors = if (selectedTemplate == tmpl) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                                else CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = selectedTemplate == tmpl,
+                                        onClick = { selectedTemplate = tmpl }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = tmpl.title,
+                                            style = MaterialTheme.typography.titleSmall
+                                        )
+                                        Text(
+                                            text = tmpl.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             },
             confirmButton = {
                 Button(onClick = {
                     if (name.isNotBlank()) {
-                        onCreateProject(name)
+                        onCreateProject(name, selectedTemplate)
                         showCreateDialog = false
                     }
                 }) {
@@ -241,6 +289,7 @@ fun ProjectList(
 @Composable
 fun ProjectItem(
     project: Project,
+    projectType: com.justnels.agenticdroid.workspace.ProjectType,
     onProjectSelected: (Project) -> Unit,
     onDeleteClick: (Project) -> Unit
 ) {
@@ -256,13 +305,44 @@ fun ProjectItem(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Folder, contentDescription = null)
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                text = project.name,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f)
+            Icon(
+                imageVector = when (projectType) {
+                    com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> Icons.Default.PhoneAndroid
+                    com.justnels.agenticdroid.workspace.ProjectType.WEB -> Icons.Default.Language
+                    com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> Icons.Default.Terminal
+                    com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> Icons.Default.Folder
+                },
+                contentDescription = null,
+                tint = when (projectType) {
+                    com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> MaterialTheme.colorScheme.primary
+                    com.justnels.agenticdroid.workspace.ProjectType.WEB -> MaterialTheme.colorScheme.secondary
+                    com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> MaterialTheme.colorScheme.tertiary
+                    com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = project.name,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Surface(
+                    color = when (projectType) {
+                        com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> MaterialTheme.colorScheme.primaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.WEB -> MaterialTheme.colorScheme.secondaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> MaterialTheme.colorScheme.tertiaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    shape = MaterialTheme.shapes.extraSmall,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Text(
+                        text = projectType.displayName,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "Project options")

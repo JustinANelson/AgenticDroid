@@ -44,11 +44,60 @@ class WorkspaceManager(private val rootDir: File) {
         return projectDir.mkdirs()
     }
 
+    /**
+     * Creates a new project from a selected template.
+     */
+    fun createProjectFromTemplate(name: String, template: ProjectTemplate): Boolean {
+        val projectDir = resolveProject(name) ?: return false
+        if (projectDir.exists()) return false
+        return try {
+            template.scaffold(projectDir, name)
+            // Save initial metadata with project type
+            saveProjectMetadata(Project(name, projectDir.absolutePath), ProjectMetadata(type = template.projectType))
+            true
+        } catch (e: Exception) {
+            projectDir.deleteRecursively()
+            false
+        }
+    }
+
     fun deleteProject(project: Project): Boolean {
         val expected = resolveProject(project.name) ?: return false
         val actual = File(project.path).canonicalFile
         if (actual != expected || actual.parentFile != canonicalRoot) return false
         return actual.deleteRecursively()
+    }
+
+    private fun metadataFile(project: Project): File {
+        val dotDir = File(project.path, ".agenticdroid")
+        return File(dotDir, "project.json")
+    }
+
+    fun getProjectMetadata(project: Project): ProjectMetadata {
+        val file = metadataFile(project)
+        return if (file.isFile) {
+            ProjectMetadata.fromJson(file.readText())
+        } else {
+            val detectedType = ProjectType.detect(File(project.path))
+            ProjectMetadata(type = detectedType)
+        }
+    }
+
+    fun saveProjectMetadata(project: Project, metadata: ProjectMetadata) {
+        val file = metadataFile(project)
+        file.parentFile?.mkdirs()
+        file.writeText(metadata.toJson())
+    }
+
+    fun getProjectType(project: Project): ProjectType {
+        val meta = getProjectMetadata(project)
+        return meta.type ?: ProjectType.detect(File(project.path))
+    }
+
+    fun getProjectActions(project: Project): List<ProjectRunnerAction> {
+        val meta = getProjectMetadata(project)
+        val type = meta.type ?: ProjectType.detect(File(project.path))
+        return ProjectRunnerAction.defaultActionsFor(type, meta)
     }
 
     /**

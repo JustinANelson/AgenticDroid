@@ -21,13 +21,17 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
         environment: Map<String, String>
     ): ProcessSession {
         bootstrapper.ensureResolvConf()
-        // Resolve the first word (the tool) to an absolute path if it exists in our bin dir.
-        // This bypasses any issues with /system/bin/sh not picking up our PATH for its own lookup.
+        // Resolve the first word (the tool) to an absolute path if it exists in our bin or global dir.
         val firstWord = command.substringBefore(" ").trim()
         val rest = command.substringAfter(firstWord, "").trim()
         
-        val binary = File(NodeRuntime.binDir(context), firstWord)
-        val fullCommand = if (binary.exists()) {
+        val binary = listOf(
+            File(NodeRuntime.binDir(context), firstWord),
+            File(NodeRuntime.globalBinDir(context), firstWord),
+            File(File(NodeRuntime.homeDir(context), ".local/bin"), firstWord)
+        ).firstOrNull { it.exists() }
+        
+        val fullCommand = if (binary != null) {
             if (rest.isEmpty()) "\"${binary.absolutePath}\"" else "\"${binary.absolutePath}\" $rest"
         } else {
             command
@@ -52,11 +56,22 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
     override fun filesystem(): FileSystemAccess = LocalFileSystemAccess()
 
     override fun getEnvironmentInfo(): EnvironmentInfo {
+        val tools = mutableListOf("node", "npm", "git")
+        if (File(NodeRuntime.binDir(context), "python3").exists() || File(NodeRuntime.binDir(context), "python").exists()) {
+            tools.add("python3")
+            tools.add("pip")
+        }
+        if (NodeRuntime.qemuBinary(context).exists()) {
+            tools.add("qemu")
+        }
+        if (File(NodeRuntime.binDir(context), "gh").exists()) {
+            tools.add("gh")
+        }
         return EnvironmentInfo(
-            name = "Node Toolchain",
+            name = "Node & Python Toolchain",
             os = "Android (native)",
             architecture = System.getProperty("os.arch") ?: "unknown",
-            installedTools = listOf("node", "npm", "git")
+            installedTools = tools
         )
     }
 

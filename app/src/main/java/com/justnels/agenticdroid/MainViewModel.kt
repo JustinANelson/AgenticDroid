@@ -232,6 +232,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return GitManager(env, path, sslPath, githubToken.takeIf(String::isNotBlank))
         }
 
+    var webPreviewUrl by mutableStateOf("http://localhost:5173")
+
+    fun openWebPreview(url: String? = null) {
+        if (url != null) {
+            webPreviewUrl = url
+        } else {
+            val project = selectedProject
+            if (project != null) {
+                val meta = workspaceManager.getProjectMetadata(project)
+                webPreviewUrl = meta.previewUrl ?: workspaceManager.getProjectType(project).defaultPreviewUrl
+            }
+        }
+        currentScreen = Screen.WebPreview
+    }
+
+    fun getProjectType(project: Project): com.justnels.agenticdroid.workspace.ProjectType =
+        workspaceManager.getProjectType(project)
+
+    fun getProjectActions(project: Project): List<com.justnels.agenticdroid.workspace.ProjectRunnerAction> =
+        workspaceManager.getProjectActions(project)
+
+    fun getProjectMetadata(project: Project): com.justnels.agenticdroid.workspace.ProjectMetadata =
+        workspaceManager.getProjectMetadata(project)
+
+    fun saveProjectMetadata(project: Project, metadata: com.justnels.agenticdroid.workspace.ProjectMetadata) {
+        workspaceManager.saveProjectMetadata(project, metadata)
+        if (metadata.previewUrl != null) {
+            webPreviewUrl = metadata.previewUrl
+        }
+    }
+
+    fun runProjectAction(
+        action: com.justnels.agenticdroid.workspace.ProjectRunnerAction,
+        terminalViewModel: com.justnels.agenticdroid.ui.terminal.TerminalViewModel? = null
+    ) {
+        if (action.isBuild) {
+            buildAndInstall(action.command)
+        } else {
+            if (action.command.isNotBlank() && terminalViewModel != null) {
+                terminalViewModel.sendCommand(action.command)
+            }
+            if (action.opensPreview) {
+                action.previewUrl?.let { webPreviewUrl = it }
+                currentScreen = Screen.WebPreview
+            }
+        }
+    }
+
     fun refreshProjects() {
         projects = workspaceManager.listProjects()
         refreshCurrentProject()
@@ -248,11 +296,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectProject(project: Project?) {
         selectedProject = project
+        if (project != null) {
+            val meta = workspaceManager.getProjectMetadata(project)
+            webPreviewUrl = meta.previewUrl ?: workspaceManager.getProjectType(project).defaultPreviewUrl
+        }
         refreshCurrentProject()
     }
 
-    fun createProject(name: String) {
-        if (workspaceManager.createProject(name)) {
+    fun createProject(
+        name: String,
+        template: com.justnels.agenticdroid.workspace.ProjectTemplate = com.justnels.agenticdroid.workspace.ProjectTemplate.EMPTY
+    ) {
+        if (workspaceManager.createProjectFromTemplate(name, template)) {
+            refreshProjects()
+            val newProject = projects.find { it.name == name }
+            if (newProject != null) {
+                selectProject(newProject)
+            }
+        } else if (workspaceManager.createProject(name)) {
             refreshProjects()
         }
     }

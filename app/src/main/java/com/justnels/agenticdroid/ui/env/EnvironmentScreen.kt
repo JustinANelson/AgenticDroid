@@ -63,8 +63,8 @@ fun EnvironmentScreen(
 
         HintBox(
             hintId = "hint_node_toolchain",
-            title = "Agent Requirements",
-            text = "AI agents like Claude Code require the 'Node Toolchain'. Tap the card below to download and set it up.",
+            title = "Development Toolchains",
+            text = "AI agents, web apps, and Python tools require the 'Node & Python Toolchain'. Tap the card below to download and set it up.",
             hintsShown = viewModel.hintsShown,
             onDismiss = { viewModel.markHintShown(it) }
         )
@@ -86,7 +86,7 @@ fun EnvironmentScreen(
                         text = when {
                             lastError != null -> "Setup Failed"
                             bootstrapSuccess -> "Setup Successful!"
-                            else -> "Setting up Node Environment..."
+                            else -> "Setting up Node & Python Toolchain..."
                         }, 
                         style = MaterialTheme.typography.titleSmall
                     )
@@ -194,16 +194,16 @@ fun EnvironmentCard(
                     text = when (config) {
                         is EnvironmentConfig.Local -> "Local Android (Limited)"
                         is EnvironmentConfig.SSH -> "Remote SSH: ${config.config.host}"
-                        is EnvironmentConfig.Node -> "Node Toolchain"
+                        is EnvironmentConfig.Node -> "Node.js & Python Toolchain"
                     },
                     style = MaterialTheme.typography.titleMedium
                 )
                 if (isActive) {
                     Text(text = "Active", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 } else if (!isInstalled) {
-                    Text(text = "Tap to Download & Setup (~100MB)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Text(text = "Tap to Download & Setup (~150MB)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 } else if (config is EnvironmentConfig.Node) {
-                    Text(text = "Installed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    Text(text = "Installed (Node, Python, Pip, NPM, Git)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
             if (isActive) {

@@ -24,6 +24,14 @@ object NodeRuntime {
     fun homeDir(context: Context): File = File(rootDir(context), "home")
     fun nodeBinary(context: Context): File = File(binDir(context), "node")
     fun gitBinary(context: Context): File = File(binDir(context), "git")
+    fun pythonBinary(context: Context): File {
+        val py = File(binDir(context), "python")
+        return if (py.exists()) py else File(binDir(context), "python3")
+    }
+    fun pipBinary(context: Context): File {
+        val pip = File(binDir(context), "pip")
+        return if (pip.exists()) pip else File(binDir(context), "pip3")
+    }
     fun readyMarker(context: Context): File = File(rootDir(context), ".agenticdroid-ready")
 
     /**
@@ -58,9 +66,11 @@ object NodeRuntime {
 
     /** Applies the shared PATH/LD_LIBRARY_PATH/HOME setup any spawned process needs. */
     fun configureEnvironment(context: Context, environment: MutableMap<String, String>) {
+        val userLocalBin = File(homeDir(context), ".local/bin")
         environment["LD_LIBRARY_PATH"] = libDir(context).absolutePath
         environment["PATH"] = listOf(
             globalBinDir(context).absolutePath,
+            userLocalBin.absolutePath,
             binDir(context).absolutePath,
             "/system/bin"
         ).joinToString(":")
@@ -77,6 +87,10 @@ object NodeRuntime {
         
         // GitHub CLI configuration directory
         environment["GH_CONFIG_DIR"] = File(homeDir(context), ".config/gh").absolutePath
+        
+        // Python configuration
+        environment["PYTHONHOME"] = usrDir(context).absolutePath
+        environment["PYTHONUSERBASE"] = File(homeDir(context), ".local").absolutePath
         
         // Node reports process.platform === "android" for any Bionic build, including this
         // bundled one - and some npm packages (confirmed: clipboardy, a dependency of

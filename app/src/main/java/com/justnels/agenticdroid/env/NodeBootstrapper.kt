@@ -32,7 +32,7 @@ import java.security.MessageDigest
  */
 class NodeBootstrapper(private val context: Context) {
     private val tag = "NodeBootstrapper"
-    private val provisioningVersion = "10"
+    private val provisioningVersion = "11"
     private val maxArtifactBytes = 512L * 1024L * 1024L
 
     // Bionic-native Termux packages, resolved by name against Termux's live index and
@@ -43,6 +43,9 @@ class NodeBootstrapper(private val context: Context) {
         "libnghttp2", "libnghttp3", "libngtcp2", "libssh2",
         "curl", "gh",
         "npm",
+        // Python 3 toolchain and dependencies
+        "gdbm", "libandroid-posix-semaphore", "libcrypt", "ncurses", "ncurses-ui-libs",
+        "readline", "python", "python-pip", "python-ensurepip-wheels",
         // qemu-user-<arch> and its dependency closure (Depends: fields plus libzstd,
         // which libdw needs but doesn't declare) - see qemuPackageName().
         "glib", "libandroid-shmem", "libdw", "libgnutls", "libpixman", "libandroid-support",
@@ -318,6 +321,27 @@ class NodeBootstrapper(private val context: Context) {
             )
             File(NodeRuntime.binDir(context), "npm").setExecutable(true)
             File(NodeRuntime.binDir(context), "npx").setExecutable(true)
+
+            // Python and Pip wrappers: ensure python, python3, pip, pip3 can be invoked directly
+            val python3Bin = File(NodeRuntime.binDir(context), "python3")
+            val pythonBin = File(NodeRuntime.binDir(context), "python")
+            if (!pythonBin.exists() && python3Bin.exists()) {
+                pythonBin.writeText(
+                    "#!/system/bin/sh\nexec \"${python3Bin.absolutePath}\" \"\$@\"\n"
+                )
+                pythonBin.setExecutable(true)
+            }
+            val pipBin = File(NodeRuntime.binDir(context), "pip")
+            val pip3Bin = File(NodeRuntime.binDir(context), "pip3")
+            val effectivePyPath = if (pythonBin.exists()) pythonBin.absolutePath else python3Bin.absolutePath
+            pipBin.writeText(
+                "#!/system/bin/sh\nexec \"$effectivePyPath\" -m pip \"\$@\"\n"
+            )
+            pip3Bin.writeText(
+                "#!/system/bin/sh\nexec \"${python3Bin.absolutePath}\" -m pip \"\$@\"\n"
+            )
+            pipBin.setExecutable(true)
+            pip3Bin.setExecutable(true)
 
             NodeRuntime.qemuBinary(context).setExecutable(true)
 
