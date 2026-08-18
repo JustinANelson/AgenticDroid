@@ -483,25 +483,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    var isCloning by mutableStateOf(false)
+        private set
+    var cloneError by mutableStateOf<String?>(null)
+        private set
+
+    fun dismissCloneError() {
+        cloneError = null
+    }
+
     fun cloneProject(url: String, name: String) {
+        cloneError = null
+        val destination = workspaceManager.projectPath(name)
+        if (destination == null) {
+            cloneError = "Project name must be a single safe directory name."
+            return
+        }
+        isCloning = true
         viewModelScope.launch(Dispatchers.IO) {
-            val destination = workspaceManager.projectPath(name)
-            if (destination == null) {
-                gitError = "Project name must be a single safe directory name."
-                return@launch
-            }
-            val result = gitManager.clone(url, destination)
-            if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
-                gitError = result.message
-            } else {
-                refreshProjects()
-                // Auto-select the cloned project
-                val newProject = projects.find { it.name == name }
-                if (newProject != null) {
-                    withContext(Dispatchers.Main) {
-                        selectProject(newProject)
+            try {
+                // A stalled/unreachable remote can sit here for up to
+                // ProcessSession.capture's own 10-minute default timeout before this
+                // returns at all - isCloning stays true (and the UI shows a spinner) the
+                // whole time rather than looking like nothing happened.
+                val result = gitManager.clone(url, destination)
+                if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
+                    cloneError = result.message
+                } else {
+                    refreshProjects()
+                    // Auto-select the cloned project
+                    val newProject = projects.find { it.name == name }
+                    if (newProject != null) {
+                        withContext(Dispatchers.Main) {
+                            selectProject(newProject)
+                        }
                     }
                 }
+            } finally {
+                isCloning = false
             }
         }
     }
@@ -971,8 +990,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    var isFetchingGithubRepos by mutableStateOf(false)
+        private set
+    var githubReposError by mutableStateOf<String?>(null)
+        private set
+
     fun fetchGithubRepos() {
-        if (githubToken.isBlank()) return
+        githubReposError = null
+        if (githubToken.isBlank()) {
+            githubReposError = "Add a GitHub token in the Git screen first."
+            return
+        }
+        isFetchingGithubRepos = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val url = "https://api.github.com/user/repos?sort=updated&per_page=100"
@@ -1003,6 +1032,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Failed to fetch GitHub repos", e)
+                githubReposError = "Could not load your repos: ${e.localizedMessage ?: e.javaClass.simpleName}"
+            } finally {
+                isFetchingGithubRepos = false
             }
         }
     }

@@ -32,6 +32,11 @@ fun ProjectList(
     onDeleteProject: (Project) -> Unit,
     onFetchRepos: () -> Unit,
     onDismissHint: (String) -> Unit,
+    isCloning: Boolean = false,
+    cloneError: String? = null,
+    onDismissCloneError: () -> Unit = {},
+    isFetchingRepos: Boolean = false,
+    reposError: String? = null,
     modifier: Modifier = Modifier
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -192,17 +197,43 @@ fun ProjectList(
     if (showCloneDialog) {
         var url by remember { mutableStateOf("") }
         var name by remember { mutableStateOf("") }
+        // Tracks "a clone was actually requested from this dialog", so the auto-close
+        // effect below can't fire just because isCloning/cloneError happen to already be
+        // false/null when the dialog first opens (e.g. left over from a previous clone).
+        var attempted by remember { mutableStateOf(false) }
+
+        LaunchedEffect(isCloning, cloneError) {
+            if (attempted && !isCloning && cloneError == null) {
+                showCloneDialog = false
+            }
+        }
+
         AlertDialog(
-            onDismissRequest = { showCloneDialog = false },
+            onDismissRequest = { if (!isCloning) { showCloneDialog = false; onDismissCloneError() } },
             title = { Text("Clone Project") },
             text = {
                 Column {
+                    if (isFetchingRepos) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Loading your GitHub repos...", style = MaterialTheme.typography.labelSmall)
+                        }
+                    } else if (reposError != null) {
+                        Text(
+                            text = reposError,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
                     if (githubRepos.isNotEmpty()) {
                         Button(
-                            onClick = { 
+                            onClick = {
                                 showGitHubRepoDialog = true
                                 showCloneDialog = false
                             },
+                            enabled = !isCloning,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Default.Folder, contentDescription = null)
@@ -211,10 +242,10 @@ fun ProjectList(
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                     }
-                    
+
                     OutlinedTextField(
                         value = url,
-                        onValueChange = { 
+                        onValueChange = {
                             url = it
                             if (name.isEmpty() && it.contains("/")) {
                                 name = it.substringAfterLast("/").removeSuffix(".git")
@@ -222,6 +253,7 @@ fun ProjectList(
                         },
                         label = { Text("Repository URL") },
                         placeholder = { Text("https://github.com/user/repo.git") },
+                        enabled = !isCloning,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -229,22 +261,46 @@ fun ProjectList(
                         value = name,
                         onValueChange = { name = it },
                         label = { Text("Project Name (Directory)") },
+                        enabled = !isCloning,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (isCloning) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Cloning... this can take a while over a slow connection.", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (cloneError != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = cloneError,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    if (url.isNotBlank() && name.isNotBlank()) {
-                        onCloneProject(url, name)
-                        showCloneDialog = false
-                    }
-                }) {
-                    Text("Clone")
+                Button(
+                    onClick = {
+                        if (url.isNotBlank() && name.isNotBlank()) {
+                            attempted = true
+                            onDismissCloneError()
+                            onCloneProject(url, name)
+                        }
+                    },
+                    enabled = !isCloning
+                ) {
+                    Text(if (isCloning) "Cloning..." else "Clone")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCloneDialog = false }) {
+                TextButton(
+                    onClick = { showCloneDialog = false; onDismissCloneError() },
+                    enabled = !isCloning
+                ) {
                     Text("Cancel")
                 }
             }
@@ -252,26 +308,52 @@ fun ProjectList(
     }
 
     if (showGitHubRepoDialog) {
+        var attempted by remember { mutableStateOf(false) }
+
+        LaunchedEffect(isCloning, cloneError) {
+            if (attempted && !isCloning && cloneError == null) {
+                showGitHubRepoDialog = false
+            }
+        }
+
         AlertDialog(
-            onDismissRequest = { showGitHubRepoDialog = false },
+            onDismissRequest = { if (!isCloning) showGitHubRepoDialog = false },
             title = { Text("Your GitHub Repositories") },
             text = {
-                Box(modifier = Modifier.heightIn(max = 400.dp)) {
-                    LazyColumn {
-                        items(githubRepos) { repo ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        onCloneProject(repo.cloneUrl, repo.name)
-                                        showGitHubRepoDialog = false
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(repo.fullName, style = MaterialTheme.typography.titleSmall)
-                                    if (repo.isPrivate) {
-                                        Text("Private", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Column {
+                    if (isCloning) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Cloning...", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (cloneError != null) {
+                        Text(
+                            text = cloneError,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    Box(modifier = Modifier.heightIn(max = 400.dp)) {
+                        LazyColumn {
+                            items(githubRepos) { repo ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable(enabled = !isCloning) {
+                                            attempted = true
+                                            onDismissCloneError()
+                                            onCloneProject(repo.cloneUrl, repo.name)
+                                        }
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(repo.fullName, style = MaterialTheme.typography.titleSmall)
+                                        if (repo.isPrivate) {
+                                            Text("Private", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        }
                                     }
                                 }
                             }
@@ -281,7 +363,10 @@ fun ProjectList(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showGitHubRepoDialog = false }) {
+                TextButton(
+                    onClick = { showGitHubRepoDialog = false; onDismissCloneError() },
+                    enabled = !isCloning
+                ) {
                     Text("Cancel")
                 }
             }

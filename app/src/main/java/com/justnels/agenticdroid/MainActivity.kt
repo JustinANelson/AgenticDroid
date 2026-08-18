@@ -184,7 +184,12 @@ fun MainScreen(viewModel: MainViewModel) {
                             onCloneProject = { url, name -> viewModel.cloneProject(url, name) },
                             onDeleteProject = { viewModel.deleteProject(it) },
                             onFetchRepos = { viewModel.fetchGithubRepos() },
-                            onDismissHint = { viewModel.markHintShown(it) }
+                            onDismissHint = { viewModel.markHintShown(it) },
+                            isCloning = viewModel.isCloning,
+                            cloneError = viewModel.cloneError,
+                            onDismissCloneError = { viewModel.dismissCloneError() },
+                            isFetchingRepos = viewModel.isFetchingGithubRepos,
+                            reposError = viewModel.githubReposError
                         )
                     } else {
                         val currentProject = viewModel.selectedProject!!
