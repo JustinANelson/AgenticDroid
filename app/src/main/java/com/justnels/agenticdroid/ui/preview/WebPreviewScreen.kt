@@ -24,6 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
+
+private const val MAX_LOCAL_STARTUP_RETRIES = 180
+private const val LOCAL_STARTUP_RETRY_DELAY_MS = 1_000L
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -41,6 +45,18 @@ fun WebPreviewScreen(
     var isLoading by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var startupRetries by remember(currentUrl) { mutableIntStateOf(0) }
+
+    val retryingLocalServer = loadError != null &&
+        isLocalDevUrl(urlInput) && startupRetries < MAX_LOCAL_STARTUP_RETRIES
+    LaunchedEffect(loadError, urlInput, startupRetries) {
+        if (retryingLocalServer) {
+            delay(LOCAL_STARTUP_RETRY_DELAY_MS)
+            startupRetries++
+            loadError = null
+            webViewInstance?.loadUrl(formatUrl(urlInput))
+        }
+    }
 
     val quickPorts = listOf(
         "5173" to "Vite",
@@ -78,6 +94,7 @@ fun WebPreviewScreen(
                     }
                     IconButton(
                         onClick = {
+                            startupRetries = 0
                             loadError = null
                             webViewInstance?.reload()
                         },
@@ -210,6 +227,7 @@ fun WebPreviewScreen(
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 isLoading = false
+                                if (loadError == null) startupRetries = 0
                                 canGoBack = view?.canGoBack() ?: false
                                 canGoForward = view?.canGoForward() ?: false
                             }
@@ -263,13 +281,17 @@ fun WebPreviewScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Server Not Responding",
+                            text = if (retryingLocalServer) "Starting Local Server" else "Server Not Responding",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Could not connect to $urlInput (${loadError})",
+                            text = if (retryingLocalServer) {
+                                "Waiting for $urlInput (attempt ${startupRetries + 1} of $MAX_LOCAL_STARTUP_RETRIES)"
+                            } else {
+                                "Could not connect to $urlInput (${loadError})"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -292,6 +314,7 @@ fun WebPreviewScreen(
                             }
                             OutlinedButton(
                                 onClick = {
+                                    startupRetries = 0
                                     loadError = null
                                     webViewInstance?.loadUrl(formatUrl(urlInput))
                                 }
@@ -304,6 +327,11 @@ fun WebPreviewScreen(
             }
         }
     }
+}
+
+private fun isLocalDevUrl(url: String): Boolean {
+    val host = runCatching { Uri.parse(formatUrl(url)).host }.getOrNull()
+    return host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
 }
 
 private fun formatUrl(url: String): String {

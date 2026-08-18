@@ -241,6 +241,51 @@ class ProjectEnvironmentTest {
     }
 
     @Test
+    fun testViteDevPreflightInstallsDeclaredDependencies() {
+        val dir = tempFolder.newFolder("vite-preflight")
+        File(dir, "package.json").writeText(
+            """{"scripts":{"dev":"vite --host"},"devDependencies":{"vite":"^5.4.0"}}"""
+        )
+        File(dir, "package-lock.json").writeText("{}")
+
+        val preparation = WebProjectPreflight.prepare(dir, "npm run dev")
+
+        assertTrue(preparation.installRequired)
+        assertTrue(preparation.command.contains("npm install --include=optional"))
+        assertTrue(preparation.command.contains("node node_modules/vite/bin/vite.js --host"))
+        assertTrue(preparation.command.endsWith("else echo 'Dependency installation failed.'; fi"))
+        assertEquals(null, preparation.error)
+    }
+
+    @Test
+    fun testViteDevPreflightSkipsInstallWhenLocalBinaryExists() {
+        val dir = tempFolder.newFolder("vite-installed")
+        File(dir, "package.json").writeText(
+            """{"scripts":{"dev":"vite"},"devDependencies":{"vite":"^5.4.0"}}"""
+        )
+        File(dir, "node_modules/vite/bin").mkdirs()
+        File(dir, "node_modules/vite/bin/vite.js").writeText("// vite")
+        File(dir, "node_modules/.agenticdroid-install-ok").writeText("3")
+
+        val preparation = WebProjectPreflight.prepare(dir, "npm run dev")
+
+        assertEquals("node node_modules/vite/bin/vite.js", preparation.command)
+        assertTrue(!preparation.installRequired)
+        assertEquals(null, preparation.error)
+    }
+
+    @Test
+    fun testViteDevPreflightDoesNotSilentlyAddUndeclaredVite() {
+        val dir = tempFolder.newFolder("vite-undeclared")
+        File(dir, "package.json").writeText("""{"scripts":{"dev":"vite"}}""")
+
+        val preparation = WebProjectPreflight.prepare(dir, "npm run dev")
+
+        assertTrue(preparation.error!!.contains("does not declare it"))
+        assertTrue(!preparation.installRequired)
+    }
+
+    @Test
     fun testProjectRunnerActionsForPython() {
         val actions = ProjectRunnerAction.defaultActionsFor(ProjectType.PYTHON)
         val runAction = actions.find { it.id == "python_run" }

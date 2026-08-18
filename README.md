@@ -85,10 +85,13 @@ supplied only by the same network connection being verified.
 
 ## Data and reset behavior
 
-Workspaces live under the app's external-files directory. The bundled toolchain and tokens
-live in app-private storage. The app's wipe action removes preferences, credentials,
-workspaces, and the bootstrapped toolchain. Back up source repositories through a trusted Git
-remote before wiping or uninstalling the app.
+Workspaces, the bundled toolchain, and tokens live in app-private storage. Internal storage is
+required because Android prevents npm symlinks and native Node module loading from emulated
+external storage. On upgrade, legacy external-files workspaces are copied into internal storage
+without `node_modules` (dependencies are restored on demand); the legacy copies are left intact
+as a recovery backup. The app's wipe action removes preferences, credentials, active internal
+workspaces, legacy workspace backups, and the bootstrapped toolchain. Back up source repositories
+through a trusted Git remote before wiping or uninstalling the app.
 
 See [READINESS_REVIEW.md](READINESS_REVIEW.md) for the latest readiness status and remaining
 production work.

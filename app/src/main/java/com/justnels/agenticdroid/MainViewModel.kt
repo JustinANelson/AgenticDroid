@@ -33,6 +33,46 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.Files
+
+private fun migrateLegacyWorkspaces(application: Application): File {
+    val internalRoot = File(application.filesDir, "workspaces").also { it.mkdirs() }
+    val migrationMarker = File(application.filesDir, LEGACY_MIGRATION_MARKER)
+    if (migrationMarker.isFile) return internalRoot
+    val externalFiles = application.getExternalFilesDir(null) ?: return internalRoot
+    val legacyRoot = File(externalFiles, "workspaces")
+    var migrationSucceeded = true
+    legacyRoot.listFiles()?.filter(File::isDirectory)?.forEach { legacyProject ->
+        val destination = File(internalRoot, legacyProject.name)
+        if (destination.exists()) return@forEach
+        val staging = File(internalRoot, ".migrating-${legacyProject.name}")
+        runCatching {
+            staging.deleteRecursively()
+            copyProjectForMigration(legacyProject, staging)
+            check(staging.renameTo(destination)) { "Could not finalize ${legacyProject.name}" }
+        }.onFailure { error ->
+            migrationSucceeded = false
+            staging.deleteRecursively()
+            Log.e("WorkspaceMigration", "Could not migrate ${legacyProject.name}", error)
+        }
+    }
+    if (migrationSucceeded) migrationMarker.writeText("complete")
+    return internalRoot
+}
+
+private fun copyProjectForMigration(source: File, destination: File) {
+    if (Files.isSymbolicLink(source.toPath()) || source.name == "node_modules") return
+    if (source.isDirectory) {
+        check(destination.mkdirs() || destination.isDirectory)
+        source.listFiles()?.forEach { child ->
+            copyProjectForMigration(child, File(destination, child.name))
+        }
+    } else if (source.isFile) {
+        source.copyTo(destination, overwrite = false)
+    }
+}
+
+private const val LEGACY_MIGRATION_MARKER = ".legacy-workspaces-migrated"
 
 data class GithubRepo(
     val name: String,
@@ -47,7 +87,7 @@ data class GithubDeviceFlowState(
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    val workspaceRoot = File(application.getExternalFilesDir(null), "workspaces")
+    val workspaceRoot = migrateLegacyWorkspaces(application)
     
     val workspaceManager = WorkspaceManager(workspaceRoot)
     val agentManager = AgentManager()
@@ -254,6 +294,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun wipeAppData() {
         viewModelScope.launch(Dispatchers.IO) {
             activeBuildSession?.kill()
+            activeWebDevSession?.kill()
             environmentManager.close()
             runCatching { environmentManager.cancelBootstrap().result.get() }
             getApplication<Application>().stopService(
@@ -263,6 +304,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             getApplication<Application>().getSharedPreferences("environment", Context.MODE_PRIVATE).edit { clear() }
             credentialManager.clearAll()
             workspaceRoot.deleteRecursively()
+            // Wipe is an explicit destructive action, so remove the legacy recovery copy
+            // too; otherwise a future launch could restore data the user asked to erase.
+            getApplication<Application>().getExternalFilesDir(null)?.let { externalFiles ->
+                File(externalFiles, "workspaces").deleteRecursively()
+            }
+            File(getApplication<Application>().filesDir, LEGACY_MIGRATION_MARKER).delete()
             environmentManager.bootstrapper.clear()
             withContext(Dispatchers.Main) {
                 refreshNodeInstalledStatus()
@@ -374,6 +421,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val secrets = selectedProject?.let { projectSecretsStore.getSecrets(it) }.orEmpty()
             buildAndInstall(action.command, secrets)
         } else {
+            if (action.id == "web_dev" && isNodeEnvironment) {
+                val project = selectedProject ?: return
+                val preparation = com.justnels.agenticdroid.workspace.WebProjectPreflight.prepare(
+                    File(project.path),
+                    action.command
+                )
+                if (preparation.error != null) {
+                    fileError = preparation.error
+                    return
+                }
+                startWebDevServer(
+                    preparation.command,
+                    project.path,
+                    projectSecretsStore.getSecrets(project)
+                )
+                action.previewUrl?.let { webPreviewUrl = it }
+                currentScreen = Screen.WebPreview
+                return
+            }
             if (action.command.isNotBlank() && terminalViewModel != null) {
                 val prelude = selectedProject?.let { projectSecretsStore.exportPrelude(it) }.orEmpty()
                 terminalViewModel.sendCommand(prelude + action.command)
@@ -446,6 +512,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectProject(project: Project?) {
+        if (selectedProject?.path != project?.path) {
+            activeWebDevSession?.kill()
+            activeWebDevSession = null
+            webDevStatus = null
+        }
         selectedProject = project
         if (project != null) {
             val meta = workspaceManager.getProjectMetadata(project)
@@ -1160,6 +1231,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var buildLog by mutableStateOf("")
         private set
     @Volatile private var activeBuildSession: ProcessSession? = null
+    @Volatile private var activeWebDevSession: ProcessSession? = null
+    var webDevStatus by mutableStateOf<String?>(null)
+        private set
+    var webDevLog by mutableStateOf("")
+        private set
+
+    private fun startWebDevServer(command: String, workingDirectory: String, secrets: Map<String, String>) {
+        activeWebDevSession?.kill()
+        activeWebDevSession = null
+        webDevStatus = "Starting local web server..."
+        webDevLog = ""
+        viewModelScope.launch(Dispatchers.IO) {
+            var startedSession: ProcessSession? = null
+            val retainedOutput = StringBuilder()
+            fun retain(line: String) = synchronized(retainedOutput) {
+                retainedOutput.appendLine(line)
+                if (retainedOutput.length > MAX_WEB_DEV_LOG_CHARS) {
+                    retainedOutput.delete(0, retainedOutput.length - MAX_WEB_DEV_LOG_CHARS)
+                }
+            }
+
+            try {
+                val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+                val session = env.exec(command, workingDirectory, secrets)
+                startedSession = session
+                activeWebDevSession = session
+                val stdoutJob = launch {
+                    session.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { line ->
+                            retain(line)
+                            Log.d("WebDevServer", line)
+                        }
+                    }
+                }
+                val stderrJob = launch {
+                    session.errorStream.bufferedReader().useLines { lines ->
+                        lines.forEach { line ->
+                            retain(line)
+                            Log.w("WebDevServer", line)
+                        }
+                    }
+                }
+                val exitCode = session.waitFor()
+                stdoutJob.join()
+                stderrJob.join()
+                val output = synchronized(retainedOutput) { retainedOutput.toString().trim() }
+                withContext(Dispatchers.Main) {
+                    webDevLog = output
+                    if (activeWebDevSession === session) {
+                        webDevStatus = if (exitCode == 0) "Web server stopped." else "Web server failed."
+                        if (exitCode != 0) {
+                            fileError = buildString {
+                                append("Web server failed with exit code $exitCode.")
+                                if (output.isNotBlank()) append("\n\n").append(output.takeLast(4_000))
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (startedSession == null || activeWebDevSession === startedSession) {
+                    withContext(Dispatchers.Main) {
+                        webDevStatus = "Web server failed."
+                        fileError = "Could not start the web server: ${e.localizedMessage ?: "unknown error"}"
+                    }
+                }
+            } finally {
+                if (activeWebDevSession === startedSession) activeWebDevSession = null
+            }
+        }
+    }
 
     fun buildAndInstall(buildCommand: String = "./gradlew assembleDebug", secrets: Map<String, String> = emptyMap()) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -1376,6 +1517,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         activeBuildSession?.kill()
+        activeWebDevSession?.kill()
         environmentManager.close()
     }
 
@@ -1412,5 +1554,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             refreshProjects()
         }
+    }
+
+    companion object {
+        private const val MAX_WEB_DEV_LOG_CHARS = 64 * 1024
     }
 }
