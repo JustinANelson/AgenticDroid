@@ -1,6 +1,6 @@
 # AgenticDroid Readiness Review
 
-**Updated:** 2026-08-17  
+**Updated:** 2026-08-18  
 **Distribution decision:** Sideload-only while the downloaded-toolchain architecture requires `targetSdk = 28`.  
 **Current verdict:** **Ready for controlled developer sideload testing; not yet ready for a production release.**
 
@@ -8,7 +8,7 @@
 
 | Gate | Result | Evidence |
 |---|---|---|
-| JVM unit tests | PASS | 16 tests, 0 failures, 0 errors |
+| JVM unit tests | PASS | 61 tests, 0 failures, 0 errors |
 | Android lint | PASS | 0 errors, 4 dependency warnings |
 | Debug APK | PASS | `app/build/outputs/apk/debug/app-debug.apk` |
 | Release assembly | PASS | `app/build/outputs/apk/release/app-release-unsigned.apk` |
@@ -90,6 +90,21 @@ A new capability, verified end-to-end on a 16 KB-page-size x86_64 emulator (`Sma
 - **Daemon stability.** The default `org.gradle.jvmargs=-Xmx2048m` was too aggressive for this class of device (4 GB total RAM, shared with the Android system itself, Zygote, and this app's own foreground process); the Gradle daemon was repeatedly killed mid-build ("Gradle build daemon disappeared unexpectedly"). Lowered to `-Xmx640m`, after which a full build completed without a daemon crash.
 - Verified with a real, complete build: the in-app hammer/"Build & Install" action on this app's own project successfully compiled, resource-processed, dexed, and packaged a debug APK on-device, landing at both `.../files/downloads/latest_build.apk` and the project's normal `app/build/outputs/apk/debug/app-debug.apk` (both on external/shared storage, reachable without `run-as`). The only thing that stopped an actual install was the app's own (correct) signature-mismatch safety check, since the on-device build's auto-generated debug keystore differs from the one used to install the currently-running app.
 
+### Modular runner-package toolchain and agent extensibility
+
+The Node/Python/Rust/... toolchain bootstrap - previously one all-or-nothing, multi-hundred-MB download - is now split into independently installable `RunnerPackageGroup`s (`CORE`, `PYTHON`, `JVM`, `RUST`, `GOLANG`, `CPP`, `SSG`), so a project of one type no longer forces a download of every other language's toolchain.
+
+- **Per-group install/uninstall/refresh, with reference-counted shared packages.** `NodeBootstrapper.uninstallGroup()` only deletes a package's files once no other still-installed group (`CORE` always counts) still lists it - verified against real cross-group overlap this work surfaced (`RUST` and `CPP` both need `clang`/`binutils`; `CORE` and `PYTHON` both need `readline`/`ncurses`, the latter discovered because the bundled `sqlite3` CLI transitively depends on them). A "refresh" action re-downloads a group from Termux's live index in place, overwriting files package-by-package so there's never a window where a tool goes missing mid-update. Per-group disk usage is tracked and shown in the Environment screen.
+- **`CORE` now bundles the everyday CLI toolkit agent CLIs assume exists** - `ripgrep`, `jq`, `fd`, `tree`, `unzip`, `patch`, `diffutils`, and the `sqlite3` CLI - not just node/git/npm. Dependency chains (`jq`->`oniguruma`, `sqlite`->`readline`+`ncurses`, etc.) were verified against Termux's live package index and each package's `build.sh`, not guessed.
+- **Wi-Fi-only downloads** (default on) gate the bootstrap WorkManager job behind `NetworkType.UNMETERED`, protecting a user's mobile data plan from an unexpected multi-hundred-MB transfer.
+- **Bundled Gradle wrapper for new Android projects.** The `ANDROID_STARTER` template now writes a real `gradlew`/`gradle-wrapper.jar`/`gradle-wrapper.properties` (embedded base64, re-encoded to LF since git checked the source out as CRLF on the Windows dev machine this was built on - a POSIX `/bin/sh` would choke on a `#!/bin/sh\r\n` shebang) plus `gradle-daemon-jvm.properties`/`gradle.properties` pinned the same way this project's own build was tuned (see "On-device self-hosted Android app builds" above). Previously only this app's own repo could self-build on-device; a freshly scaffolded Android project could not.
+- **Starter/example project templates for every runner type** (Node.js, Kotlin/JVM, Rust, Go, C, Hugo), each verified to match its `ProjectRunnerAction`'s default commands exactly.
+- **Agent CLI update checking.** `AgentProfile` can report installed-vs-latest-published version (via `npm view` for the three npm-distributed agents; Antigravity is excluded, since it isn't npm-distributed and its manifest endpoint has no separate version-query concept) and force a reinstall on demand from the Agent Launcher screen.
+- **Per-project secrets** (API keys/tokens), encrypted via the existing Keystore-backed `CredentialManager`, injected as a real process environment for build actions and as a shell `export` prelude (values always single-quoted, names restricted to valid shell identifiers) for terminal-typed actions and agent launches.
+- **MCP server configuration.** A project's `.mcp.json` - the file Claude Code and Codex both discover automatically from a project directory - can now be managed from the app, extending agent capability with no app-specific plugin plumbing. Deliberately scoped to just this one standard file rather than each CLI's own bespoke plugin subcommands, which couldn't be verified without live per-CLI testing.
+- **Toolchain diagnostics.** A "Run Diagnostics" action actually execs each installed runner group's key binaries (not just its ready-marker file), since this toolchain's QEMU/musl/glibc behavior is empirically per-device-fragile (see the 16 KB-alignment and native-`aapt2` findings above, both discovered exactly this way).
+- Fixed a `ProjectType.detect()` bug where a bare `Makefile` (used by many non-C/C++ projects for generic build orchestration) was unconditionally misclassified as a C/C++ project.
+
 ### Build, test, and project hygiene
 - Resolved the stale failing installer test and replaced the template arithmetic test with security-boundary tests.
 - Reduced lint from 1 error/29 warnings to 0 errors/4 dependency warnings.
@@ -98,6 +113,7 @@ A new capability, verified end-to-end on a 16 KB-page-size x86_64 emulator (`Sma
 - Added CI, a project README, security reporting guidance, and a privacy/data-handling document.
 - Removed unused resources and fixed the terminal service reference leak and several lifecycle/lint issues.
 - Added three compiled device smoke tests for manifest permissions, direct-Keystore credential round trips, and workspace traversal rejection.
+- Found and fixed two source files (`RunnerPackageGroup.kt`, `GradleWrapperAssets.kt`) that a prior commit's code already depended on but that had never actually been `git add`-ed - `HEAD` would not have compiled as committed. A process gap, not a design one: worth a `git status`/clean-clone build check before trusting "committed" as "compiles."
 
 ## Remaining blockers and risks
 
@@ -141,7 +157,7 @@ Termux/Debian artifact hashes arrive through their live HTTPS indexes, so a comp
 
 Sixteen JVM tests now cover important boundaries and three instrumented smoke tests compile, but there is still no verified emulator/device run for OAuth, live SSH host-key behavior, bootstrap interruption/recovery, terminal backgrounding/process death, APK installation, storage pressure, or upgrades.
 
-**Next step:** Run the instrumented tests and complete a manual matrix across supported API levels and both supported ABIs. Include failed network/hash, changed SSH key, rotation, background/restore, wipe, and low-storage scenarios.
+**Next step:** Run the instrumented tests and complete a manual matrix across supported API levels and both supported ABIs. Include failed network/hash, changed SSH key, rotation, background/restore, wipe, and low-storage scenarios. Also unverified on-device (unit-tested and compiled only so far): per-group runner install/uninstall/refresh, the Wi-Fi-only download constraint, the bundled Gradle wrapper on a freshly scaffolded Android project, agent CLI update checking, project secrets injection, MCP server config, and the toolchain diagnostics action.
 
 ### R6 — Legacy credential migration shim remains temporarily
 
@@ -188,6 +204,8 @@ The on-device Android build path (`AndroidSdkBootstrapper`, native `aapt2`, the 
 - A self-build's output APK is debug-signed with an auto-generated on-device debug keystore, which will generally differ from whatever signed the currently-installed app - self-update installs are correctly blocked by the app's own signature-mismatch check, but there's no supported path yet for a self-build to actually replace a debug install produced elsewhere (e.g. Android Studio) short of manually aligning debug keystores.
 
 **Next step:** Exercise a second, dependency-heavier real-world Android project (not just this app) through the same on-device build path before relying on it generally. Decide whether unsupported SDK-component gaps should surface a clearer in-app message rather than a raw Gradle failure. If cross-environment self-update installs are wanted, document or automate a shared/matching debug keystore.
+
+The `ANDROID_STARTER` template now bundles its own Gradle wrapper (see "Modular runner-package toolchain and agent extensibility" above), so a freshly scaffolded project - not just this app's own repo - can in principle exercise this same on-device build path. That specific combination (new project, bundled wrapper, first build fetching the pinned Gradle distribution over the network) has not yet been run on a device.
 
 ## Production exit gate
 
