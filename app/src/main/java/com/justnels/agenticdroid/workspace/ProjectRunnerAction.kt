@@ -112,6 +112,39 @@ data class ProjectRunnerAction(
                         )
                     )
                 }
+                ProjectType.NODE_JS -> {
+                    val runCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "node index.js"
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "node_run",
+                            label = "Run Node.js Script",
+                            command = runCmd,
+                            isBuild = false,
+                            description = "Executes the entry point script with node",
+                            iconName = "play"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "node_install",
+                            label = "Install NPM Packages",
+                            command = "npm install",
+                            isBuild = false,
+                            description = "Installs dependencies from package.json",
+                            iconName = "install"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "node_test",
+                            label = "Run Tests",
+                            command = "npm test",
+                            isBuild = false,
+                            description = "Runs test suite using npm test",
+                            iconName = "play"
+                        )
+                    )
+                }
                 ProjectType.PYTHON -> {
                     val runCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "python main.py"
                     val previewUrl = customConfig?.previewUrl ?: type.defaultPreviewUrl
@@ -157,6 +190,157 @@ data class ProjectRunnerAction(
                             previewUrl = previewUrl,
                             description = "Opens in-app Web Preview panel",
                             iconName = "preview"
+                        )
+                    )
+                }
+                ProjectType.JVM -> {
+                    // The bundled JVM runner group is just OpenJDK + kotlinc (no Gradle/Maven
+                    // distribution is downloaded for a project) - default commands build
+                    // directly with kotlinc rather than assuming a Gradle wrapper the project
+                    // may not have.
+                    val runCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "java -jar app.jar"
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "jvm_run",
+                            label = "Run JVM App",
+                            command = runCmd,
+                            isBuild = false,
+                            description = "Executes the compiled Java/Kotlin application",
+                            iconName = "play"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "jvm_build",
+                            label = "Build (kotlinc)",
+                            command = customConfig?.customBuildCommand?.takeIf(String::isNotBlank) ?: "kotlinc Main.kt -include-runtime -d app.jar",
+                            isBuild = true,
+                            description = "Compiles Main.kt into a runnable app.jar with kotlinc",
+                            iconName = "build"
+                        )
+                    )
+                }
+                ProjectType.RUST -> {
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "rust_run",
+                            label = "Cargo Run",
+                            command = "cargo run",
+                            isBuild = false,
+                            description = "Compiles and runs the Rust project",
+                            iconName = "play"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "rust_build",
+                            label = "Cargo Build",
+                            command = "cargo build",
+                            isBuild = true,
+                            description = "Compiles the Rust project",
+                            iconName = "build"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "rust_test",
+                            label = "Cargo Test",
+                            command = "cargo test",
+                            isBuild = false,
+                            description = "Runs Rust unit and integration tests",
+                            iconName = "play"
+                        )
+                    )
+                }
+                ProjectType.GOLANG -> {
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "go_run",
+                            label = "Go Run",
+                            command = "go run .",
+                            isBuild = false,
+                            description = "Compiles and runs the Go application",
+                            iconName = "play"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "go_build",
+                            label = "Go Build",
+                            command = "go build .",
+                            isBuild = true,
+                            description = "Compiles the Go application",
+                            iconName = "build"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "go_test",
+                            label = "Go Test",
+                            command = "go test ./...",
+                            isBuild = false,
+                            description = "Runs Go tests",
+                            iconName = "play"
+                        )
+                    )
+                }
+                ProjectType.SSG -> {
+                    val serveCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "hugo serve"
+                    val previewUrl = customConfig?.previewUrl ?: type.defaultPreviewUrl
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "ssg_serve",
+                            label = "Serve Site",
+                            command = serveCmd,
+                            isBuild = false,
+                            opensPreview = true,
+                            previewUrl = previewUrl,
+                            description = "Starts the SSG development server",
+                            iconName = "play"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "ssg_build",
+                            label = "Build Static Site",
+                            command = customConfig?.customBuildCommand?.takeIf(String::isNotBlank) ?: "hugo",
+                            isBuild = true,
+                            description = "Generates the static site production build",
+                            iconName = "build"
+                        )
+                    )
+                }
+                ProjectType.CPP -> {
+                    val buildCmd = customConfig?.customBuildCommand?.takeIf(String::isNotBlank) ?: "make"
+                    val runCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "./a.out"
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "cpp_build",
+                            label = "Build (make)",
+                            command = buildCmd,
+                            isBuild = true,
+                            description = "Compiles the project using Makefile",
+                            iconName = "build"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "cpp_run",
+                            label = "Run Binary",
+                            command = runCmd,
+                            isBuild = false,
+                            description = "Executes the compiled binary",
+                            iconName = "play"
+                        )
+                    )
+                    actions.add(
+                        ProjectRunnerAction(
+                            id = "cpp_clean",
+                            label = "Clean",
+                            command = "make clean",
+                            isBuild = false,
+                            description = "Removes build artifacts",
+                            iconName = "clean"
                         )
                     )
                 }

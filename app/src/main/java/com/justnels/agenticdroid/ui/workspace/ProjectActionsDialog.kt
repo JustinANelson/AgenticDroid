@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.justnels.agenticdroid.env.RunnerPackageGroup
 import com.justnels.agenticdroid.workspace.Project
 import com.justnels.agenticdroid.workspace.ProjectMetadata
 import com.justnels.agenticdroid.workspace.ProjectRunnerAction
@@ -22,6 +23,8 @@ fun ProjectActionsDialog(
     projectType: ProjectType,
     actions: List<ProjectRunnerAction>,
     metadata: ProjectMetadata,
+    missingRunnerGroups: Set<RunnerPackageGroup> = emptySet(),
+    onInstallMissingRunners: () -> Unit = {},
     onDismiss: () -> Unit,
     onExecuteAction: (ProjectRunnerAction) -> Unit,
     onSaveMetadata: (ProjectMetadata) -> Unit
@@ -69,7 +72,13 @@ fun ProjectActionsDialog(
                                     text = when (type) {
                                         ProjectType.ANDROID -> "Android"
                                         ProjectType.WEB -> "Web"
+                                        ProjectType.NODE_JS -> "Node"
                                         ProjectType.PYTHON -> "Python"
+                                        ProjectType.JVM -> "JVM"
+                                        ProjectType.RUST -> "Rust"
+                                        ProjectType.GOLANG -> "Go"
+                                        ProjectType.SSG -> "SSG"
+                                        ProjectType.CPP -> "C/C++"
                                         ProjectType.CUSTOM -> "Custom"
                                     },
                                     style = MaterialTheme.typography.labelSmall
@@ -85,7 +94,13 @@ fun ProjectActionsDialog(
                         label = { Text("Run Command") },
                         placeholder = { Text(when (selectedType) {
                             ProjectType.WEB -> "npm run dev"
+                            ProjectType.NODE_JS -> "node index.js"
                             ProjectType.PYTHON -> "python main.py"
+                            ProjectType.JVM -> "java -jar app.jar"
+                            ProjectType.RUST -> "cargo run"
+                            ProjectType.GOLANG -> "go run ."
+                            ProjectType.SSG -> "hugo serve"
+                            ProjectType.CPP -> "./a.out"
                             ProjectType.ANDROID -> "./gradlew assembleDebug"
                             ProjectType.CUSTOM -> "npm start"
                         }) },
@@ -99,6 +114,10 @@ fun ProjectActionsDialog(
                         label = { Text("Build Command") },
                         placeholder = { Text(when (selectedType) {
                             ProjectType.WEB -> "npm run build"
+                            ProjectType.RUST -> "cargo build"
+                            ProjectType.GOLANG -> "go build ."
+                            ProjectType.JVM -> "kotlinc Main.kt -include-runtime -d app.jar"
+                            ProjectType.SSG -> "hugo"
                             ProjectType.ANDROID -> "./gradlew assembleDebug"
                             else -> "make"
                         }) },
@@ -137,6 +156,32 @@ fun ProjectActionsDialog(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+
+                    if (missingRunnerGroups.isNotEmpty()) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Missing runner: ${missingRunnerGroups.joinToString { it.displayName }}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    text = "Some of these actions won't work until it's installed.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                TextButton(
+                                    onClick = onInstallMissingRunners,
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Text("Install Now")
+                                }
+                            }
+                        }
                     }
 
                     LazyColumn(

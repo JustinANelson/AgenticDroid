@@ -160,6 +160,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isNodeInstalled by mutableStateOf(false)
         private set
 
+    var installedRunnerGroups by mutableStateOf<Set<com.justnels.agenticdroid.env.RunnerPackageGroup>>(emptySet())
+        private set
+
     private val prefs = application.getSharedPreferences("agentic_prefs", Context.MODE_PRIVATE)
     private val credentialManager = CredentialManager(application)
 
@@ -203,7 +206,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             workspaceRoot.deleteRecursively()
             environmentManager.bootstrapper.clear()
             withContext(Dispatchers.Main) {
-                isNodeInstalled = false
+                refreshNodeInstalledStatus()
                 resetRequested = true
             }
         }
@@ -220,7 +223,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshNodeInstalledStatus() {
         isNodeInstalled = environmentManager.bootstrapper.isInstalled()
+        installedRunnerGroups = environmentManager.installedRunnerGroups()
     }
+
+    /** Groups a project of this type needs but that aren't installed on-device yet. */
+    fun missingRunnerGroups(type: com.justnels.agenticdroid.workspace.ProjectType): Set<com.justnels.agenticdroid.env.RunnerPackageGroup> =
+        com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type) - installedRunnerGroups
 
     private val gitManager: GitManager
         get() {
@@ -1125,8 +1133,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         else androidx.work.WorkManager.getInstance(application).getWorkInfoByIdLiveData(id)
     }
 
-    fun startBootstrap() {
-        environmentManager.startBootstrap()
+    private var lastRequestedRunnerGroups: Set<com.justnels.agenticdroid.env.RunnerPackageGroup> =
+        setOf(com.justnels.agenticdroid.env.RunnerPackageGroup.CORE)
+
+    fun startBootstrap(groups: Set<com.justnels.agenticdroid.env.RunnerPackageGroup> = lastRequestedRunnerGroups) {
+        lastRequestedRunnerGroups = groups
+        environmentManager.startBootstrap(groups)
+        bootstrapWorkId.value = environmentManager.bootstrapWorkId
+    }
+
+    /** Installs whatever [type] needs beyond what's already on-device. */
+    fun installRunnersFor(type: com.justnels.agenticdroid.workspace.ProjectType) {
+        startBootstrap(installedRunnerGroups + com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type))
+    }
+
+    val wifiOnlyDownloads: Boolean get() = environmentManager.wifiOnlyDownloads
+
+    fun setWifiOnlyDownloads(enabled: Boolean) = environmentManager.updateWifiOnlyDownloads(enabled)
+
+    fun runnerGroupSizeBytes(group: com.justnels.agenticdroid.env.RunnerPackageGroup): Long =
+        environmentManager.runnerGroupSizeBytes(group)
+
+    fun uninstallRunnerGroup(group: com.justnels.agenticdroid.env.RunnerPackageGroup) {
+        viewModelScope.launch(Dispatchers.IO) {
+            environmentManager.uninstallRunnerGroup(group)
+            withContext(Dispatchers.Main) { refreshNodeInstalledStatus() }
+        }
+    }
+
+    fun refreshRunnerGroup(group: com.justnels.agenticdroid.env.RunnerPackageGroup) {
+        environmentManager.refreshRunnerGroup(group)
         bootstrapWorkId.value = environmentManager.bootstrapWorkId
     }
 
@@ -1153,7 +1189,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { environmentManager.cancelBootstrap().result.get() }
             environmentManager.bootstrapper.clear()
             withContext(Dispatchers.Main) {
-                isNodeInstalled = false
+                refreshNodeInstalledStatus()
                 dismissBootstrap()
             }
         }
@@ -1169,7 +1205,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        isNodeInstalled = environmentManager.bootstrapper.isInstalled()
+        refreshNodeInstalledStatus()
         viewModelScope.launch(Dispatchers.IO) {
             environmentManager.reattachBootstrapWork()
             withContext(Dispatchers.Main) {

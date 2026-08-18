@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
 import com.justnels.agenticdroid.env.EnvironmentConfig
 import com.justnels.agenticdroid.env.EnvironmentManager
+import com.justnels.agenticdroid.env.RunnerPackageGroup
 import com.justnels.agenticdroid.env.SSHConfig
 import com.justnels.agenticdroid.env.SSHAuthType
 import androidx.compose.runtime.livedata.observeAsState
@@ -68,6 +69,25 @@ fun EnvironmentScreen(
             hintsShown = viewModel.hintsShown,
             onDismiss = { viewModel.markHintShown(it) }
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "Wi-Fi only downloads", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Toolchain downloads can be several hundred MB",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = viewModel.wifiOnlyDownloads,
+                onCheckedChange = { viewModel.setWifiOnlyDownloads(it) }
+            )
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -144,6 +164,29 @@ fun EnvironmentScreen(
                     onRemove = { manager.removeEnvironment(config) }
                 )
             }
+
+            if (viewModel.isNodeInstalled && !isBootstrapping) {
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(text = "Runners", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "Install support for other project types only when you need it.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                items(RunnerPackageGroup.optional) { group ->
+                    RunnerGroupCard(
+                        group = group,
+                        isInstalled = group in viewModel.installedRunnerGroups,
+                        sizeBytes = viewModel.runnerGroupSizeBytes(group),
+                        onInstall = { viewModel.startBootstrap(viewModel.installedRunnerGroups + group) },
+                        onUninstall = { viewModel.uninstallRunnerGroup(group) },
+                        onRefresh = { viewModel.refreshRunnerGroup(group) }
+                    )
+                }
+            }
         }
     }
 
@@ -201,9 +244,9 @@ fun EnvironmentCard(
                 if (isActive) {
                     Text(text = "Active", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 } else if (!isInstalled) {
-                    Text(text = "Tap to Download & Setup (~150MB)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    Text(text = "Tap to Download & Setup (~100MB)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 } else if (config is EnvironmentConfig.Node) {
-                    Text(text = "Installed (Node, Python, Pip, NPM, Git)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    Text(text = "Installed (Node, Git, NPM, curl, gh, ripgrep, jq, fd)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
             if (isActive) {
@@ -222,6 +265,80 @@ fun EnvironmentCard(
             }
         }
     }
+}
+
+@Composable
+fun RunnerGroupCard(
+    group: RunnerPackageGroup,
+    isInstalled: Boolean,
+    sizeBytes: Long,
+    onInstall: () -> Unit,
+    onUninstall: () -> Unit,
+    onRefresh: () -> Unit
+) {
+    var showRemoveConfirm by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(enabled = !isInstalled) { onInstall() }
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isInstalled) Icons.Default.Check else Icons.Default.Download,
+                contentDescription = null,
+                tint = if (isInstalled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = group.displayName, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = if (isInstalled) "Installed" + (formatBytes(sizeBytes)?.let { " ($it)" } ?: "") else group.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isInstalled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (!isInstalled) {
+                TextButton(onClick = onInstall) {
+                    Text("Install")
+                }
+            } else {
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Check for updates to ${group.displayName}")
+                }
+                IconButton(onClick = { showRemoveConfirm = true }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Remove ${group.displayName}", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+
+    if (showRemoveConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRemoveConfirm = false },
+            title = { Text("Remove ${group.displayName}?") },
+            text = { Text("Frees up the space it uses. You can reinstall it any time.") },
+            confirmButton = {
+                Button(
+                    onClick = { showRemoveConfirm = false; onUninstall() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+private fun formatBytes(bytes: Long): String? {
+    if (bytes <= 0) return null
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1024.0) "%.1fGB".format(mb / 1024.0) else "%.0fMB".format(mb)
 }
 
 @Composable

@@ -34,6 +34,23 @@ object NodeRuntime {
     }
     fun readyMarker(context: Context): File = File(rootDir(context), ".agenticdroid-ready")
 
+    /** Per-group readiness marker for every group beyond [RunnerPackageGroup.CORE]. */
+    fun groupReadyMarker(context: Context, group: RunnerPackageGroup): File =
+        File(rootDir(context), ".agenticdroid-ready-${group.name.lowercase()}")
+
+    /**
+     * Records exactly which files (relative to [usrDir]) a given Termux package's
+     * install wrote, so an unused package can later be removed without touching files a
+     * still-installed group also needs (see NodeBootstrapper.uninstallGroup). Persists
+     * across bootstrap() calls - unlike the per-call extraction-resume markers, which are
+     * swept after every successful bootstrap().
+     */
+    fun manifestFile(context: Context, termuxPackage: String): File =
+        File(File(rootDir(context), ".agenticdroid-manifests"), termuxPackage)
+
+    /** Tracks each installed group's on-disk footprint, in bytes - shown in the Runners UI. */
+    fun groupSizesFile(context: Context): File = File(rootDir(context), ".agenticdroid-group-sizes")
+
     /**
      * Bionic-built QEMU user-mode emulator, used to run musl-linked native binaries
      * some npm-distributed agent CLIs ship. Android's Zygote seccomp filter kills a
@@ -62,6 +79,14 @@ object NodeRuntime {
         return marker.isFile &&
             marker.readText().trim() == expectedVersion &&
             nodeBinary(context).canExecute()
+    }
+
+    /** Whether [group] (CORE included) has been fully installed at [expectedVersion]. */
+    fun isGroupInstalled(context: Context, expectedVersion: String, group: RunnerPackageGroup): Boolean {
+        if (!isInstalled(context, expectedVersion)) return false
+        if (group == RunnerPackageGroup.CORE) return true
+        val marker = groupReadyMarker(context, group)
+        return marker.isFile && marker.readText().trim() == expectedVersion
     }
 
     /** Applies the shared PATH/LD_LIBRARY_PATH/HOME setup any spawned process needs. */

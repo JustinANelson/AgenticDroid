@@ -24,9 +24,21 @@ class ProjectEnvironmentTest {
     }
 
     @Test
-    fun testDetectWebProject() {
+    fun testDetectPackageJsonOnlyProjectIsNodeJs() {
+        // No index.html/vite/next/webpack config alongside it - a bare package.json is
+        // NODE_JS, not WEB (see ProjectType.detect's WEB-vs-NODE_JS split).
+        val dir = tempFolder.newFolder("MyNodeApp")
+        File(dir, "package.json").writeText("{\"name\": \"my-node-app\"}")
+
+        val detected = ProjectType.detect(dir)
+        assertEquals(ProjectType.NODE_JS, detected)
+    }
+
+    @Test
+    fun testDetectWebProjectWithIndexHtml() {
         val dir = tempFolder.newFolder("MyWebApp")
         File(dir, "package.json").writeText("{\"name\": \"my-web-app\"}")
+        File(dir, "index.html").writeText("<!doctype html>")
 
         val detected = ProjectType.detect(dir)
         assertEquals(ProjectType.WEB, detected)
@@ -122,7 +134,97 @@ class ProjectEnvironmentTest {
         assertTrue(File(dir, "settings.gradle.kts").exists())
         assertTrue(File(dir, "app/build.gradle.kts").exists())
         assertTrue(File(dir, "app/src/main/AndroidManifest.xml").exists())
+        assertTrue(File(dir, "app/src/main/java/com/example/androidstarter/MainActivity.kt").exists())
         assertEquals(ProjectType.ANDROID, ProjectType.detect(dir))
+
+        // Gradle wrapper must be a working, matching set - not just "some files exist".
+        val gradlew = File(dir, "gradlew")
+        assertTrue(gradlew.exists())
+        assertTrue(gradlew.canExecute())
+        assertTrue(gradlew.readText().startsWith("#!/bin/sh"))
+        assertTrue(gradlew.readBytes().none { it == '\r'.code.toByte() }) // must be LF, not CRLF
+        assertTrue(File(dir, "gradlew.bat").exists())
+        assertTrue(File(dir, "gradle/wrapper/gradle-wrapper.jar").length() > 0)
+        val wrapperProps = File(dir, "gradle/wrapper/gradle-wrapper.properties").readText()
+        assertTrue(wrapperProps.contains("distributionUrl"))
+        assertEquals("toolchainVersion=17", File(dir, "gradle/gradle-daemon-jvm.properties").readLines().last())
+        assertTrue(File(dir, "gradle.properties").readText().contains("org.gradle.jvmargs"))
+    }
+
+    @Test
+    fun testScaffoldNodeJsStarterTemplate() {
+        val dir = tempFolder.newFolder("NodeStarter")
+        ProjectTemplate.NODE_JS_STARTER.scaffold(dir, "NodeStarter")
+
+        assertTrue(File(dir, "index.js").exists())
+        assertTrue(File(dir, "package.json").exists())
+        // No index.html/vite/next config, so this must detect as NODE_JS, not WEB - see
+        // ProjectType.detect's WEB-vs-NODE_JS split.
+        assertEquals(ProjectType.NODE_JS, ProjectType.detect(dir))
+    }
+
+    @Test
+    fun testScaffoldJvmStarterTemplate() {
+        val dir = tempFolder.newFolder("JvmStarter")
+        ProjectTemplate.JVM_STARTER.scaffold(dir, "JvmStarter")
+
+        assertTrue(File(dir, "Main.kt").exists())
+        assertEquals(ProjectType.JVM, ProjectType.detect(dir))
+
+        val actions = ProjectRunnerAction.defaultActionsFor(ProjectType.JVM)
+        val buildCmd = actions.find { it.id == "jvm_build" }!!.command
+        val runCmd = actions.find { it.id == "jvm_run" }!!.command
+        // The default commands must reference exactly what this template scaffolds -
+        // kotlinc compiling Main.kt into app.jar, no Gradle/Maven wrapper assumed.
+        assertTrue(buildCmd.contains("Main.kt"))
+        assertTrue(buildCmd.contains("app.jar"))
+        assertTrue(runCmd.contains("app.jar"))
+    }
+
+    @Test
+    fun testScaffoldRustStarterTemplate() {
+        val dir = tempFolder.newFolder("RustStarter")
+        ProjectTemplate.RUST_STARTER.scaffold(dir, "RustStarter")
+
+        assertTrue(File(dir, "Cargo.toml").exists())
+        assertTrue(File(dir, "src/main.rs").exists())
+        assertEquals(ProjectType.RUST, ProjectType.detect(dir))
+    }
+
+    @Test
+    fun testScaffoldGolangStarterTemplate() {
+        val dir = tempFolder.newFolder("GoStarter")
+        ProjectTemplate.GOLANG_STARTER.scaffold(dir, "GoStarter")
+
+        assertTrue(File(dir, "go.mod").exists())
+        assertTrue(File(dir, "main.go").exists())
+        assertEquals(ProjectType.GOLANG, ProjectType.detect(dir))
+    }
+
+    @Test
+    fun testScaffoldCppStarterTemplate() {
+        val dir = tempFolder.newFolder("CppStarter")
+        ProjectTemplate.CPP_STARTER.scaffold(dir, "CppStarter")
+
+        assertTrue(File(dir, "main.c").exists())
+        assertTrue(File(dir, "Makefile").exists())
+        assertEquals(ProjectType.CPP, ProjectType.detect(dir))
+
+        // The Makefile's default target must match the "make" / "./a.out" commands
+        // ProjectRunnerAction.CPP defaults to.
+        val makefile = File(dir, "Makefile").readText()
+        assertTrue(makefile.contains("a.out"))
+    }
+
+    @Test
+    fun testScaffoldSsgStarterTemplate() {
+        val dir = tempFolder.newFolder("SsgStarter")
+        ProjectTemplate.SSG_STARTER.scaffold(dir, "SsgStarter")
+
+        assertTrue(File(dir, "hugo.toml").exists())
+        assertTrue(File(dir, "content/_index.md").exists())
+        assertTrue(File(dir, "layouts/index.html").exists())
+        assertEquals(ProjectType.SSG, ProjectType.detect(dir))
     }
 
     @Test

@@ -12,6 +12,7 @@ import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.IOException
 import java.io.PushbackInputStream
+import java.util.zip.ZipInputStream
 
 /**
  * Extracts Termux .deb packages (ar archive containing data.tar.xz) and Alpine .apk
@@ -47,7 +48,7 @@ object ArchiveExtractor {
     }
 
     private fun InputStream.copyEntryTo(outFile: File, declaredSize: Long): Long {
-        if (declaredSize < 0 || declaredSize > MAX_ENTRY_BYTES) {
+        if (declaredSize != -1L && (declaredSize < 0 || declaredSize > MAX_ENTRY_BYTES)) {
             throw IOException("Archive entry has invalid or excessive size: $declaredSize")
         }
         var copied = 0L
@@ -64,7 +65,9 @@ object ArchiveExtractor {
         return copied
     }
 
-    fun extractDeb(debFile: File, outDir: File, pathPrefix: String) {
+    /** Returns the relative paths (below [outDir]) of every file this package wrote - used to
+     *  later remove exactly this package's files when uninstalling a [RunnerPackageGroup]. */
+    fun extractDeb(debFile: File, outDir: File, pathPrefix: String): List<String> {
         outDir.mkdirs()
         ArArchiveInputStream(BufferedInputStream(debFile.inputStream())).use { ar ->
             var entry = ar.nextEntry
@@ -79,8 +82,7 @@ object ArchiveExtractor {
                         entry.name == "data.tar" -> entryStream
                         else -> throw IOException("Unsupported Debian data archive: ${entry.name}")
                     }
-                    extractTar(decompressed, outDir, pathPrefix, ExtractionBudget())
-                    return
+                    return extractTar(decompressed, outDir, pathPrefix, ExtractionBudget())
                 }
                 entry = ar.nextEntry
             }
@@ -113,14 +115,41 @@ object ArchiveExtractor {
         }
     }
 
+    fun extractZip(zipFile: File, outDir: File, pathPrefix: String) {
+        outDir.mkdirs()
+        ZipInputStream(BufferedInputStream(zipFile.inputStream())).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                val idx = entry.name.indexOf(pathPrefix)
+                if (!entry.isDirectory && idx >= 0) {
+                    val relPath = entry.name.substring(idx + pathPrefix.length).trimStart('/')
+                    if (relPath.isNotEmpty()) {
+                        val outFile = resolveInside(outDir, relPath)
+                        outFile.parentFile?.mkdirs()
+                        zip.copyEntryTo(outFile, entry.size)
+
+                        val isBinaryDir = relPath.startsWith("bin/") ||
+                                         relPath.contains("/bin/") ||
+                                         relPath.contains("/libexec/")
+                        if (isBinaryDir) {
+                            outFile.setExecutable(true)
+                        }
+                    }
+                }
+                entry = zip.nextEntry
+            }
+        }
+    }
+
     private fun extractTar(
         rawStream: InputStream,
         outDir: File,
         pathPrefix: String,
         budget: ExtractionBudget
-    ) {
+    ): List<String> {
         data class PendingLink(val relPath: String, val linkName: String)
         val pending = mutableListOf<PendingLink>()
+        val written = mutableListOf<String>()
         TarArchiveInputStream(rawStream, TAR_RECORD_SIZE).use { tar ->
             var entry: TarArchiveEntry? = tar.nextEntry
             while (entry != null) {
@@ -142,11 +171,12 @@ object ArchiveExtractor {
                                 outFile.delete()
                                 throw IOException("Archive exceeds total extraction size limit")
                             }
-                            
+                            written.add(relPath)
+
                             // On Android, we should be aggressive about setting execute permissions
                             // for anything in bin/ or libexec/ or if the tar entry has it.
-                            val isBinaryDir = relPath.startsWith("bin/") || 
-                                             relPath.contains("/bin/") || 
+                            val isBinaryDir = relPath.startsWith("bin/") ||
+                                             relPath.contains("/bin/") ||
                                              relPath.contains("/libexec/")
                             if (isBinaryDir || (entry.mode and 0b001000000) != 0) {
                                 outFile.setExecutable(true)
@@ -159,7 +189,7 @@ object ArchiveExtractor {
         }
         var remaining = pending
         repeat(remaining.size + 1) {
-            if (remaining.isEmpty()) return
+            if (remaining.isEmpty()) return written
             val stillPending = mutableListOf<PendingLink>()
             for (link in remaining) {
                 val outFile = resolveInside(outDir, link.relPath)
@@ -169,12 +199,14 @@ object ArchiveExtractor {
                 if (targetFile.isFile) {
                     outFile.parentFile?.mkdirs()
                     targetFile.copyTo(outFile, overwrite = true)
+                    written.add(link.relPath)
                 } else {
                     stillPending.add(link)
                 }
             }
             remaining = stillPending
         }
+        return written
     }
 
 }

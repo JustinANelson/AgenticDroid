@@ -32,29 +32,14 @@ import java.security.MessageDigest
  */
 class NodeBootstrapper(private val context: Context) {
     private val tag = "NodeBootstrapper"
-    private val provisioningVersion = "11"
+    // Bumped from "14": package installation is now split into independently-installable
+    // RunnerPackageGroups instead of one all-or-nothing list, so any prior install (whose
+    // on-disk layout the old code assumed) needs to be redone under the new bookkeeping.
+    // Bumped again "15"->"16": added ripgrep/jq/fd/tree/unzip/patch/diffutils/sqlite to
+    // CORE.
+    private val provisioningVersion = "16"
     private val maxArtifactBytes = 512L * 1024L * 1024L
 
-    // Bionic-native Termux packages, resolved by name against Termux's live index and
-    // merged into one usr/ tree (matching Termux's own layout, just relocated).
-    private val termuxPackages = listOf(
-        "nodejs", "libc++", "openssl", "c-ares", "libicu", "libsqlite", "zlib", "libffi",
-        "git", "libcurl", "libexpat", "libiconv", "pcre2", "less",
-        "libnghttp2", "libnghttp3", "libngtcp2", "libssh2",
-        "curl", "gh",
-        "npm",
-        // Python 3 toolchain and dependencies
-        "gdbm", "libandroid-posix-semaphore", "libcrypt", "ncurses", "ncurses-ui-libs",
-        "readline", "python", "python-pip", "python-ensurepip-wheels",
-        // qemu-user-<arch> and its dependency closure (Depends: fields plus libzstd,
-        // which libdw needs but doesn't declare) - see qemuPackageName().
-        "glib", "libandroid-shmem", "libdw", "libgnutls", "libpixman", "libandroid-support",
-        "argp", "libbz2", "liblzma", "libelf", "libgmp", "libnettle", "ca-certificates",
-        "libidn2", "libtasn1", "libunbound", "libunistring", "p11-kit", "zstd",
-        // used at agent-install time to unpack Antigravity CLI's release archive - see
-        // AgentProfile's Antigravity install command.
-        "tar", "libacl", "libandroid-glob", "libandroid-selinux"
-    )
     // This is a path *inside Termux package archives*, not an Android filesystem path.
     @Suppress("SdCardPath")
     private val DEB_PATH_PREFIX = "/data/data/com.termux/files/usr/"
@@ -218,7 +203,90 @@ class NodeBootstrapper(private val context: Context) {
         if (glibcRoot.isDirectory) writeResolvConf(glibcRoot)
     }
 
+    /** Whether the always-required [RunnerPackageGroup.CORE] group is installed. */
     fun isInstalled(): Boolean = NodeRuntime.isInstalled(context, provisioningVersion)
+
+    fun isGroupInstalled(group: RunnerPackageGroup): Boolean =
+        NodeRuntime.isGroupInstalled(context, provisioningVersion, group)
+
+    fun installedGroups(): Set<RunnerPackageGroup> =
+        RunnerPackageGroup.entries.filterTo(mutableSetOf()) { isGroupInstalled(it) }
+
+    /** Approximate on-disk footprint of [group], as recorded the last time it was installed. */
+    fun groupSizeBytes(group: RunnerPackageGroup): Long = readGroupSizes()[group] ?: 0L
+
+    private fun readGroupSizes(): Map<RunnerPackageGroup, Long> {
+        val file = NodeRuntime.groupSizesFile(context)
+        if (!file.isFile) return emptyMap()
+        return file.readLines().mapNotNull { line ->
+            val (name, bytes) = line.split('=', limit = 2).takeIf { it.size == 2 } ?: return@mapNotNull null
+            val group = runCatching { RunnerPackageGroup.valueOf(name) }.getOrNull() ?: return@mapNotNull null
+            group to (bytes.toLongOrNull() ?: 0L)
+        }.toMap()
+    }
+
+    private fun recordGroupSize(group: RunnerPackageGroup, bytes: Long) {
+        val sizes = readGroupSizes().toMutableMap()
+        sizes[group] = bytes
+        NodeRuntime.groupSizesFile(context).writeText(
+            sizes.entries.joinToString("\n") { (g, b) -> "${g.name}=$b" }
+        )
+    }
+
+    private fun forgetGroupSize(group: RunnerPackageGroup) {
+        val sizes = readGroupSizes().toMutableMap()
+        if (sizes.remove(group) != null) {
+            NodeRuntime.groupSizesFile(context).writeText(
+                sizes.entries.joinToString("\n") { (g, b) -> "${g.name}=$b" }
+            )
+        }
+    }
+
+    /**
+     * Removes [group]'s files and frees the space it used, leaving every other installed
+     * group (CORE included) intact even if they happen to share a package with it (e.g.
+     * RUST and CPP both need clang/binutils) - a package is only deleted once no
+     * remaining installed group's list still names it. [RunnerPackageGroup.CORE] itself
+     * can't be uninstalled; nothing else in this app works without it.
+     */
+    suspend fun uninstallGroup(group: RunnerPackageGroup) = withContext(Dispatchers.IO) {
+        require(group != RunnerPackageGroup.CORE) { "CORE cannot be uninstalled" }
+        if (!isGroupInstalled(group)) return@withContext
+        val stillNeeded = RunnerPackageGroup.packagesNeededAfterRemoving(group, installedGroups())
+        val usr = NodeRuntime.usrDir(context)
+        for (pkg in group.termuxPackages) {
+            if (pkg in stillNeeded) continue
+            val manifest = NodeRuntime.manifestFile(context, pkg)
+            if (manifest.isFile) {
+                manifest.readLines().forEach { relPath ->
+                    if (relPath.isNotBlank()) File(usr, relPath).delete()
+                }
+                manifest.delete()
+            }
+        }
+        // Tidy up directories a removed package left empty - purely cosmetic/disk-usage
+        // hygiene, safe even if some still hold files from other packages.
+        usr.walkBottomUp().forEach { dir ->
+            if (dir != usr && dir.isDirectory) dir.delete()
+        }
+        NodeRuntime.groupReadyMarker(context, group).delete()
+        forgetGroupSize(group)
+    }
+
+    /**
+     * Forces [group] to be re-downloaded and re-extracted from Termux's current live
+     * index next time [bootstrap] runs, picking up any package updates since it was last
+     * installed - existing files are overwritten in place package-by-package rather than
+     * deleted upfront, so there's no window where a tool this group provides is missing.
+     * CORE is deliberately excluded: clearing its readiness marker would make
+     * [isGroupInstalled] report every group as not-installed (all of them require CORE)
+     * for the whole span of the re-download, even though CORE's files are still fully
+     * present and working on disk the entire time.
+     */
+    fun markGroupForRefresh(group: RunnerPackageGroup) {
+        require(group != RunnerPackageGroup.CORE) { "CORE cannot be refreshed in place" }
+        NodeRuntime.groupReadyMarker(context, group).delete()
+    }
 
     fun clear() {
         NodeRuntime.rootDir(context).deleteRecursively()
@@ -256,19 +324,41 @@ class NodeBootstrapper(private val context: Context) {
         )
     }
 
-    suspend fun bootstrap(onProgress: (String) -> Unit) = withContext(Dispatchers.IO) {
-        if (isInstalled()) {
+    /**
+     * Installs [groups] (CORE always included implicitly) without re-downloading any
+     * group that's already installed at the current [provisioningVersion] - so calling
+     * this again later with a different set of groups only fetches what's newly needed,
+     * instead of the old all-or-nothing behavior.
+     */
+    suspend fun bootstrap(
+        groups: Set<RunnerPackageGroup>,
+        onProgress: (String) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        val requestedGroups = groups + RunnerPackageGroup.CORE
+        val pendingGroups = requestedGroups.filterNot { isGroupInstalled(it) }
+        if (pendingGroups.isEmpty()) {
             ensureResolvConf()
-            onProgress("Node environment ready!")
+            onProgress("Environment ready!")
             return@withContext
         }
+        val coreIsPending = RunnerPackageGroup.CORE in pendingGroups
+
         val root = NodeRuntime.rootDir(context)
         val versionMarker = inProgressVersionMarker()
-        val resuming = root.isDirectory && versionMarker.isFile &&
-            versionMarker.readText().trim() == provisioningVersion
-        if (!resuming) {
+        // A stale-version root (from a previous provisioningVersion) can't be reused for
+        // an incremental install - wipe it. A same-version root is safe to build on,
+        // whether it holds a fully-installed CORE (adding a new group) or a
+        // partially-downloaded one from an interrupted run (resuming it).
+        val existingVersion = when {
+            NodeRuntime.readyMarker(context).isFile -> NodeRuntime.readyMarker(context).readText().trim()
+            versionMarker.isFile -> versionMarker.readText().trim()
+            else -> null
+        }
+        if (!root.isDirectory || existingVersion != provisioningVersion) {
             clear()
             root.mkdirs()
+        }
+        if (!versionMarker.isFile || versionMarker.readText().trim() != provisioningVersion) {
             versionMarker.writeText("$provisioningVersion\n")
         }
         val usr = NodeRuntime.usrDir(context)
@@ -278,16 +368,19 @@ class NodeBootstrapper(private val context: Context) {
         val termuxArch = TermuxPackageIndex.termuxArch(abi)
         val cacheDir = File(context.cacheDir, "node-bootstrap-dl").also { it.mkdirs() }
 
-        // Total download steps across the whole bootstrap, so progress text can show
+        val pendingPackages = pendingGroups.flatMap { it.termuxPackages } +
+            (if (coreIsPending) listOf(qemuPackageName(abi)) else emptyList())
+        // Total download steps across this bootstrap call, so progress text can show
         // "(n/total)" instead of an unbounded spinner during a multi-minute install.
-        val totalSteps = termuxPackages.size + 1 /* qemu */ + 1 /* musl loader */ + 2 /* glibc: libc6, libgcc-s1 */
+        val totalSteps = pendingPackages.size +
+            (if (coreIsPending) 1 /* musl loader */ + 2 /* glibc: libc6, libgcc-s1 */ else 0)
         var completedSteps = 0
 
         try {
             onProgress("Resolving package versions... (0/$totalSteps)")
             val index = TermuxPackageIndex.fetchIndex(termuxArch)
 
-            for (pkg in termuxPackages + qemuPackageName(abi)) {
+            for (pkg in pendingPackages) {
                 currentCoroutineContext().ensureActive()
                 val markerKey = "termux:$pkg"
                 if (isExtracted(markerKey)) {
@@ -296,13 +389,17 @@ class NodeBootstrapper(private val context: Context) {
                     onProgress("Installing $pkg... (${completedSteps + 1}/$totalSteps)")
                     val artifact = index[pkg] ?: throw IOException("Package not found in Termux index: $pkg")
                     val deb = downloadPackage(artifact, cacheDir)
-                    ArchiveExtractor.extractDeb(deb, usr, DEB_PATH_PREFIX)
+                    val writtenFiles = ArchiveExtractor.extractDeb(deb, usr, DEB_PATH_PREFIX)
                     deb.delete()
+                    NodeRuntime.manifestFile(context, pkg).apply {
+                        parentFile?.mkdirs()
+                        writeText(writtenFiles.joinToString("\n"))
+                    }
                     markExtracted(markerKey)
                 }
                 completedSteps++
             }
-            
+
             // Thoroughly ensure all binaries and shared libraries have correct permissions.
             // Termux's packages often have subdirectories with more binaries.
             usr.walkBottomUp().forEach { file ->
@@ -315,20 +412,26 @@ class NodeBootstrapper(private val context: Context) {
                 }
             }
 
+            // The wrapper/env setup below is idempotent and only touches files that exist
+            // (npm/npx need CORE, python/pip need PYTHON, java/javac need JVM) - safe to
+            // always re-run regardless of which groups this particular call installed.
+
             // npm ships as a JS entry point (lib/node_modules/npm/bin/npm-cli.js), not a
             // bin/npm binary - add the usual wrapper so `npm`/`npx` work as plain PATH
             // commands, matching Termux's own convention.
             val nodePath = NodeRuntime.nodeBinary(context).absolutePath
             val npmCli = NodeRuntime.npmCli(context)
-            File(NodeRuntime.binDir(context), "npm").writeText(
-                "#!/system/bin/sh\nexec \"$nodePath\" \"${npmCli.absolutePath}\" \"\$@\"\n"
-            )
-            val npxCli = File(npmCli.parentFile, "npx-cli.js")
-            File(NodeRuntime.binDir(context), "npx").writeText(
-                "#!/system/bin/sh\nexec \"$nodePath\" \"${npxCli.absolutePath}\" \"\$@\"\n"
-            )
-            File(NodeRuntime.binDir(context), "npm").setExecutable(true)
-            File(NodeRuntime.binDir(context), "npx").setExecutable(true)
+            if (npmCli.exists()) {
+                File(NodeRuntime.binDir(context), "npm").writeText(
+                    "#!/system/bin/sh\nexec \"$nodePath\" \"${npmCli.absolutePath}\" \"\$@\"\n"
+                )
+                val npxCli = File(npmCli.parentFile, "npx-cli.js")
+                File(NodeRuntime.binDir(context), "npx").writeText(
+                    "#!/system/bin/sh\nexec \"$nodePath\" \"${npxCli.absolutePath}\" \"\$@\"\n"
+                )
+                File(NodeRuntime.binDir(context), "npm").setExecutable(true)
+                File(NodeRuntime.binDir(context), "npx").setExecutable(true)
+            }
 
             // Python and Pip wrappers: ensure python, python3, pip, pip3 can be invoked directly
             val python3Bin = File(NodeRuntime.binDir(context), "python3")
@@ -339,17 +442,19 @@ class NodeBootstrapper(private val context: Context) {
                 )
                 pythonBin.setExecutable(true)
             }
-            val pipBin = File(NodeRuntime.binDir(context), "pip")
-            val pip3Bin = File(NodeRuntime.binDir(context), "pip3")
-            val effectivePyPath = if (pythonBin.exists()) pythonBin.absolutePath else python3Bin.absolutePath
-            pipBin.writeText(
-                "#!/system/bin/sh\nexec \"$effectivePyPath\" -m pip \"\$@\"\n"
-            )
-            pip3Bin.writeText(
-                "#!/system/bin/sh\nexec \"${python3Bin.absolutePath}\" -m pip \"\$@\"\n"
-            )
-            pipBin.setExecutable(true)
-            pip3Bin.setExecutable(true)
+            if (python3Bin.exists()) {
+                val pipBin = File(NodeRuntime.binDir(context), "pip")
+                val pip3Bin = File(NodeRuntime.binDir(context), "pip3")
+                val effectivePyPath = if (pythonBin.exists()) pythonBin.absolutePath else python3Bin.absolutePath
+                pipBin.writeText(
+                    "#!/system/bin/sh\nexec \"$effectivePyPath\" -m pip \"\$@\"\n"
+                )
+                pip3Bin.writeText(
+                    "#!/system/bin/sh\nexec \"${python3Bin.absolutePath}\" -m pip \"\$@\"\n"
+                )
+                pipBin.setExecutable(true)
+                pip3Bin.setExecutable(true)
+            }
 
             // Java wrappers: ensure java, javac, jar, keytool can be invoked directly from binDir
             val javaHome = File(usr, "lib/jvm/java-17-openjdk")
@@ -370,31 +475,40 @@ class NodeBootstrapper(private val context: Context) {
             File(NodeRuntime.homeDir(context), ".android").mkdirs()
             File(NodeRuntime.homeDir(context), ".gradle").mkdirs()
 
-            NodeRuntime.qemuBinary(context).setExecutable(true)
+            if (coreIsPending) {
+                NodeRuntime.qemuBinary(context).setExecutable(true)
 
-            val muslMarkerKey = "musl-loader"
-            if (isExtracted(muslMarkerKey)) {
-                onProgress("Musl loader already installed (${completedSteps + 1}/$totalSteps)")
-            } else {
-                onProgress("Installing musl loader (for QEMU-user)... (${completedSteps + 1}/$totalSteps)")
-                val muslApk = downloadMuslLoader(cacheDir, abi)
-                ArchiveExtractor.extractApk(muslApk, usr, "")
-                muslApk.delete()
-                markExtracted(muslMarkerKey)
-            }
-            completedSteps++
-
-            downloadGlibcSysroot(cacheDir, abi) { status ->
-                if (status.startsWith("Installing") || status.startsWith("Already installed")) {
-                    onProgress("$status (${completedSteps + 1}/$totalSteps)")
-                    completedSteps++
+                val muslMarkerKey = "musl-loader"
+                if (isExtracted(muslMarkerKey)) {
+                    onProgress("Musl loader already installed (${completedSteps + 1}/$totalSteps)")
                 } else {
-                    onProgress(status)
+                    onProgress("Installing musl loader (for QEMU-user)... (${completedSteps + 1}/$totalSteps)")
+                    val muslApk = downloadMuslLoader(cacheDir, abi)
+                    ArchiveExtractor.extractApk(muslApk, usr, "")
+                    muslApk.delete()
+                    markExtracted(muslMarkerKey)
                 }
-            }
-            ensureResolvConf()
+                completedSteps++
 
-            NodeRuntime.readyMarker(context).writeText("$provisioningVersion\n")
+                downloadGlibcSysroot(cacheDir, abi) { status ->
+                    if (status.startsWith("Installing") || status.startsWith("Already installed")) {
+                        onProgress("$status (${completedSteps + 1}/$totalSteps)")
+                        completedSteps++
+                    } else {
+                        onProgress(status)
+                    }
+                }
+                ensureResolvConf()
+
+                NodeRuntime.readyMarker(context).writeText("$provisioningVersion\n")
+            }
+            for (group in pendingGroups) {
+                if (group != RunnerPackageGroup.CORE) {
+                    NodeRuntime.groupReadyMarker(context, group).writeText("$provisioningVersion\n")
+                }
+                val groupBytes = group.termuxPackages.sumOf { index[it]?.size ?: 0L }
+                recordGroupSize(group, groupBytes)
+            }
             versionMarker.delete()
             extractionMarkersDir().deleteRecursively()
         } catch (e: Exception) {
@@ -405,7 +519,7 @@ class NodeBootstrapper(private val context: Context) {
             cacheDir.deleteRecursively()
         }
 
-        onProgress("Node environment ready!")
+        onProgress("Environment ready!")
     }
 
     private suspend fun downloadPackage(artifact: PackageArtifact, cacheDir: File): File {

@@ -6,6 +6,9 @@ import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkInfo
+import androidx.work.Data
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import java.util.UUID
 import androidx.lifecycle.asFlow
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +29,7 @@ class EnvironmentManager(private val context: Context) {
         private const val BOOTSTRAP_WORK_NAME = "bootstrap"
         private const val BOOTSTRAP_TAG = "bootstrap"
         private const val BOOTSTRAP_WORK_ID_KEY = "bootstrap_work_id"
+        private const val WIFI_ONLY_KEY = "wifi_only_downloads"
     }
 
     private val _environments = mutableStateListOf<EnvironmentConfig>()
@@ -40,15 +44,38 @@ class EnvironmentManager(private val context: Context) {
     var bootstrapWorkId by mutableStateOf<UUID?>(null)
 
     /**
+     * The toolchain download is a multi-hundred-MB, multi-minute transfer - defaulting to
+     * requiring an unmetered connection protects a user's mobile data plan from an
+     * accidental large download; they can opt out per-install.
+     */
+    var wifiOnlyDownloads: Boolean by mutableStateOf(prefs.getBoolean(WIFI_ONLY_KEY, true))
+        private set
+
+    fun updateWifiOnlyDownloads(enabled: Boolean) {
+        wifiOnlyDownloads = enabled
+        prefs.edit { putBoolean(WIFI_ONLY_KEY, enabled) }
+    }
+
+    /**
      * Starting bootstrap through a single named unique-work slot (rather than a manual
      * cancel-then-enqueue against the "bootstrap" tag) avoids a race where a stale
      * in-flight worker could still be writing into the toolchain directory after a new
      * one begins clearing/rewriting it - WorkManager guarantees the REPLACE cancellation
      * finishes before the new run starts.
      */
-    fun startBootstrap() {
+    fun startBootstrap(groups: Set<RunnerPackageGroup> = setOf(RunnerPackageGroup.CORE)) {
         val request = OneTimeWorkRequestBuilder<BootstrapWorker>()
             .addTag(BOOTSTRAP_TAG)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(if (wifiOnlyDownloads) NetworkType.UNMETERED else NetworkType.CONNECTED)
+                    .build()
+            )
+            .setInputData(
+                Data.Builder()
+                    .putStringArray(BootstrapWorker.GROUPS_KEY, groups.map { it.name }.toTypedArray())
+                    .build()
+            )
             .build()
         bootstrapWorkId = request.id
         persistBootstrapWorkId(request.id)
@@ -170,6 +197,18 @@ class EnvironmentManager(private val context: Context) {
     }
 
     fun cancelBootstrap() = WorkManager.getInstance(context).cancelUniqueWork(BOOTSTRAP_WORK_NAME)
+
+    fun installedRunnerGroups(): Set<RunnerPackageGroup> = bootstrapper.installedGroups()
+
+    fun runnerGroupSizeBytes(group: RunnerPackageGroup): Long = bootstrapper.groupSizeBytes(group)
+
+    suspend fun uninstallRunnerGroup(group: RunnerPackageGroup) = bootstrapper.uninstallGroup(group)
+
+    /** Re-downloads [group] from Termux's current live index, in place. */
+    fun refreshRunnerGroup(group: RunnerPackageGroup) {
+        bootstrapper.markGroupForRefresh(group)
+        startBootstrap(installedRunnerGroups() + group)
+    }
 
     fun close() {
         instances.values.forEach(ExecutionEnvironment::close)

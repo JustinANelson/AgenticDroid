@@ -312,14 +312,26 @@ fun ProjectItem(
                 imageVector = when (projectType) {
                     com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> Icons.Default.PhoneAndroid
                     com.justnels.agenticdroid.workspace.ProjectType.WEB -> Icons.Default.Language
+                    com.justnels.agenticdroid.workspace.ProjectType.NODE_JS -> Icons.Default.Terminal
                     com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> Icons.Default.Terminal
+                    com.justnels.agenticdroid.workspace.ProjectType.JVM -> Icons.Default.Terminal
+                    com.justnels.agenticdroid.workspace.ProjectType.RUST -> Icons.Default.Terminal
+                    com.justnels.agenticdroid.workspace.ProjectType.GOLANG -> Icons.Default.Terminal
+                    com.justnels.agenticdroid.workspace.ProjectType.SSG -> Icons.Default.Language
+                    com.justnels.agenticdroid.workspace.ProjectType.CPP -> Icons.Default.Terminal
                     com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> Icons.Default.Folder
                 },
                 contentDescription = null,
                 tint = when (projectType) {
                     com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> MaterialTheme.colorScheme.primary
                     com.justnels.agenticdroid.workspace.ProjectType.WEB -> MaterialTheme.colorScheme.secondary
+                    com.justnels.agenticdroid.workspace.ProjectType.NODE_JS -> MaterialTheme.colorScheme.primary
                     com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> MaterialTheme.colorScheme.tertiary
+                    com.justnels.agenticdroid.workspace.ProjectType.JVM -> MaterialTheme.colorScheme.primary
+                    com.justnels.agenticdroid.workspace.ProjectType.RUST -> MaterialTheme.colorScheme.tertiary
+                    com.justnels.agenticdroid.workspace.ProjectType.GOLANG -> MaterialTheme.colorScheme.secondary
+                    com.justnels.agenticdroid.workspace.ProjectType.SSG -> MaterialTheme.colorScheme.secondary
+                    com.justnels.agenticdroid.workspace.ProjectType.CPP -> MaterialTheme.colorScheme.secondary
                     com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
             )
@@ -333,7 +345,13 @@ fun ProjectItem(
                     color = when (projectType) {
                         com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> MaterialTheme.colorScheme.primaryContainer
                         com.justnels.agenticdroid.workspace.ProjectType.WEB -> MaterialTheme.colorScheme.secondaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.NODE_JS -> MaterialTheme.colorScheme.primaryContainer
                         com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> MaterialTheme.colorScheme.tertiaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.JVM -> MaterialTheme.colorScheme.primaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.RUST -> MaterialTheme.colorScheme.tertiaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.GOLANG -> MaterialTheme.colorScheme.secondaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.SSG -> MaterialTheme.colorScheme.secondaryContainer
+                        com.justnels.agenticdroid.workspace.ProjectType.CPP -> MaterialTheme.colorScheme.secondaryContainer
                         com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> MaterialTheme.colorScheme.surfaceVariant
                     },
                     shape = MaterialTheme.shapes.extraSmall,

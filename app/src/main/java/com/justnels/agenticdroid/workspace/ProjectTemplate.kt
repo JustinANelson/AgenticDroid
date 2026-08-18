@@ -46,6 +46,42 @@ enum class ProjectTemplate(
         title = "Android Application Starter",
         description = "Basic Gradle Android app with MainActivity and manifest",
         projectType = ProjectType.ANDROID
+    ),
+    NODE_JS_STARTER(
+        id = "node_js_starter",
+        title = "Node.js Script",
+        description = "Minimal Node.js CLI entry point with a package.json",
+        projectType = ProjectType.NODE_JS
+    ),
+    JVM_STARTER(
+        id = "jvm_starter",
+        title = "Kotlin JVM App",
+        description = "Plain Kotlin app built and run with kotlinc/java - no Gradle required",
+        projectType = ProjectType.JVM
+    ),
+    RUST_STARTER(
+        id = "rust_starter",
+        title = "Rust (Cargo) App",
+        description = "Cargo-managed Rust binary with a starter unit test",
+        projectType = ProjectType.RUST
+    ),
+    GOLANG_STARTER(
+        id = "golang_starter",
+        title = "Go Module",
+        description = "Go module with a starter unit test",
+        projectType = ProjectType.GOLANG
+    ),
+    CPP_STARTER(
+        id = "cpp_starter",
+        title = "C App (Makefile)",
+        description = "Minimal C project built with clang via a Makefile",
+        projectType = ProjectType.CPP
+    ),
+    SSG_STARTER(
+        id = "ssg_starter",
+        title = "Hugo Static Site",
+        description = "Minimal Hugo site with an inline layout - no external theme needed",
+        projectType = ProjectType.SSG
     );
 
     fun scaffold(projectDir: File, projectName: String) {
@@ -678,14 +714,274 @@ enum class ProjectTemplate(
                     """.trimIndent()
                 )
 
+                val pkgDir = File(mainDir, "java/com/example/${projectName.lowercase().replace(Regex("[^a-z0-9]"), "")}")
+                    .also { it.mkdirs() }
+                File(pkgDir, "MainActivity.kt").writeText(
+                    """
+                    package com.example.${projectName.lowercase().replace(Regex("[^a-z0-9]"), "")}
+
+                    import android.app.Activity
+                    import android.os.Bundle
+                    import android.widget.TextView
+
+                    class MainActivity : Activity() {
+                        override fun onCreate(savedInstanceState: Bundle?) {
+                            super.onCreate(savedInstanceState)
+                            setContentView(TextView(this).apply { text = "Hello from $projectName!" })
+                        }
+                    }
+                    """.trimIndent()
+                )
+
+                GradleWrapperAssets.installInto(projectDir)
+
                 File(projectDir, "README.md").writeText(
                     """
                     # $projectName
-                    
-                    Android application project.
-                    
+
+                    Android application project, with a bundled Gradle wrapper pinned to this
+                    device's JDK 17 (see `gradle/gradle-daemon-jvm.properties`).
+
                     ## Building
                     Tap **Build & Sideload APK** to compile with Gradle and install on this device!
+                    The first build downloads the pinned Gradle distribution, so it needs network
+                    access and will take longer than subsequent builds.
+                    """.trimIndent()
+                )
+            }
+            NODE_JS_STARTER -> {
+                File(projectDir, "index.js").writeText(
+                    """
+                    console.log('$projectName is running on Node.js ' + process.version);
+
+                    const args = process.argv.slice(2);
+                    if (args.length > 0) {
+                        console.log('Arguments:', args.join(', '));
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "package.json").writeText(
+                    """
+                    {
+                      "name": "${projectName.lowercase().replace(" ", "-")}",
+                      "version": "1.0.0",
+                      "description": "$projectName",
+                      "main": "index.js",
+                      "scripts": {
+                        "start": "node index.js",
+                        "test": "node --test"
+                      }
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "README.md").writeText(
+                    """
+                    # $projectName
+
+                    Node.js script/CLI project.
+
+                    ## Running
+                    Tap **Run Node.js Script** (or `node index.js` in Terminal).
+                    """.trimIndent()
+                )
+            }
+            JVM_STARTER -> {
+                File(projectDir, "Main.kt").writeText(
+                    """
+                    fun main(args: Array<String>) {
+                        println("Hello from $projectName!")
+                        println("Kotlin " + KotlinVersion.CURRENT)
+                        if (args.isNotEmpty()) {
+                            println("Arguments: " + args.joinToString(", "))
+                        }
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "README.md").writeText(
+                    """
+                    # $projectName
+
+                    Plain Kotlin JVM project (no Gradle/Maven required).
+
+                    ## Building & running
+                    1. Tap **Build (kotlinc)** (or `kotlinc Main.kt -include-runtime -d app.jar`)
+                    2. Tap **Run JVM App** (or `java -jar app.jar`)
+                    """.trimIndent()
+                )
+            }
+            RUST_STARTER -> {
+                File(projectDir, "Cargo.toml").writeText(
+                    """
+                    [package]
+                    name = "${projectName.lowercase().replace(Regex("[^a-z0-9-]"), "-")}"
+                    version = "0.1.0"
+                    edition = "2021"
+
+                    [[bin]]
+                    name = "app"
+                    path = "src/main.rs"
+                    """.trimIndent()
+                )
+
+                val srcDir = File(projectDir, "src").also { it.mkdirs() }
+                File(srcDir, "main.rs").writeText(
+                    """
+                    fn main() {
+                        println!("Hello from $projectName!");
+                    }
+
+                    #[cfg(test)]
+                    mod tests {
+                        #[test]
+                        fn it_works() {
+                            assert_eq!(2 + 2, 4);
+                        }
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "README.md").writeText(
+                    """
+                    # $projectName
+
+                    Rust project managed with Cargo.
+
+                    ## Running
+                    Tap **Cargo Run** (or `cargo run` in Terminal).
+                    """.trimIndent()
+                )
+            }
+            GOLANG_STARTER -> {
+                File(projectDir, "go.mod").writeText(
+                    """
+                    module ${projectName.lowercase().replace(Regex("[^a-z0-9]"), "")}
+
+                    go 1.22
+                    """.trimIndent()
+                )
+
+                File(projectDir, "main.go").writeText(
+                    """
+                    package main
+
+                    import "fmt"
+
+                    func main() {
+                    	fmt.Println("Hello from $projectName!")
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "main_test.go").writeText(
+                    """
+                    package main
+
+                    import "testing"
+
+                    func TestPlaceholder(t *testing.T) {
+                    	if 2+2 != 4 {
+                    		t.Fatal("math is broken")
+                    	}
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "README.md").writeText(
+                    """
+                    # $projectName
+
+                    Go module project.
+
+                    ## Running
+                    Tap **Go Run** (or `go run .` in Terminal).
+                    """.trimIndent()
+                )
+            }
+            CPP_STARTER -> {
+                File(projectDir, "main.c").writeText(
+                    """
+                    #include <stdio.h>
+
+                    int main(void) {
+                        printf("Hello from $projectName!\n");
+                        return 0;
+                    }
+                    """.trimIndent()
+                )
+
+                File(projectDir, "Makefile").writeText(
+                    """
+                    CC = clang
+                    CFLAGS = -Wall
+
+                    a.out: main.c
+                    ${'\t'}${'$'}(CC) ${'$'}(CFLAGS) main.c -o a.out
+
+                    clean:
+                    ${'\t'}rm -f a.out
+                    """.trimIndent()
+                )
+
+                File(projectDir, "README.md").writeText(
+                    """
+                    # $projectName
+
+                    C project built with clang via Makefile.
+
+                    ## Building & running
+                    1. Tap **Build (make)** (or `make` in Terminal)
+                    2. Tap **Run Binary** (or `./a.out`)
+                    """.trimIndent()
+                )
+            }
+            SSG_STARTER -> {
+                File(projectDir, "hugo.toml").writeText(
+                    """
+                    baseURL = "http://localhost:1313/"
+                    languageCode = "en-us"
+                    title = "$projectName"
+                    """.trimIndent()
+                )
+
+                val contentDir = File(projectDir, "content").also { it.mkdirs() }
+                File(contentDir, "_index.md").writeText(
+                    """
+                    ---
+                    title: "$projectName"
+                    ---
+
+                    Welcome to **$projectName**, built with Hugo on AgenticDroid.
+                    """.trimIndent()
+                )
+
+                val layoutsDir = File(projectDir, "layouts").also { it.mkdirs() }
+                File(layoutsDir, "index.html").writeText(
+                    """
+                    <!DOCTYPE html>
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>{{ .Site.Title }}</title>
+                    </head>
+                    <body>
+                        {{ .Content }}
+                    </body>
+                    </html>
+                    """.trimIndent()
+                )
+
+                File(projectDir, "README.md").writeText(
+                    """
+                    # $projectName
+
+                    Minimal Hugo static site (no external theme required).
+
+                    ## Running
+                    1. Tap **Serve Site** (or `hugo serve` in Terminal) and open the preview
+                    2. Tap **Build Static Site** (or `hugo`) to generate the production build in `public/`
                     """.trimIndent()
                 )
             }

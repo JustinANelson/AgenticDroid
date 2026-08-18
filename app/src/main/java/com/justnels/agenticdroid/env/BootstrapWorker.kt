@@ -17,8 +17,17 @@ class BootstrapWorker(
     params: WorkerParameters
 ) : CoroutineWorker(context, params) {
 
+    companion object {
+        const val GROUPS_KEY = "groups"
+    }
+
     override suspend fun doWork(): Result {
         val bootstrapper = NodeBootstrapper(applicationContext)
+        val groups = inputData.getStringArray(GROUPS_KEY)
+            ?.mapNotNull { name -> runCatching { RunnerPackageGroup.valueOf(name) }.getOrNull() }
+            ?.toSet()
+            ?.takeIf { it.isNotEmpty() }
+            ?: setOf(RunnerPackageGroup.CORE)
 
         // Setup notification channel
         val channelId = "bootstrap_channel"
@@ -47,7 +56,7 @@ class BootstrapWorker(
         }
 
         return try {
-            bootstrapper.bootstrap { status ->
+            bootstrapper.bootstrap(groups) { status ->
                 setProgressAsync(Data.Builder().putString("status", status).build())
                 try {
                     notificationManager.notify(1, notificationBuilder.setContentText(status).build())

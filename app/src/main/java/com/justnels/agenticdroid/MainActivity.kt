@@ -96,43 +96,50 @@ fun MainScreen(viewModel: MainViewModel) {
                     selected = viewModel.currentScreen == Screen.Workspace,
                     onClick = { viewModel.currentScreen = Screen.Workspace },
                     icon = { Icon(Icons.Default.Folder, contentDescription = "Files") },
-                    label = { Text("Files") }
+                    label = { Text("Files") },
+                    alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Terminal,
                     onClick = { viewModel.currentScreen = Screen.Terminal },
                     icon = { Icon(Icons.Default.Terminal, contentDescription = "Terminal") },
-                    label = { Text("Terminal") }
+                    label = { Text("Terminal") },
+                    alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.WebPreview,
                     onClick = { viewModel.currentScreen = Screen.WebPreview },
                     icon = { Icon(Icons.Default.Language, contentDescription = "Preview") },
-                    label = { Text("Preview") }
+                    label = { Text("Preview") },
+                    alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Git,
                     onClick = { viewModel.currentScreen = Screen.Git },
                     icon = { Icon(Icons.Default.Source, contentDescription = "Git") },
-                    label = { Text("Git") }
+                    label = { Text("Git") },
+                    alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Agents,
                     onClick = { viewModel.currentScreen = Screen.Agents },
                     icon = { Icon(Icons.Default.SmartToy, contentDescription = "Agents") },
-                    label = { Text("Agents") }
+                    label = { Text("Agents") },
+                    alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Search,
                     onClick = { viewModel.currentScreen = Screen.Search },
                     icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    label = { Text("Search") }
+                    label = { Text("Search") },
+                    alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Settings,
                     onClick = { viewModel.currentScreen = Screen.Settings },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                    label = { Text("Settings") }
+                    label = { Text("Settings") },
+                    alwaysShowLabel = false
                 )
             }
         }
@@ -192,6 +199,8 @@ fun MainScreen(viewModel: MainViewModel) {
                                 projectType = projectType,
                                 actions = projectActions,
                                 metadata = projectMeta,
+                                missingRunnerGroups = if (viewModel.isNodeEnvironment) viewModel.missingRunnerGroups(projectType) else emptySet(),
+                                onInstallMissingRunners = { viewModel.installRunnersFor(projectType) },
                                 onDismiss = { showActionsDialog = false },
                                 onExecuteAction = { action ->
                                     viewModel.runProjectAction(action, terminalViewModel)
@@ -250,7 +259,13 @@ fun MainScreen(viewModel: MainViewModel) {
                                                 color = when (projectType) {
                                                     com.justnels.agenticdroid.workspace.ProjectType.ANDROID -> MaterialTheme.colorScheme.primaryContainer
                                                     com.justnels.agenticdroid.workspace.ProjectType.WEB -> MaterialTheme.colorScheme.secondaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.NODE_JS -> MaterialTheme.colorScheme.primaryContainer
                                                     com.justnels.agenticdroid.workspace.ProjectType.PYTHON -> MaterialTheme.colorScheme.tertiaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.JVM -> MaterialTheme.colorScheme.primaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.RUST -> MaterialTheme.colorScheme.tertiaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.GOLANG -> MaterialTheme.colorScheme.secondaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.SSG -> MaterialTheme.colorScheme.secondaryContainer
+                                                    com.justnels.agenticdroid.workspace.ProjectType.CPP -> MaterialTheme.colorScheme.secondaryContainer
                                                     com.justnels.agenticdroid.workspace.ProjectType.CUSTOM -> MaterialTheme.colorScheme.surfaceVariant
                                                 },
                                                 shape = MaterialTheme.shapes.extraSmall
