@@ -32,6 +32,53 @@ object NodeRuntime {
         val pip = File(binDir(context), "pip")
         return if (pip.exists()) pip else File(binDir(context), "pip3")
     }
+
+    /** Termux's Bionic-native aapt2 build (installed as part of RunnerPackageGroup.JVM) -
+     * see [ensureGradleUserHomeProperties] for why AGP needs to be pointed at it. */
+    fun aapt2Binary(context: Context): File = File(binDir(context), "aapt2")
+
+    fun gradleUserHomeDir(context: Context): File = File(homeDir(context), ".gradle")
+
+    /**
+     * Points AGP at Termux's own Bionic-native aapt2 instead of AGP's own Maven-resolved
+     * aapt2 (a glibc binary AGP execs directly with no wrapper hook this app controls,
+     * which trips the same Zygote seccomp-bpf block this app's QEMU-user machinery
+     * exists to work around in the first place).
+     *
+     * Must land as a real Gradle property in $GRADLE_USER_HOME/gradle.properties, not an
+     * ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride environment variable: empirically,
+     * the env-var form (a literal "." in the variable name) was honored by a project's own
+     * main resource-processing tasks but not by AarResourcesCompilerTransform, the
+     * detached-configuration artifact transform AGP uses to precompile library AARs'
+     * resources (e.g. androidx.core) - that transform kept trying to launch AGP's own
+     * glibc aapt2 and failing ("Daemon startup failed"). This can't be a checked-in
+     * project property either (unlike org.gradle.jvmargs - see this repo's own
+     * gradle.properties): the aapt2 path is per-installation (app-private storage), not a
+     * fixed value.
+     *
+     * Idempotent - cheap to call before every on-device build. Silently does nothing if
+     * RunnerPackageGroup.JVM (which provides aapt2) isn't installed; AGP will just fail
+     * with its own ordinary "aapt2 not found" error in that case.
+     */
+    fun ensureGradleUserHomeProperties(context: Context) {
+        val aapt2 = aapt2Binary(context)
+        if (!aapt2.canExecute()) return
+        val propsFile = File(gradleUserHomeDir(context).also { it.mkdirs() }, "gradle.properties")
+        val existingLines = if (propsFile.isFile) propsFile.readLines() else emptyList()
+        val merged = mergeProperty(existingLines, "android.aapt2FromMavenOverride", aapt2.absolutePath)
+        if (merged != existingLines) propsFile.writeText(merged.joinToString("\n") + "\n")
+    }
+
+    /** Sets [key]=[value] in a gradle.properties-style line list, replacing any existing
+     * line for [key] and leaving every other line untouched - pulled out of
+     * [ensureGradleUserHomeProperties] so this merge logic is unit-testable without a
+     * real Context. */
+    internal fun mergeProperty(existingLines: List<String>, key: String, value: String): List<String> {
+        val desiredLine = "$key=$value"
+        if (existingLines.any { it.trim() == desiredLine }) return existingLines
+        return existingLines.filterNot { it.trim().startsWith("$key=") } + desiredLine
+    }
+
     fun readyMarker(context: Context): File = File(rootDir(context), ".agenticdroid-ready")
 
     /** Per-group readiness marker for every group beyond [RunnerPackageGroup.CORE]. */
@@ -95,7 +142,7 @@ object NodeRuntime {
         val userLocalBin = File(userHome, ".local/bin").also { it.mkdirs() }
         val tmpDir = File(usrDir(context), "tmp").also { it.mkdirs() }
         val androidUserHome = File(userHome, ".android").also { it.mkdirs() }
-        val gradleUserHome = File(userHome, ".gradle").also { it.mkdirs() }
+        val gradleUserHome = gradleUserHomeDir(context).also { it.mkdirs() }
         val javaHome = File(usrDir(context), "lib/jvm/java-17-openjdk")
         val javaBin = File(javaHome, "bin")
 

@@ -1136,6 +1136,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
             val path = executionWorkingDirectory
+            // Points AGP at the bundled native aapt2 rather than its own glibc one - see
+            // NodeRuntime.ensureGradleUserHomeProperties. Only meaningful for the Node
+            // environment (where a bundled aapt2 might exist); harmless no-op otherwise.
+            runCatching { com.justnels.agenticdroid.env.NodeRuntime.ensureGradleUserHomeProperties(getApplication()) }
 
             try {
                 val session = env.exec(buildCommand, path, secrets)
