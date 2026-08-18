@@ -205,7 +205,15 @@ class NodeBootstrapper(private val context: Context) {
      */
     fun ensureResolvConf() {
         val usr = NodeRuntime.usrDir(context)
-        if (usr.isDirectory) writeResolvConf(usr)
+        if (usr.isDirectory) {
+            writeResolvConf(usr)
+            File(usr, "tmp").mkdirs()
+        }
+        val home = NodeRuntime.homeDir(context)
+        if (home.isDirectory) {
+            File(home, ".android").mkdirs()
+            File(home, ".gradle").mkdirs()
+        }
         val glibcRoot = NodeRuntime.glibcSysrootDir(context)
         if (glibcRoot.isDirectory) writeResolvConf(glibcRoot)
     }
@@ -342,6 +350,25 @@ class NodeBootstrapper(private val context: Context) {
             )
             pipBin.setExecutable(true)
             pip3Bin.setExecutable(true)
+
+            // Java wrappers: ensure java, javac, jar, keytool can be invoked directly from binDir
+            val javaHome = File(usr, "lib/jvm/java-17-openjdk")
+            if (javaHome.exists()) {
+                listOf("java", "javac", "jar", "keytool", "javap", "jlink").forEach { tool ->
+                    val toolTarget = File(javaHome, "bin/$tool")
+                    val toolBin = File(NodeRuntime.binDir(context), tool)
+                    if (toolTarget.exists() && !toolBin.exists()) {
+                        toolBin.writeText(
+                            "#!/system/bin/sh\nexec \"${toolTarget.absolutePath}\" \"\$@\"\n"
+                        )
+                        toolBin.setExecutable(true)
+                    }
+                }
+            }
+
+            File(usr, "tmp").mkdirs()
+            File(NodeRuntime.homeDir(context), ".android").mkdirs()
+            File(NodeRuntime.homeDir(context), ".gradle").mkdirs()
 
             NodeRuntime.qemuBinary(context).setExecutable(true)
 

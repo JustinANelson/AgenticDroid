@@ -66,15 +66,23 @@ object NodeRuntime {
 
     /** Applies the shared PATH/LD_LIBRARY_PATH/HOME setup any spawned process needs. */
     fun configureEnvironment(context: Context, environment: MutableMap<String, String>) {
-        val userLocalBin = File(homeDir(context), ".local/bin")
+        val userHome = homeDir(context).also { it.mkdirs() }
+        val userLocalBin = File(userHome, ".local/bin").also { it.mkdirs() }
+        val tmpDir = File(usrDir(context), "tmp").also { it.mkdirs() }
+        val androidUserHome = File(userHome, ".android").also { it.mkdirs() }
+        val gradleUserHome = File(userHome, ".gradle").also { it.mkdirs() }
+        val javaHome = File(usrDir(context), "lib/jvm/java-17-openjdk")
+        val javaBin = File(javaHome, "bin")
+
         environment["LD_LIBRARY_PATH"] = libDir(context).absolutePath
-        environment["PATH"] = listOf(
+        environment["PATH"] = listOfNotNull(
             globalBinDir(context).absolutePath,
             userLocalBin.absolutePath,
             binDir(context).absolutePath,
+            javaBin.takeIf { it.exists() }?.absolutePath,
             "/system/bin"
         ).joinToString(":")
-        environment["HOME"] = homeDir(context).absolutePath
+        environment["HOME"] = userHome.absolutePath
         // node's Bionic build has Termux's own /data/data/com.termux/... path compiled in
         // as its default OpenSSL config location - unreadable from this app's sandbox
         // (different app UID), which openssl treats as a hard error rather than falling
@@ -86,11 +94,22 @@ object NodeRuntime {
         environment["GIT_SSL_CAINFO"] = certFile
         
         // GitHub CLI configuration directory
-        environment["GH_CONFIG_DIR"] = File(homeDir(context), ".config/gh").absolutePath
+        environment["GH_CONFIG_DIR"] = File(userHome, ".config/gh").absolutePath
         
         // Python configuration
         environment["PYTHONHOME"] = usrDir(context).absolutePath
-        environment["PYTHONUSERBASE"] = File(homeDir(context), ".local").absolutePath
+        environment["PYTHONUSERBASE"] = File(userHome, ".local").absolutePath
+        
+        // Java & Gradle JVM configurations
+        if (javaHome.exists()) {
+            environment["JAVA_HOME"] = javaHome.absolutePath
+        }
+        environment["JAVA_TOOL_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
+        environment["_JAVA_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
+        environment["GRADLE_OPTS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
+        environment["ANDROID_USER_HOME"] = androidUserHome.absolutePath
+        environment["ANDROID_SDK_HOME"] = userHome.absolutePath
+        environment["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
         
         // Node reports process.platform === "android" for any Bionic build, including this
         // bundled one - and some npm packages (confirmed: clipboardy, a dependency of
@@ -105,7 +124,9 @@ object NodeRuntime {
         environment["GLIBC_SYSROOT"] = glibcSysrootDir(context).absolutePath
         environment["NPM_CLI"] = npmCli(context).absolutePath
         environment["GIT_EXEC_PATH"] = libexecGitCoreDir(context).absolutePath
-        environment["TMPDIR"] = context.cacheDir.absolutePath
+        environment["TMPDIR"] = tmpDir.absolutePath
+        environment["TEMP"] = tmpDir.absolutePath
+        environment["TMP"] = tmpDir.absolutePath
         
         // Git's Bionic build has Termux's /data/data/com.termux/... path compiled in
         // as its system config location, which is unreadable from our sandbox.
@@ -115,7 +136,7 @@ object NodeRuntime {
         val etcDir = File(usrDir(context), "etc")
         if (!etcDir.exists()) etcDir.mkdirs()
         environment["GIT_CONFIG_SYSTEM"] = File(etcDir, "gitconfig").absolutePath
-        environment["GIT_CONFIG_GLOBAL"] = File(homeDir(context), ".gitconfig").absolutePath
+        environment["GIT_CONFIG_GLOBAL"] = File(userHome, ".gitconfig").absolutePath
     }
 
     /** QEMU's own arch naming for its user-mode binary, matching the device ABI. */
