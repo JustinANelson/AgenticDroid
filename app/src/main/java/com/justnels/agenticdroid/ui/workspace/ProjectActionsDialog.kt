@@ -25,6 +25,8 @@ fun ProjectActionsDialog(
     metadata: ProjectMetadata,
     missingRunnerGroups: Set<RunnerPackageGroup> = emptySet(),
     onInstallMissingRunners: () -> Unit = {},
+    onManageSecrets: () -> Unit = {},
+    onManageMcpServers: () -> Unit = {},
     onDismiss: () -> Unit,
     onExecuteAction: (ProjectRunnerAction) -> Unit,
     onSaveMetadata: (ProjectMetadata) -> Unit
@@ -46,8 +48,17 @@ fun ProjectActionsDialog(
             ) {
                 Text(
                     text = if (isConfiguring) "Configure Project" else "${project.name} Actions",
-                    style = MaterialTheme.typography.titleLarge
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f)
                 )
+                if (!isConfiguring) {
+                    IconButton(onClick = onManageSecrets) {
+                        Icon(Icons.Default.Key, contentDescription = "Manage Secrets")
+                    }
+                    IconButton(onClick = onManageMcpServers) {
+                        Icon(Icons.Default.Extension, contentDescription = "Manage MCP Servers")
+                    }
+                }
                 IconButton(onClick = { isConfiguring = !isConfiguring }) {
                     Icon(
                         imageVector = if (isConfiguring) Icons.Default.List else Icons.Default.Tune,

@@ -11,7 +11,13 @@ data class AgentProfile(
     val prepareCommand: String? = null,
     val iconResId: Int? = null,
     val defaultArgs: List<String> = emptyList(),
-    val environmentVariables: Map<String, String> = emptyMap()
+    val environmentVariables: Map<String, String> = emptyMap(),
+    // Set for npm-distributed agents (Codex/Claude/Gemini) so an update check can ask
+    // the registry for the latest published version without installing anything.
+    // Antigravity is intentionally left null: it isn't npm-distributed, and its manifest
+    // endpoint only ever serves "whatever is current" with no distinct version to query
+    // ahead of a reinstall - see DefaultAgents.antigravityInstallCommand.
+    val npmPackageForVersionCheck: String? = null
 ) {
     /**
      * Starts an existing agent immediately, or installs it first when it is absent.
@@ -47,6 +53,27 @@ data class AgentProfile(
         )
         """.trimIndent()
     }
+
+    /** stdin is redirected from /dev/null since a bare `--version` on some of these
+     * (confirmed: agy) blocks forever reading from a live PTY instead of exiting - see
+     * DefaultAgents.antigravityInstallCommand. */
+    fun installedVersionCommand(): String = "$command --version </dev/null 2>&1"
+
+    /** Queries npm's registry for the latest published version, without installing
+     * anything - null for agents [npmPackageForVersionCheck] doesn't apply to. */
+    fun latestVersionCommand(): String? =
+        npmPackageForVersionCheck?.let { pkg -> """node "${'$'}NPM_CLI" view $pkg version 2>&1""" }
+
+    /**
+     * Forces a fresh install even if [command] is already on PATH - unlike
+     * [launchCommand], which only installs when the command is missing entirely and so
+     * never re-invokes an update once installed. Each installCommand's own
+     * `npm install -g <pkg>` (no version pin) or (for Antigravity) direct
+     * fetch-current-manifest already resolves whatever is newest, so simply re-running
+     * it is sufficient - no separate "downgrade to an older pin" is supported, since the
+     * install scripts have no such concept for 3 of the 4 agents today.
+     */
+    fun updateCommand(): String = installCommand
 }
 
 object DefaultAgents {
@@ -167,7 +194,8 @@ object DefaultAgents {
         command = "codex",
         installCommand = codexInstallCommand(),
         prepareCommand = "(codex login status >/dev/null 2>&1 || codex login --device-auth)",
-        defaultArgs = listOf("--no-alt-screen")
+        defaultArgs = listOf("--no-alt-screen"),
+        npmPackageForVersionCheck = "@openai/codex"
     )
 
     val Claude = AgentProfile(
@@ -175,7 +203,8 @@ object DefaultAgents {
         name = "Claude Code",
         command = "claude",
         installCommand = npmMuslAgentInstallCommand("@anthropic-ai/claude-code", "claude"),
-        defaultArgs = listOf("--ax-screen-reader")
+        defaultArgs = listOf("--ax-screen-reader"),
+        npmPackageForVersionCheck = "@anthropic-ai/claude-code"
     )
 
     /**
@@ -221,7 +250,8 @@ object DefaultAgents {
         id = "gemini",
         name = "Gemini CLI",
         command = "gemini",
-        installCommand = geminiInstallCommand()
+        installCommand = geminiInstallCommand(),
+        npmPackageForVersionCheck = "@google/gemini-cli"
     )
 
     /**

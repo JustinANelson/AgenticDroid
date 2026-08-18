@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.work.WorkInfo
+import com.justnels.agenticdroid.env.DoctorResult
 import com.justnels.agenticdroid.env.EnvironmentConfig
 import com.justnels.agenticdroid.env.EnvironmentManager
 import com.justnels.agenticdroid.env.RunnerPackageGroup
@@ -186,6 +187,28 @@ fun EnvironmentScreen(
                         onRefresh = { viewModel.refreshRunnerGroup(group) }
                     )
                 }
+
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Diagnostics", style = MaterialTheme.typography.titleMedium)
+                        Button(onClick = { viewModel.runDiagnostics() }, enabled = !viewModel.isRunningDiagnostics) {
+                            Text(if (viewModel.isRunningDiagnostics) "Running..." else "Run Diagnostics")
+                        }
+                    }
+                    Text(
+                        text = "Actually runs each installed group's binaries - a bootstrap can finish successfully and still be broken on this specific device.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                items(viewModel.doctorResults) { result ->
+                    DoctorResultCard(result)
+                }
             }
         }
     }
@@ -332,6 +355,37 @@ fun RunnerGroupCard(
                 TextButton(onClick = { showRemoveConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+fun DoctorResultCard(result: DoctorResult) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (result.healthy) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (result.healthy) Icons.Default.Check else Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = if (result.healthy) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = result.group.displayName, style = MaterialTheme.typography.titleSmall)
+            }
+            if (!result.healthy && result.output.isNotBlank()) {
+                Text(
+                    text = result.output.take(500),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
     }
 }
 

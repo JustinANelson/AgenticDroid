@@ -192,6 +192,8 @@ fun MainScreen(viewModel: MainViewModel) {
                         val projectActions = viewModel.getProjectActions(currentProject)
                         val projectMeta = viewModel.getProjectMetadata(currentProject)
                         var showActionsDialog by remember { mutableStateOf(false) }
+                        var showSecretsDialog by remember { mutableStateOf(false) }
+                        var showMcpDialog by remember { mutableStateOf(false) }
 
                         if (showActionsDialog) {
                             com.justnels.agenticdroid.ui.workspace.ProjectActionsDialog(
@@ -201,6 +203,14 @@ fun MainScreen(viewModel: MainViewModel) {
                                 metadata = projectMeta,
                                 missingRunnerGroups = if (viewModel.isNodeEnvironment) viewModel.missingRunnerGroups(projectType) else emptySet(),
                                 onInstallMissingRunners = { viewModel.installRunnersFor(projectType) },
+                                onManageSecrets = {
+                                    viewModel.refreshProjectSecrets(currentProject)
+                                    showSecretsDialog = true
+                                },
+                                onManageMcpServers = {
+                                    viewModel.refreshProjectMcpServers(currentProject)
+                                    showMcpDialog = true
+                                },
                                 onDismiss = { showActionsDialog = false },
                                 onExecuteAction = { action ->
                                     viewModel.runProjectAction(action, terminalViewModel)
@@ -208,6 +218,26 @@ fun MainScreen(viewModel: MainViewModel) {
                                 onSaveMetadata = { updated ->
                                     viewModel.saveProjectMetadata(currentProject, updated)
                                 }
+                            )
+                        }
+
+                        if (showSecretsDialog) {
+                            com.justnels.agenticdroid.ui.workspace.ProjectSecretsDialog(
+                                project = currentProject,
+                                secrets = viewModel.projectSecrets,
+                                onSetSecret = { name, value -> viewModel.setProjectSecret(currentProject, name, value) },
+                                onRemoveSecret = { name -> viewModel.removeProjectSecret(currentProject, name) },
+                                onDismiss = { showSecretsDialog = false }
+                            )
+                        }
+
+                        if (showMcpDialog) {
+                            com.justnels.agenticdroid.ui.workspace.ProjectMcpServersDialog(
+                                project = currentProject,
+                                servers = viewModel.projectMcpServers,
+                                onSetServer = { server -> viewModel.setProjectMcpServer(currentProject, server) },
+                                onRemoveServer = { name -> viewModel.removeProjectMcpServer(currentProject, name) },
+                                onDismiss = { showMcpDialog = false }
                             )
                         }
 
@@ -475,6 +505,11 @@ fun MainScreen(viewModel: MainViewModel) {
                             activeAgent = viewModel.activeAgent,
                             installedAgentIds = viewModel.installedAgentIds,
                             isCheckingInstalled = viewModel.isCheckingInstalledAgents,
+                            agentVersions = viewModel.agentVersions,
+                            checkingVersionForAgentId = viewModel.checkingVersionForAgentId,
+                            updatingAgentId = viewModel.updatingAgentId,
+                            onCheckVersion = { agent -> viewModel.checkAgentVersion(agent) },
+                            onUpdateAgent = { agent -> viewModel.updateAgent(agent) },
                             hintsShown = viewModel.hintsShown,
                             onLaunchAgent = { agent ->
                                 // Guard against typing a launch script into an already-running
@@ -486,7 +521,9 @@ fun MainScreen(viewModel: MainViewModel) {
                                 // launched. Visiting Terminal once first, or retrying Launch,
                                 // works around it until the underlying race is found.
                                 if (viewModel.activeAgent == null) {
-                                    terminalViewModel.sendCommand(agent.launchCommand())
+                                    terminalViewModel.sendCommand(
+                                        viewModel.withProjectSecretsPrelude(viewModel.selectedProject, agent.launchCommand())
+                                    )
                                     viewModel.onAgentLaunched(agent)
                                 }
                                 viewModel.currentScreen = Screen.AgentSession

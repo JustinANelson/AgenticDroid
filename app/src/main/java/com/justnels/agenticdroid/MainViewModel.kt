@@ -110,6 +110,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    var agentVersions by mutableStateOf<Map<String, com.justnels.agenticdroid.agents.AgentVersionInfo>>(emptyMap())
+        private set
+    var checkingVersionForAgentId by mutableStateOf<String?>(null)
+        private set
+    var updatingAgentId by mutableStateOf<String?>(null)
+        private set
+
+    /** Reads the installed `--version` banner and (for npm-distributed agents) the
+     * latest published version from the registry, without installing anything. */
+    fun checkAgentVersion(agent: com.justnels.agenticdroid.agents.AgentProfile) {
+        val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
+            .getOrNull() ?: return
+        val path = executionWorkingDirectory
+        checkingVersionForAgentId = agent.id
+        viewModelScope.launch(Dispatchers.IO) {
+            val installed = runCatching {
+                env.exec(agent.installedVersionCommand(), path).capture(timeoutMillis = 20_000)
+            }.getOrNull()?.takeIf { it.exitCode == 0 }?.stdout?.trim()?.takeIf { it.isNotBlank() }
+            val latest = agent.latestVersionCommand()?.let { cmd ->
+                runCatching { env.exec(cmd, path).capture(timeoutMillis = 20_000) }
+                    .getOrNull()?.takeIf { it.exitCode == 0 }?.stdout?.trim()?.takeIf { it.isNotBlank() }
+            }
+            withContext(Dispatchers.Main) {
+                agentVersions = agentVersions + (agent.id to com.justnels.agenticdroid.agents.AgentVersionInfo(installed, latest))
+                checkingVersionForAgentId = null
+            }
+        }
+    }
+
+    /** Forces a reinstall to whatever the agent's own install command currently resolves
+     * as newest (see AgentProfile.updateCommand) - there's no support for pinning to an
+     * arbitrary older version, since 3 of the 4 install scripts have no such concept. */
+    fun updateAgent(agent: com.justnels.agenticdroid.agents.AgentProfile) {
+        val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
+            .getOrNull() ?: return
+        val path = executionWorkingDirectory
+        updatingAgentId = agent.id
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                // NodeExecutionEnvironment.exec() resolves only the *first word* of the
+                // command to an absolute binary path and passes the remainder through
+                // unexamined as literal shell text - fine for the single-line commands
+                // it's normally given, but agent.updateCommand() is a whole multi-line
+                // install script, which would get mangled the same way. Writing it to a
+                // real file and invoking that as one line ("sh <path>") sidesteps it.
+                val scriptFile = File(getApplication<Application>().cacheDir, "agent-update-${agent.id}.sh")
+                scriptFile.writeText(agent.updateCommand())
+                env.exec(
+                    "sh ${com.justnels.agenticdroid.env.ShellEscaping.quote(scriptFile.absolutePath)}",
+                    path
+                ).capture(timeoutMillis = 10 * 60 * 1000L).also { scriptFile.delete() }
+            }
+            withContext(Dispatchers.Main) { updatingAgentId = null }
+            checkAgentVersion(agent)
+            refreshInstalledAgents()
+        }
+    }
+
     var currentScreen by mutableStateOf(Screen.Workspace)
     var openedFile by mutableStateOf<File?>(null)
     private var openedFileEnvironment: com.justnels.agenticdroid.env.EnvironmentConfig? = null
@@ -165,6 +223,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("agentic_prefs", Context.MODE_PRIVATE)
     private val credentialManager = CredentialManager(application)
+    private val projectSecretsStore = com.justnels.agenticdroid.workspace.ProjectSecretsStore(credentialManager)
 
     private fun openHttp(url: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
@@ -230,6 +289,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun missingRunnerGroups(type: com.justnels.agenticdroid.workspace.ProjectType): Set<com.justnels.agenticdroid.env.RunnerPackageGroup> =
         com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type) - installedRunnerGroups
 
+    var doctorResults by mutableStateOf<List<com.justnels.agenticdroid.env.DoctorResult>>(emptyList())
+        private set
+    var isRunningDiagnostics by mutableStateOf(false)
+        private set
+
+    /** Actually execs each installed group's key binaries (not just checking ready-marker
+     * files) against the Node environment specifically - the QEMU/musl/glibc toolchain
+     * this app bootstraps is empirically per-device-fragile (see NodeBootstrapper's
+     * comments), so a group can report "installed" and still be broken on a given phone. */
+    fun runDiagnostics() {
+        if (!environmentManager.bootstrapper.isInstalled()) {
+            doctorResults = emptyList()
+            return
+        }
+        val env = com.justnels.agenticdroid.env.NodeExecutionEnvironment(getApplication())
+        val groups = environmentManager.installedRunnerGroups()
+        isRunningDiagnostics = true
+        viewModelScope.launch(Dispatchers.IO) {
+            val results = groups.map { group ->
+                val command = com.justnels.agenticdroid.env.ToolchainDoctor.healthCheckCommand(group)
+                val result = runCatching {
+                    env.exec(command, workspaceRoot.absolutePath).capture(timeoutMillis = 30_000)
+                }.getOrNull()
+                com.justnels.agenticdroid.env.DoctorResult(
+                    group = group,
+                    healthy = result?.exitCode == 0,
+                    output = result?.let { (it.stdout + it.stderr).trim() } ?: "Could not run diagnostics"
+                )
+            }.sortedBy { it.group.displayName }
+            withContext(Dispatchers.Main) {
+                doctorResults = results
+                isRunningDiagnostics = false
+            }
+        }
+    }
+
     private val gitManager: GitManager
         get() {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
@@ -276,16 +371,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         terminalViewModel: com.justnels.agenticdroid.ui.terminal.TerminalViewModel? = null
     ) {
         if (action.isBuild) {
-            buildAndInstall(action.command)
+            val secrets = selectedProject?.let { projectSecretsStore.getSecrets(it) }.orEmpty()
+            buildAndInstall(action.command, secrets)
         } else {
             if (action.command.isNotBlank() && terminalViewModel != null) {
-                terminalViewModel.sendCommand(action.command)
+                val prelude = selectedProject?.let { projectSecretsStore.exportPrelude(it) }.orEmpty()
+                terminalViewModel.sendCommand(prelude + action.command)
             }
             if (action.opensPreview) {
                 action.previewUrl?.let { webPreviewUrl = it }
                 currentScreen = Screen.WebPreview
             }
         }
+    }
+
+    var projectSecrets by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+
+    /** Refreshes [projectSecrets] from encrypted storage for [project] - not itself
+     * Compose-observable (CredentialManager isn't backed by mutableStateOf), so callers
+     * showing a secrets UI must call this whenever the underlying store may have changed. */
+    fun refreshProjectSecrets(project: Project) {
+        projectSecrets = projectSecretsStore.getSecrets(project)
+    }
+
+    fun setProjectSecret(project: Project, name: String, value: String) {
+        projectSecretsStore.setSecret(project, name, value)
+        refreshProjectSecrets(project)
+    }
+
+    fun removeProjectSecret(project: Project, name: String) {
+        projectSecretsStore.removeSecret(project, name)
+        refreshProjectSecrets(project)
+    }
+
+    /** Prepends this project's secrets as `export` lines before sending [command] to the
+     * terminal - used for agent launches, which (unlike [buildAndInstall]) go through the
+     * persistent interactive PTY shell rather than a one-shot process with its own
+     * environment map. */
+    fun withProjectSecretsPrelude(project: Project?, command: String): String =
+        (project?.let { projectSecretsStore.exportPrelude(it) }.orEmpty()) + command
+
+    var projectMcpServers by mutableStateOf<List<com.justnels.agenticdroid.workspace.McpServer>>(emptyList())
+        private set
+
+    /** Refreshes [projectMcpServers] from .mcp.json - a plain project file (see
+     * McpConfigStore), so unlike [refreshProjectSecrets] this is just a disk read. */
+    fun refreshProjectMcpServers(project: Project) {
+        projectMcpServers = com.justnels.agenticdroid.workspace.McpConfigStore.read(project)
+    }
+
+    fun setProjectMcpServer(project: Project, server: com.justnels.agenticdroid.workspace.McpServer) {
+        com.justnels.agenticdroid.workspace.McpConfigStore.addOrUpdate(project, server)
+        refreshProjectMcpServers(project)
+    }
+
+    fun removeProjectMcpServer(project: Project, name: String) {
+        com.justnels.agenticdroid.workspace.McpConfigStore.remove(project, name)
+        refreshProjectMcpServers(project)
     }
 
     fun refreshProjects() {
@@ -986,16 +1129,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     @Volatile private var activeBuildSession: ProcessSession? = null
 
-    fun buildAndInstall(buildCommand: String = "./gradlew assembleDebug") {
+    fun buildAndInstall(buildCommand: String = "./gradlew assembleDebug", secrets: Map<String, String> = emptyMap()) {
         viewModelScope.launch(Dispatchers.IO) {
             isBuilding = true
             buildStatus = "Running build..."
-            
+
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
             val path = executionWorkingDirectory
-            
+
             try {
-                val session = env.exec(buildCommand, path)
+                val session = env.exec(buildCommand, path, secrets)
                 activeBuildSession = session
                 val result = session.capture(timeoutMillis = 30 * 60 * 1000L, maxOutputBytes = 4 * 1024 * 1024)
                 buildLog = buildString {
