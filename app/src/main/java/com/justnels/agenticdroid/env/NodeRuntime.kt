@@ -187,6 +187,35 @@ object NodeRuntime {
      * is what gets mapped, not the writable-storage symlink inode itself. */
     fun nativeLibAliasDir(context: Context): File = File(rootDir(context), "native-lib-aliases")
 
+    /** Idempotently points [link] at [target] via a symlink, only touching the
+     * filesystem when the link doesn't already resolve there. Shared by
+     * [ensureNativeLibAliases] and [ensureGitRemoteHelperLinks] - both bridge a
+     * writable-storage path (a versioned soname, or a fixed `GIT_EXEC_PATH` filename)
+     * to a file in the W^X-exempt native-lib directory. Safe under W^X: only the
+     * *target's* bytes ever get mapped executable; the symlink inode living in
+     * writable storage is never itself treated as executable content. */
+    // configureEnvironment() runs on whatever thread spawns a process - the main thread
+    // (Terminal PTY launch) and background exec() calls can race to replace the same
+    // symlink concurrently. deleteIfExists()+createSymbolicLink() is not atomic, so two
+    // racing callers can each delete the other's freshly-created link and then fail with
+    // FileAlreadyExistsException (caught on-device: TerminalViewModel's init on the main
+    // thread racing a background git-clone diagnostic). Serialize within this process.
+    private val symlinkLock = Any()
+
+    private fun ensureSymlink(link: File, target: File) {
+        if (!target.exists()) return
+        synchronized(symlinkLock) {
+            val linkPath = link.toPath()
+            if (java.nio.file.Files.isSymbolicLink(linkPath) &&
+                java.nio.file.Files.readSymbolicLink(linkPath) == target.toPath()
+            ) {
+                return
+            }
+            java.nio.file.Files.deleteIfExists(linkPath)
+            java.nio.file.Files.createSymbolicLink(linkPath, target.toPath())
+        }
+    }
+
     /** Idempotently (re)creates the versioned-soname symlinks the native-lib dependency
      * closure needs. No-op (per entry) if the target isn't bundled for this ABI. Safe to
      * call before every launch, mirroring `ProcessManager.refreshAxsSymlink()` in
@@ -195,17 +224,70 @@ object NodeRuntime {
         val nativeDir = context.applicationInfo.nativeLibraryDir
         val aliasDir = nativeLibAliasDir(context).also { it.mkdirs() }
         for ((alias, canonical) in nativeLibSonameAliases) {
-            val target = File(nativeDir, canonical)
-            if (!target.exists()) continue
-            val link = File(aliasDir, alias)
-            val linkPath = link.toPath()
-            if (java.nio.file.Files.isSymbolicLink(linkPath) &&
-                java.nio.file.Files.readSymbolicLink(linkPath) == target.toPath()
-            ) {
-                continue
-            }
-            java.nio.file.Files.deleteIfExists(linkPath)
-            java.nio.file.Files.createSymbolicLink(linkPath, target.toPath())
+            ensureSymlink(File(aliasDir, alias), File(nativeDir, canonical))
+        }
+        // Plain-named aliases (node/git/aapt2, no lib*.so wrapping) so PATH-based lookup -
+        // the interactive PTY Terminal's own shell resolves commands this way, a separate
+        // code path from NodeExecutionEnvironment.exec()'s explicit binary resolution -
+        // finds the W^X-exempt native-lib copy instead of falling through to whatever
+        // same-named file the original download left in binDir.
+        for ((alias, canonical) in pathAliasTargets) {
+            ensureSymlink(File(aliasDir, alias), File(nativeDir, canonical))
+        }
+    }
+
+    /** Plain command-name -> bundled native-lib filename, for [ensureNativeLibAliases]'s
+     * PATH-alias symlinks. Only entries actually bundled for this ABI produce a working
+     * symlink ([ensureSymlink] no-ops when the target is missing). */
+    private val pathAliasTargets: Map<String, String>
+        get() = mapOf(
+            "node" to "libnode_native_${qemuArch()}.so",
+            "git" to "libgit_native_${qemuArch()}.so",
+            "aapt2" to "libaapt2_native_${qemuArch()}.so"
+        )
+
+    /**
+     * `git clone`/`fetch`/`push` against an `https://` remote makes `git` (already
+     * native-lib-packaged - see [gitBinary]) internally `execve()` a *separate* helper
+     * binary, `git-remote-https`, resolved via `$GIT_EXEC_PATH` - a real, independent
+     * exec this app's own `ProcessBuilder` never sees or controls. That nested exec hits
+     * the exact same W^X restriction as every other binary in this document if the
+     * resolved file lives in [libexecGitCoreDir] (app-private writable storage, where
+     * the other ~180 git-core files - almost all argv[0]-dispatch hardlinks of `git`
+     * itself, not separate execs - correctly still live; only the network remote
+     * helpers are ever actually spawned as independent processes by this app's git
+     * usage). `git-remote-http`/`-ftp`/`-ftps` are byte-identical to `-https` in every
+     * Termux `git` build checked (confirmed: same SHA-256) - git dispatches protocol
+     * handling internally by its own argv[0], so one bundled copy covers all four names.
+     */
+    private val gitRemoteHelperNames = listOf("git-remote-https", "git-remote-http", "git-remote-ftp", "git-remote-ftps")
+
+    /** Idempotently replaces the writable-storage `git-remote-{https,http,ftp,ftps}`
+     * entries in [libexecGitCoreDir] with symlinks to the native-lib-packaged copy (see
+     * [gitRemoteHelperNames]'s doc). No-op if that copy isn't bundled for this ABI or
+     * [libexecGitCoreDir] doesn't exist yet (git not installed). Safe to call before
+     * every git invocation. */
+    fun ensureGitRemoteHelperLinks(context: Context) {
+        val gitCoreDir = libexecGitCoreDir(context)
+        if (!gitCoreDir.isDirectory) return
+
+        // On-device evidence (real `git clone https://...`, SELinux denial): git's own
+        // internal remote-helper dispatch does not exec a genuinely separate
+        // "git-remote-https" file - it execve()s $GIT_EXEC_PATH/git itself (a *second*,
+        // distinct-inode writable-storage copy of the main git binary Termux's own layout
+        // keeps under libexec/git-core/, separate from usr/bin/git) with argv[0] forced to
+        // "git-remote-https". That copy is the one that must be W^X-exempt; symlink it to
+        // the same native-lib git binary usr/bin/git already resolves to.
+        val nativeGit = nativeLibBinary(context, "libgit_native_${qemuArch()}.so")
+        if (nativeGit != null) {
+            ensureSymlink(File(gitCoreDir, "git"), nativeGit)
+        }
+
+        // Kept as a belt-and-suspenders link in case another git build/version does
+        // resolve a literal separate "git-remote-https" file - harmless no-op otherwise.
+        val nativeHelper = nativeLibBinary(context, "libgit_remote_https_native_${qemuArch()}.so") ?: return
+        for (name in gitRemoteHelperNames) {
+            ensureSymlink(File(gitCoreDir, name), nativeHelper)
         }
     }
 
@@ -273,7 +355,13 @@ object NodeRuntime {
         // downloaded Termux tree. Harmless to prepend unconditionally even when nothing
         // native-lib-packaged is actually invoked - see nativeLibLdPath's own doc.
         environment["LD_LIBRARY_PATH"] = "${nativeLibLdPath(context)}:${libDir(context).absolutePath}"
+        // nativeLibAliasDir first so its plain node/git/aapt2 symlinks (see
+        // ensureNativeLibAliases) shadow the same-named writable-storage copies still
+        // present in binDir from the original download - matters for any PATH-based
+        // lookup that doesn't go through NodeExecutionEnvironment.exec()'s own explicit
+        // resolution, e.g. the interactive PTY Terminal's shell.
         environment["PATH"] = listOfNotNull(
+            nativeLibAliasDir(context).absolutePath,
             globalBinDir(context).absolutePath,
             userLocalBin.absolutePath,
             binDir(context).absolutePath,
@@ -321,6 +409,7 @@ object NodeRuntime {
         environment["QEMU_SYSROOT"] = usrDir(context).absolutePath
         environment["GLIBC_SYSROOT"] = glibcSysrootDir(context).absolutePath
         environment["NPM_CLI"] = npmCli(context).absolutePath
+        ensureGitRemoteHelperLinks(context)
         environment["GIT_EXEC_PATH"] = libexecGitCoreDir(context).absolutePath
         environment["TMPDIR"] = tmpDir.absolutePath
         environment["TEMP"] = tmpDir.absolutePath

@@ -24,8 +24,19 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
         // Resolve the first word (the tool) to an absolute path if it exists in our bin or global dir.
         val firstWord = command.substringBefore(" ").trim()
         val rest = command.substringAfter(firstWord, "").trim()
-        
-        val binary = listOf(
+
+        // Native-lib-packaged binaries (see NodeRuntime.nativeLibBinary) must win over any
+        // same-named file left in binDir from the original download - otherwise a plain
+        // "git"/"node"/"aapt2" command silently execve()s the writable-storage copy, which
+        // is W^X-blocked at a raised targetSdk even though a W^X-exempt copy is bundled.
+        val nativeLibResolved = when (firstWord) {
+            "node" -> NodeRuntime.nodeBinary(context)
+            "git" -> NodeRuntime.gitBinary(context)
+            "aapt2" -> NodeRuntime.aapt2Binary(context)
+            else -> null
+        }?.takeIf { it.exists() }
+
+        val binary = nativeLibResolved ?: listOf(
             File(NodeRuntime.binDir(context), firstWord),
             File(NodeRuntime.globalBinDir(context), firstWord),
             File(File(NodeRuntime.homeDir(context), ".local/bin"), firstWord)
