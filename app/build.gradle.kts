@@ -41,7 +41,13 @@ android {
         // The bundled Node/git/qemu-user toolchain is downloaded into app-private
         // storage at runtime and executed directly from there. Android 10's target-29
         // W^X policy forbids execve() from app data, so this app must stay on the
-        // API 28 compatibility policy when sideloaded.
+        // API 28 compatibility policy when sideloaded. See AGENT_RUNTIME_RESEARCH.md
+        // for a verified-on-device prototype (NodeRuntime.nativeLibBinary and the
+        // combined DT_NEEDED dependency closure for qemu-user-aarch64, node, git, and
+        // aapt2 - including running real installed agent CLIs, Claude Code and Codex, as
+        // qemu's guest) showing all four run successfully at a raised targetSdk (tested
+        // at 34; Play's actual requirement is API 36, not yet re-tested at that level).
+        // Not yet adopted app-wide - see AGENT_RUNTIME_RESEARCH.md Section 6e/12 for what's left.
         targetSdk = 28
         versionCode = 1
         versionName = "1.0"

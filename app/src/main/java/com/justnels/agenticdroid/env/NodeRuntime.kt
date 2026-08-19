@@ -22,8 +22,10 @@ object NodeRuntime {
     fun globalDir(context: Context): File = File(rootDir(context), "global")
     fun globalBinDir(context: Context): File = File(globalDir(context), "bin")
     fun homeDir(context: Context): File = File(rootDir(context), "home")
-    fun nodeBinary(context: Context): File = File(binDir(context), "node")
-    fun gitBinary(context: Context): File = File(binDir(context), "git")
+    fun nodeBinary(context: Context): File =
+        nativeLibBinary(context, "libnode_native_${qemuArch()}.so") ?: File(binDir(context), "node")
+    fun gitBinary(context: Context): File =
+        nativeLibBinary(context, "libgit_native_${qemuArch()}.so") ?: File(binDir(context), "git")
     fun pythonBinary(context: Context): File {
         val py = File(binDir(context), "python")
         return if (py.exists()) py else File(binDir(context), "python3")
@@ -34,8 +36,10 @@ object NodeRuntime {
     }
 
     /** Termux's Bionic-native aapt2 build (installed as part of RunnerPackageGroup.JVM) -
-     * see [ensureGradleUserHomeProperties] for why AGP needs to be pointed at it. */
-    fun aapt2Binary(context: Context): File = File(binDir(context), "aapt2")
+     * see [ensureGradleUserHomeProperties] for why AGP needs to be pointed at it. Prefers
+     * the native-lib-packaged copy (see [nativeLibBinary]) when bundled for this ABI. */
+    fun aapt2Binary(context: Context): File =
+        nativeLibBinary(context, "libaapt2_native_${qemuArch()}.so") ?: File(binDir(context), "aapt2")
 
     fun gradleUserHomeDir(context: Context): File = File(homeDir(context), ".gradle")
 
@@ -110,7 +114,123 @@ object NodeRuntime {
      * that too, since none of the guest's syscalls reach the host seccomp filter
      * directly.
      */
-    fun qemuBinary(context: Context): File = File(binDir(context), "qemu-${qemuArch()}")
+    fun qemuBinary(context: Context): File =
+        qemuNativeLibBinary(context) ?: File(binDir(context), "qemu-${qemuArch()}")
+
+    /**
+     * PROTOTYPE (see AGENT_RUNTIME_RESEARCH.md): qemu-user shipped as a renamed APK
+     * native library (`libqemu_user_<arch>.so` under `jniLibs/<abi>/`) instead of
+     * downloaded into app-private storage at runtime. PackageManager extracts native
+     * libraries to [android.content.pm.ApplicationInfo.nativeLibraryDir] at install
+     * time - a location exempt from the API 29+ W^X policy that currently forces this
+     * app's `targetSdk = 28` pin (see build.gradle.kts). Only bundled for arm64-v8a so
+     * far, matching the one device this was verified against; falls through to the
+     * downloaded copy in [binDir] for any other ABI.
+     */
+    fun qemuNativeLibBinary(context: Context): File? =
+        nativeLibBinary(context, "libqemu_user_${qemuArch()}.so")
+
+    /**
+     * PROTOTYPE (see AGENT_RUNTIME_RESEARCH.md Sections 7-9 and 12): resolves any of this
+     * app's renamed-as-`lib*.so` native-lib-packaged binaries or shared-library
+     * dependencies from [android.content.pm.ApplicationInfo.nativeLibraryDir] - the
+     * PackageManager-extracted, W^X-exempt directory every native-lib-packaged binary
+     * this app bundles (qemu-user-aarch64, node, git, aapt2, and their combined DT_NEEDED
+     * closure) lives in. Returns null (not just a missing file) when the file doesn't
+     * exist there, so every caller falls back to the existing downloaded-storage path -
+     * only arm64-v8a is bundled so far, so this is always null on other ABIs.
+     */
+    fun nativeLibBinary(context: Context, bundledFilename: String): File? {
+        val candidate = File(context.applicationInfo.nativeLibraryDir, bundledFilename)
+        return candidate.takeIf { it.exists() }
+    }
+
+    /**
+     * The complete set of versioned-soname aliases needed across every binary this app
+     * native-lib-packages (qemu-user-aarch64, node, git, aapt2, and their shared
+     * dependency closure - see AGENT_RUNTIME_RESEARCH.md Section 12). Bundled files are
+     * renamed to strip each library's versioned soname suffix (Android's native-library
+     * extraction only recognizes literal `lib*.so` filenames - a real `libz.so.1` would
+     * not be extracted), but the binaries themselves still request the *original*
+     * versioned soname at runtime (e.g. `qemu-aarch64` asks for `"libz.so.1"`, not
+     * `"libz.so"`) - see [ensureNativeLibAliases] for how that gap is bridged, the same
+     * way Acode's `libtalloc.so.2 -> libtalloc.so` symlink does.
+     *
+     * Derived by parsing the actual ELF DT_NEEDED entries of every bundled file (not
+     * Termux's broader, looser apt `Depends:` metadata) - re-run that discovery (see
+     * `tools/fetch_native_libs.py`) if any bundled binary changes enough to add, drop, or
+     * re-version a dependency.
+     */
+    private val nativeLibSonameAliases: Map<String, String> = mapOf(
+        "libbz2.so.1.0" to "libbz2.so",
+        "libcrypto.so.3" to "libcrypto.so",
+        "libdw.so.1" to "libdw.so",
+        "libelf.so.1" to "libelf.so",
+        "libexpat.so.1" to "libexpat.so",
+        "libglib-2.0.so.0" to "libglib-2.0.so",
+        "libgmodule-2.0.so.0" to "libgmodule-2.0.so",
+        "libhogweed.so.6" to "libhogweed.so",
+        "libicudata.so.78" to "libicudata.so",
+        "libicui18n.so.78" to "libicui18n.so",
+        "libicuuc.so.78" to "libicuuc.so",
+        "liblzma.so.5" to "liblzma.so",
+        "libnettle.so.8" to "libnettle.so",
+        "libssl.so.3" to "libssl.so",
+        "libz.so.1" to "libz.so",
+        "libzstd.so.1" to "libzstd.so"
+    )
+
+    /** Where the versioned-soname symlinks bridging [nativeLibSonameAliases] live. A
+     * plain directory in app-private storage is fine for the symlinks themselves - W^X
+     * only governs the bytes the linker actually maps executable, and a symlink's target
+     * (resolved to the real file in [android.content.pm.ApplicationInfo.nativeLibraryDir])
+     * is what gets mapped, not the writable-storage symlink inode itself. */
+    fun nativeLibAliasDir(context: Context): File = File(rootDir(context), "native-lib-aliases")
+
+    /** Idempotently (re)creates the versioned-soname symlinks the native-lib dependency
+     * closure needs. No-op (per entry) if the target isn't bundled for this ABI. Safe to
+     * call before every launch, mirroring `ProcessManager.refreshAxsSymlink()` in
+     * Acode's own prototype for this same problem. */
+    fun ensureNativeLibAliases(context: Context) {
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        val aliasDir = nativeLibAliasDir(context).also { it.mkdirs() }
+        for ((alias, canonical) in nativeLibSonameAliases) {
+            val target = File(nativeDir, canonical)
+            if (!target.exists()) continue
+            val link = File(aliasDir, alias)
+            val linkPath = link.toPath()
+            if (java.nio.file.Files.isSymbolicLink(linkPath) &&
+                java.nio.file.Files.readSymbolicLink(linkPath) == target.toPath()
+            ) {
+                continue
+            }
+            java.nio.file.Files.deleteIfExists(linkPath)
+            java.nio.file.Files.createSymbolicLink(linkPath, target.toPath())
+        }
+    }
+
+    /** `LD_LIBRARY_PATH` entries for any native-lib-packaged binary (qemu, node, git,
+     * aapt2) to resolve its own dependency closure: the alias-symlink dir first (for
+     * versioned sonames), then the native-lib dir itself (for dependencies whose bundled
+     * filename already matches the requested soname exactly). Always returns a path -
+     * `nativeLibraryDir` exists for every install of this app regardless of ABI (it at
+     * minimum holds `terminal-emulator`'s own bundled `libtermux.so`), so there's no
+     * "nothing bundled" case worth special-casing; on an ABI with none of this app's own
+     * native-lib-packaged binaries, the extra search-path entries are simply never
+     * matched by anything. */
+    fun nativeLibLdPath(context: Context): String {
+        ensureNativeLibAliases(context)
+        return listOf(
+            nativeLibAliasDir(context).absolutePath,
+            context.applicationInfo.nativeLibraryDir
+        ).joinToString(":")
+    }
+
+    @Deprecated("use ensureNativeLibAliases", ReplaceWith("ensureNativeLibAliases(context)"))
+    fun ensureQemuNativeLibAliases(context: Context) = ensureNativeLibAliases(context)
+
+    @Deprecated("use nativeLibLdPath", ReplaceWith("nativeLibLdPath(context)"))
+    fun qemuNativeLibLdPath(context: Context): String = nativeLibLdPath(context)
 
     /**
      * A second, separate sysroot holding a glibc build (Debian's libc6 + libgcc-s1),
@@ -146,7 +266,13 @@ object NodeRuntime {
         val javaHome = File(usrDir(context), "lib/jvm/java-17-openjdk")
         val javaBin = File(javaHome, "bin")
 
-        environment["LD_LIBRARY_PATH"] = libDir(context).absolutePath
+        // Native-lib-packaged binaries (qemu, node, git, aapt2 - see AGENT_RUNTIME_RESEARCH.md
+        // Sections 7-9 and 12) need their own dependency closure resolvable from the
+        // W^X-exempt native-lib dir; searched first so a native-lib binary never
+        // accidentally picks up a same-named but differently-built copy from the
+        // downloaded Termux tree. Harmless to prepend unconditionally even when nothing
+        // native-lib-packaged is actually invoked - see nativeLibLdPath's own doc.
+        environment["LD_LIBRARY_PATH"] = "${nativeLibLdPath(context)}:${libDir(context).absolutePath}"
         environment["PATH"] = listOfNotNull(
             globalBinDir(context).absolutePath,
             userLocalBin.absolutePath,
