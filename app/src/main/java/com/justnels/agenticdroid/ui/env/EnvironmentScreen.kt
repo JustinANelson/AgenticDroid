@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,6 +20,7 @@ import com.justnels.agenticdroid.env.EnvironmentManager
 import com.justnels.agenticdroid.env.RunnerPackageGroup
 import com.justnels.agenticdroid.env.SSHConfig
 import com.justnels.agenticdroid.env.SSHAuthType
+import com.justnels.agenticdroid.util.NetworkUtil
 import androidx.compose.runtime.livedata.observeAsState
 import com.justnels.agenticdroid.MainViewModel
 import com.justnels.agenticdroid.ui.components.HintBox
@@ -209,6 +212,12 @@ fun EnvironmentScreen(
                 items(viewModel.doctorResults) { result ->
                     DoctorResultCard(result)
                 }
+
+                item {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(text = "Connectivity Helpers", style = MaterialTheme.typography.titleMedium)
+                    WirelessAdbCard(viewModel)
+                }
             }
         }
     }
@@ -219,7 +228,8 @@ fun EnvironmentScreen(
             onConfirm = { config ->
                 manager.addSSHEnvironment(config)
                 showAddSSHDialog = false
-            }
+            },
+            onScan = { onResult -> viewModel.scanForSshServers(onResult) }
         )
     }
 }
@@ -259,7 +269,10 @@ fun EnvironmentCard(
                 Text(
                     text = when (config) {
                         is EnvironmentConfig.Local -> "Local Android (Limited)"
-                        is EnvironmentConfig.SSH -> "Remote SSH: ${config.config.host}"
+                        is EnvironmentConfig.SSH -> {
+                            val suffix = if (config.config.useCloudflareTunnel) " (Tunnel)" else ""
+                            "Remote SSH: ${config.config.host}$suffix"
+                        }
                         is EnvironmentConfig.Node -> "Node.js & Python Toolchain"
                     },
                     style = MaterialTheme.typography.titleMedium
@@ -284,6 +297,83 @@ fun EnvironmentCard(
             if (config is EnvironmentConfig.SSH) {
                 IconButton(onClick = onRemove) {
                     Icon(Icons.Default.Delete, contentDescription = "Remove SSH profile", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WirelessAdbCard(viewModel: MainViewModel) {
+    var port by remember { mutableStateOf("5555") }
+    val preferredIp = NetworkUtil.getPreferredAddress()
+    val allIps = NetworkUtil.getLocalIpv4Addresses()
+    val isSSH = viewModel.environmentManager.activeEnvironment is EnvironmentConfig.SSH
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Wifi, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Wireless ADB", style = MaterialTheme.typography.titleSmall)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Connect a remote dev machine to this phone via ADB. Ensure Wireless Debugging is enabled in Android Developer Options.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            
+            if (allIps.isNotEmpty()) {
+                Text(
+                    text = "Current IPs: ${allIps.joinToString(", ")}",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it.filter(Char::isDigit).take(5) },
+                    label = { Text("Wireless ADB Port") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = { viewModel.connectWirelessAdb(port.toIntOrNull() ?: 5555) },
+                    enabled = isSSH && preferredIp != null
+                ) {
+                    Text("Connect Remote")
+                }
+            }
+            
+            if (!isSSH) {
+                Text(
+                    text = "Activate an SSH environment to use this helper.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            viewModel.adbConnectionStatus?.let { status ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    onClick = { viewModel.dismissAdbStatus() }
+                ) {
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(8.dp)
+                    )
                 }
             }
         }
@@ -398,7 +488,8 @@ private fun formatBytes(bytes: Long): String? {
 @Composable
 fun AddSSHDialog(
     onDismiss: () -> Unit,
-    onConfirm: (SSHConfig) -> Unit
+    onConfirm: (SSHConfig) -> Unit,
+    onScan: ((List<String>) -> Unit) -> Unit
 ) {
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("22") }
@@ -410,19 +501,83 @@ fun AddSSHDialog(
     var privateKeyPassphrase by remember { mutableStateOf("") }
     var authType by remember { mutableStateOf(SSHAuthType.PASSWORD) }
     var hostKeyFingerprint by remember { mutableStateOf("") }
+    var useCloudflareTunnel by remember { mutableStateOf(false) }
+    var isScanning by remember { mutableStateOf(false) }
+    var scannedHosts by remember { mutableStateOf(emptyList<String>()) }
+    var showScanResults by remember { mutableStateOf(false) }
+
     val validFingerprint = hostKeyFingerprint.matches(Regex("^SHA256:[A-Za-z0-9+/]{43}=?$"))
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add SSH Environment") },
         text = {
-            Column {
-                OutlinedTextField(value = host, onValueChange = { host = it }, label = { Text("Host") })
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = { value -> port = value.filter(Char::isDigit).take(5) },
-                    label = { Text("Port") }
-                )
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = host,
+                        onValueChange = { host = it },
+                        label = { Text(if (useCloudflareTunnel) "Cloudflare Hostname" else "Host") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = {
+                            isScanning = true
+                            onScan {
+                                scannedHosts = it
+                                isScanning = false
+                                showScanResults = true
+                            }
+                        },
+                        enabled = !isScanning && !useCloudflareTunnel
+                    ) {
+                        if (isScanning) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        } else {
+                            Icon(Icons.Default.Search, contentDescription = "Scan")
+                        }
+                    }
+                }
+
+                if (showScanResults && scannedHosts.isNotEmpty()) {
+                    Text(
+                        "Discovered local hosts:",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        scannedHosts.forEach { scannedHost ->
+                            AssistChip(
+                                onClick = {
+                                    host = scannedHost
+                                    showScanResults = false
+                                },
+                                label = { Text(scannedHost) },
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    Text("Use Cloudflare Tunnel", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = useCloudflareTunnel,
+                        onCheckedChange = { useCloudflareTunnel = it }
+                    )
+                }
+
+                if (!useCloudflareTunnel) {
+                    OutlinedTextField(
+                        value = port,
+                        onValueChange = { value -> port = value.filter(Char::isDigit).take(5) },
+                        label = { Text("Port") }
+                    )
+                }
+
                 OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("Username") })
                 OutlinedTextField(
                     value = workingDirectory,
@@ -430,7 +585,7 @@ fun AddSSHDialog(
                     label = { Text("Remote workspace") },
                     supportingText = { Text("Use . for the SSH account's home directory") }
                 )
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     SSHAuthType.entries.forEachIndexed { index, type ->
                         SegmentedButton(
                             selected = authType == type,
@@ -481,14 +636,14 @@ fun AddSSHDialog(
             Button(
                 enabled = host.isNotBlank() && username.isNotBlank() &&
                     workingDirectory.isNotBlank() &&
-                    port.toIntOrNull() in 1..65535 && validFingerprint &&
+                    (useCloudflareTunnel || port.toIntOrNull() in 1..65535) && validFingerprint &&
                     ((authType == SSHAuthType.PASSWORD && password.isNotBlank()) ||
                         (authType == SSHAuthType.PRIVATE_KEY && (privateKeyPath.isNotBlank() || privateKeyContent.isNotBlank()))),
                 onClick = {
                     onConfirm(
                         SSHConfig(
                             host = host.trim(),
-                            port = port.toInt(),
+                            port = if (useCloudflareTunnel) 22 else port.toInt(),
                             username = username.trim(),
                             password = password.takeIf { authType == SSHAuthType.PASSWORD },
                             hostKeyFingerprint = hostKeyFingerprint,
@@ -496,7 +651,8 @@ fun AddSSHDialog(
                             authType = authType,
                             privateKeyPath = privateKeyPath.trim().takeIf { authType == SSHAuthType.PRIVATE_KEY },
                             privateKeyPassphrase = privateKeyPassphrase.takeIf { it.isNotEmpty() },
-                            privateKeyContent = privateKeyContent.trim().takeIf { it.isNotEmpty() }
+                            privateKeyContent = privateKeyContent.trim().takeIf { it.isNotEmpty() },
+                            useCloudflareTunnel = useCloudflareTunnel
                         )
                     )
                 }

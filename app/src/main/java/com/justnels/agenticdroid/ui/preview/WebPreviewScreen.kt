@@ -35,6 +35,10 @@ fun WebPreviewScreen(
     currentUrl: String,
     onUrlChange: (String) -> Unit,
     onNavigateToTerminal: () -> Unit,
+    serverStatus: String? = null,
+    serverActive: Boolean = false,
+    serverReady: Boolean = false,
+    onStopServer: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -178,6 +182,33 @@ fun WebPreviewScreen(
                             },
                             label = { Text("$port ($label)") }
                         )
+                    }
+                }
+            }
+        }
+
+        if (serverStatus != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (serverActive && !serverReady) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            imageVector = if (serverReady) Icons.Default.CheckCircle else Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Text(serverStatus, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    if (serverActive) {
+                        TextButton(onClick = onStopServer) { Text("Stop") }
                     }
                 }
             }

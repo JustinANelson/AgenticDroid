@@ -83,7 +83,7 @@ fun MainScreen(viewModel: MainViewModel) {
     viewModel.fileError?.let { error ->
         AlertDialog(
             onDismissRequest = viewModel::dismissFileError,
-            title = { Text("File operation failed") },
+            title = { Text("Operation failed") },
             text = { Text(error) },
             confirmButton = { TextButton(onClick = viewModel::dismissFileError) { Text("OK") } }
         )
@@ -167,12 +167,13 @@ fun MainScreen(viewModel: MainViewModel) {
                                 fileName = viewModel.openedFile!!.name
                             )
                         }
-                    } else if (environmentManager.activeEnvironment is EnvironmentConfig.SSH) {
+                    } else if (environmentManager.activeEnvironment is EnvironmentConfig.SSH && viewModel.selectedProject == null) {
                         val ssh = environmentManager.activeEnvironment as EnvironmentConfig.SSH
                         RemoteBrowserScreen(
                             filesystem = activeEnv.filesystem(),
                             rootPath = ssh.config.workingDirectory,
-                            onOpenFile = viewModel::openRemoteFile
+                            onOpenFile = viewModel::openRemoteFile,
+                            onOpenProject = viewModel::selectRemoteProject
                         )
                     } else if (viewModel.selectedProject == null) {
                         ProjectList(
@@ -329,6 +330,12 @@ fun MainScreen(viewModel: MainViewModel) {
                                             IconButton(onClick = viewModel::cancelBuild) {
                                                 Icon(Icons.Default.Stop, contentDescription = "Cancel build")
                                             }
+                                        } else if (projectType == com.justnels.agenticdroid.workspace.ProjectType.WEB &&
+                                            viewModel.isWebDevActive
+                                        ) {
+                                            IconButton(onClick = viewModel::stopWebDevServer) {
+                                                Icon(Icons.Default.Stop, contentDescription = "Stop web server")
+                                            }
                                         } else {
                                             IconButton(onClick = {
                                                 val primary = projectActions.firstOrNull()
@@ -349,6 +356,39 @@ fun MainScreen(viewModel: MainViewModel) {
                                         }
                                         IconButton(onClick = { showActionsDialog = true }) {
                                             Icon(Icons.Default.MoreVert, contentDescription = "Project Actions")
+                                        }
+                                    }
+                                }
+                                if (projectType == com.justnels.agenticdroid.workspace.ProjectType.WEB &&
+                                    viewModel.webDevStatus != null
+                                ) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            if (viewModel.isWebDevActive && !viewModel.isWebDevReady) {
+                                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Icon(
+                                                    imageVector = if (viewModel.isWebDevReady) Icons.Default.CheckCircle
+                                                    else Icons.Default.Info,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = viewModel.webDevStatus.orEmpty(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (viewModel.isWebDevActive) {
+                                                TextButton(onClick = viewModel::stopWebDevServer) { Text("Stop") }
+                                            }
                                         }
                                     }
                                 }
@@ -425,10 +465,7 @@ fun MainScreen(viewModel: MainViewModel) {
                             FileTree(
                                 nodes = nodes,
                                 onFileSelected = { path ->
-                                    val file = File(path)
-                                    if (file.isFile) {
-                                        viewModel.openFile(file.path)
-                                    }
+                                    viewModel.openFile(path)
                                 },
                                 onDelete = { viewModel.deleteFile(it) },
                                 onRename = { old, new -> viewModel.renameFile(old, new) },
@@ -493,9 +530,9 @@ fun MainScreen(viewModel: MainViewModel) {
                     if (!viewModel.isNodeEnvironment || !viewModel.isNodeInstalled) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
                             Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                                Text("Agents require the Node Toolchain environment.", style = MaterialTheme.typography.titleMedium)
+                                Text("Agents require a Node.js environment.", style = MaterialTheme.typography.titleMedium)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Please activate and setup the Node Toolchain in Settings.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                Text("Please activate the Node Toolchain or an SSH environment in Settings.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                 Button(onClick = { viewModel.currentScreen = Screen.Environments }, modifier = Modifier.padding(top = 16.dp)) {
                                     Text("Go to Environments")
                                 }
@@ -572,7 +609,11 @@ fun MainScreen(viewModel: MainViewModel) {
                     com.justnels.agenticdroid.ui.preview.WebPreviewScreen(
                         currentUrl = viewModel.webPreviewUrl,
                         onUrlChange = { viewModel.webPreviewUrl = it },
-                        onNavigateToTerminal = { viewModel.currentScreen = Screen.Terminal }
+                        onNavigateToTerminal = { viewModel.currentScreen = Screen.Terminal },
+                        serverStatus = viewModel.webDevStatus,
+                        serverActive = viewModel.isWebDevActive,
+                        serverReady = viewModel.isWebDevReady,
+                        onStopServer = viewModel::stopWebDevServer
                     )
                 }
                 Screen.Environments -> {

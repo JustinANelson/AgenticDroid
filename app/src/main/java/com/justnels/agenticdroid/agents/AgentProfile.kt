@@ -100,6 +100,11 @@ object DefaultAgents {
      * package-name suffix swapped.
      */
     private fun npmMuslAgentInstallCommand(npmPackage: String, binaryName: String): String = """
+        if [ ! -d /system/bin ]; then
+          echo "Detecting non-Android environment, performing standard install..."
+          npm install -g $npmPackage
+          exit $?
+        fi
         node "${'$'}NPM_CLI" install -g --ignore-scripts $npmPackage >/dev/null 2>&1
         arch="${'$'}(uname -m)"
         case "${'$'}arch" in
@@ -152,6 +157,11 @@ object DefaultAgents {
      * that.
      */
     private fun codexInstallCommand(): String = """
+        if [ ! -d /system/bin ]; then
+          echo "Detecting non-Android environment, performing standard install..."
+          npm install -g @openai/codex
+          exit $?
+        fi
         node "${'$'}NPM_CLI" install -g --ignore-scripts @openai/codex >/dev/null 2>&1
         codexjs="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/@openai/codex/bin/codex.js"
         globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
@@ -283,6 +293,11 @@ object DefaultAgents {
      * Claude/Codex's self-tests as a precaution, though they didn't hit it in testing.
      */
     private fun antigravityInstallCommand(): String = """
+        if [ ! -d /system/bin ]; then
+          echo "Detecting non-Android environment, performing standard install..."
+          curl -sSL https://antigravity.google/cli/install.sh | bash
+          exit $?
+        fi
         arch="${'$'}(uname -m)"
         case "${'$'}arch" in
           aarch64) agyarch="arm64" ;;

@@ -249,7 +249,7 @@ class WorkspaceManager(private val rootDir: File) {
 
 data class SearchResult(val path: String, val lineNumber: Int, val lineContent: String)
 
-data class Project(val name: String, val path: String)
+data class Project(val name: String, val path: String, val isRemote: Boolean = false)
 
 data class FileNode(
     val name: String,

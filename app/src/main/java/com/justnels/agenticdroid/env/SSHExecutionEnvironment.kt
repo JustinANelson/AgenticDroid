@@ -9,15 +9,55 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.io.ByteArrayOutputStream
+import java.net.ServerSocket
 
 class SSHExecutionEnvironment(private val context: Context, private val config: SSHConfig) : ExecutionEnvironment {
     private var client: SSHClient? = null
+    private var tunnelProcess: Process? = null
+    private var tunnelLocalPort: Int = 0
 
+    private fun startTunnel(): Int {
+        val port = ServerSocket(0).use { it.localPort }
+        val cloudflared = NodeRuntime.binDir(context).resolve("cloudflared")
+        if (!cloudflared.exists()) {
+            throw IllegalStateException("cloudflared not found. Please install the Core Toolchain in Environments.")
+        }
+
+        val pb = ProcessBuilder(
+            cloudflared.absolutePath,
+            "access", "tcp",
+            "--hostname", config.host,
+            "--listener", "127.0.0.1:$port"
+        ).apply {
+            val env = environment()
+            NodeRuntime.configureEnvironment(context, env)
+        }
+
+        tunnelProcess = pb.start()
+        tunnelLocalPort = port
+
+        // Wait a bit for the tunnel to establish. In a production app we'd probe the port
+        // or watch the stdout, but for a prototype this is usually enough for cloudflared.
+        Thread.sleep(1000)
+        return port
+    }
+
+    @Synchronized
     private fun getClient(): SSHClient {
         if (client == null || !client!!.isConnected) {
+            val host = if (config.useCloudflareTunnel) {
+                if (tunnelProcess == null || tunnelProcess?.isAlive == false) {
+                    startTunnel()
+                }
+                "127.0.0.1"
+            } else {
+                config.host
+            }
+            val port = if (config.useCloudflareTunnel) tunnelLocalPort else config.port
+
             client = SSHClient().apply {
                 addHostKeyVerifier(FingerprintVerifier.getInstance(config.hostKeyFingerprint))
-                connect(config.host, config.port)
+                connect(host, port)
                 when (config.authType) {
                     SSHAuthType.PASSWORD -> authPassword(
                         config.username,
@@ -66,7 +106,7 @@ class SSHExecutionEnvironment(private val context: Context, private val config: 
     }
 
     override fun filesystem(): FileSystemAccess {
-        return SSHFileSystemAccess(getClient())
+        return SSHFileSystemAccess(::getClient)
     }
 
     override fun getEnvironmentInfo(): EnvironmentInfo {
@@ -78,11 +118,38 @@ class SSHExecutionEnvironment(private val context: Context, private val config: 
         )
     }
 
+    override fun ptyShellSpec(workingDirectory: String): PtyShellSpec? {
+        val sshBin = NodeRuntime.binDir(context).resolve("ssh")
+        if (!sshBin.exists()) return null
+
+        val envMap = mutableMapOf<String, String>()
+        NodeRuntime.configureEnvironment(context, envMap)
+        
+        // We use the local ssh binary to connect to the remote host.
+        // We force a PTY (-t) and immediately CD to the project directory.
+        val args = mutableListOf(
+            "-p", config.port.toString(),
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-t",
+            "${config.username}@${config.host}",
+            "cd ${ShellEscaping.quote(workingDirectory)} ; exec \$SHELL -l"
+        )
+
+        return PtyShellSpec(
+            shellPath = sshBin.absolutePath,
+            args = args.toTypedArray(),
+            cwd = context.filesDir.absolutePath,
+            env = envMap.map { (key, value) -> "$key=$value" }.toTypedArray()
+        )
+    }
+
     @Synchronized
     override fun close() {
         runCatching { client?.disconnect() }
         runCatching { client?.close() }
         client = null
+        tunnelProcess?.destroy()
+        tunnelProcess = null
     }
 }
 
@@ -111,7 +178,9 @@ class SSHProcessSession(private val session: Session, private val cmd: Session.C
     }
 }
 
-class SSHFileSystemAccess(private val client: SSHClient) : FileSystemAccess {
+class SSHFileSystemAccess(private val clientProvider: () -> SSHClient) : FileSystemAccess {
+    private val client get() = clientProvider()
+
     override fun listEntries(path: String): List<FileSystemEntry> {
         val sftp = client.newSFTPClient()
         return try {
@@ -252,7 +321,8 @@ data class SSHConfig(
     val authType: SSHAuthType = SSHAuthType.PASSWORD,
     val privateKeyPath: String? = null,
     val privateKeyPassphrase: String? = null,
-    val privateKeyContent: String? = null
+    val privateKeyContent: String? = null,
+    val useCloudflareTunnel: Boolean = false
 ) {
     init {
         require(host.isNotBlank()) { "SSH host is required" }

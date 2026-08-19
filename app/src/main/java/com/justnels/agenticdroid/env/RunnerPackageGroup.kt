@@ -16,12 +16,12 @@ enum class RunnerPackageGroup(
 ) {
     CORE(
         "Core Toolchain",
-        "Node.js, npm, git, curl, gh, ripgrep/jq/fd, and the QEMU-user runtime AI agent CLIs need",
+        "Node.js, npm, git, curl, gh, cloudflared, mdns-scan, and the QEMU runtime agents need",
         listOf(
             "nodejs", "libc++", "openssl", "c-ares", "libicu", "libsqlite", "zlib", "libffi",
             "git", "libcurl", "libexpat", "libiconv", "pcre2", "less",
             "libnghttp2", "libnghttp3", "libngtcp2", "libssh2",
-            "curl", "gh", "npm",
+            "curl", "gh", "npm", "openssh", "cloudflared", "mdns-scan",
             // qemu-user-<arch> dependency closure, plus libzstd (libdw needs it but
             // doesn't declare it) - qemu-user-<arch> itself is added per-arch in
             // NodeBootstrapper since its package name depends on the device ABI.

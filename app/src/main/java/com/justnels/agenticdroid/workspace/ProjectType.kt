@@ -42,7 +42,19 @@ enum class ProjectType(
 
             // Check for Web project indicators
             val hasPackageJson = File(projectDir, "package.json").exists()
+            val nestedWebRoots = listOf("frontend", "client", "web").map { File(projectDir, it) }
+            val hasNestedWebApp = nestedWebRoots.any { root ->
+                root.isDirectory && (
+                    File(root, "index.html").isFile ||
+                    File(root, "vite.config.js").isFile ||
+                    File(root, "vite.config.ts").isFile ||
+                    File(root, "vite.config.mjs").isFile ||
+                    File(root, "next.config.js").isFile ||
+                    File(root, "next.config.mjs").isFile
+                )
+            }
             if (hasPackageJson ||
+                hasNestedWebApp ||
                 File(projectDir, "index.html").exists() ||
                 File(projectDir, "vite.config.js").exists() ||
                 File(projectDir, "vite.config.ts").exists() ||
@@ -53,7 +65,9 @@ enum class ProjectType(
                 // If it has index.html or other strong web signals, it's WEB
                 if (File(projectDir, "index.html").exists() ||
                     File(projectDir, "vite.config.js").exists() ||
-                    File(projectDir, "next.config.js").exists()
+                    File(projectDir, "vite.config.ts").exists() ||
+                    File(projectDir, "next.config.js").exists() ||
+                    hasNestedWebApp
                 ) {
                     return WEB
                 }

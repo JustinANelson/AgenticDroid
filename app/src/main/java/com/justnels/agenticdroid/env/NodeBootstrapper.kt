@@ -35,9 +35,8 @@ class NodeBootstrapper(private val context: Context) {
     // Bumped from "14": package installation is now split into independently-installable
     // RunnerPackageGroups instead of one all-or-nothing list, so any prior install (whose
     // on-disk layout the old code assumed) needs to be redone under the new bookkeeping.
-    // Bumped again "15"->"16": added ripgrep/jq/fd/tree/unzip/patch/diffutils/sqlite to
-    // CORE.
-    private val provisioningVersion = "16"
+    // Bumped again "16"->"17": added openssh to CORE.
+    private val provisioningVersion = "17"
     private val maxArtifactBytes = 512L * 1024L * 1024L
 
     // This is a path *inside Termux package archives*, not an Android filesystem path.

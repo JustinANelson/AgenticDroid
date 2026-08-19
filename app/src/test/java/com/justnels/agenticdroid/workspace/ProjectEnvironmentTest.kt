@@ -54,6 +54,16 @@ class ProjectEnvironmentTest {
     }
 
     @Test
+    fun testDetectNestedFrontendViteMonorepoAsWebProject() {
+        val dir = tempFolder.newFolder("FullStackApp")
+        File(dir, "package.json").writeText("""{"scripts":{"dev":"npm run dev --prefix frontend"}}""")
+        File(dir, "frontend").mkdirs()
+        File(dir, "frontend/vite.config.ts").writeText("export default {}")
+
+        assertEquals(ProjectType.WEB, ProjectType.detect(dir))
+    }
+
+    @Test
     fun testDetectPythonProjectWithRequirements() {
         val dir = tempFolder.newFolder("MyPythonApp")
         File(dir, "requirements.txt").writeText("flask>=3.0.0")
@@ -251,9 +261,9 @@ class ProjectEnvironmentTest {
         val preparation = WebProjectPreflight.prepare(dir, "npm run dev")
 
         assertTrue(preparation.installRequired)
-        assertTrue(preparation.command.contains("npm install --include=optional"))
+        assertTrue(preparation.command.contains("NPM_CONFIG_INCLUDE=optional npm install"))
         assertTrue(preparation.command.contains("node node_modules/vite/bin/vite.js --host"))
-        assertTrue(preparation.command.endsWith("else echo 'Dependency installation failed.'; fi"))
+        assertTrue(preparation.command.endsWith("else echo 'Dependency installation failed.' >&2; exit 1; fi"))
         assertEquals(null, preparation.error)
     }
 
@@ -283,6 +293,20 @@ class ProjectEnvironmentTest {
 
         assertTrue(preparation.error!!.contains("does not declare it"))
         assertTrue(!preparation.installRequired)
+    }
+
+    @Test
+    fun testMonorepoPreflightUsesDeclaredInstallAllScript() {
+        val dir = tempFolder.newFolder("web-monorepo")
+        File(dir, "package.json").writeText(
+            """{"scripts":{"install:all":"npm install --prefix frontend","dev":"npm run dev --prefix frontend"},"devDependencies":{"concurrently":"^8.2.2"}}"""
+        )
+
+        val preparation = WebProjectPreflight.prepare(dir, "npm run dev")
+
+        assertTrue(preparation.installRequired)
+        assertTrue(preparation.command.contains("NPM_CONFIG_INCLUDE=optional npm run install:all"))
+        assertTrue(preparation.command.contains("npm run dev"))
     }
 
     @Test

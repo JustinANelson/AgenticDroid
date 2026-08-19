@@ -25,6 +25,7 @@ fun RemoteBrowserScreen(
     filesystem: FileSystemAccess,
     rootPath: String,
     onOpenFile: (String) -> Unit,
+    onOpenProject: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var currentPath by remember(rootPath) { mutableStateOf(rootPath) }
@@ -63,6 +64,9 @@ fun RemoteBrowserScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
             )
+            IconButton(onClick = { onOpenProject(currentPath) }) {
+                Icon(Icons.Default.Folder, contentDescription = "Open as Project", tint = MaterialTheme.colorScheme.primary)
+            }
             IconButton(onClick = { refreshToken++ }) {
                 Icon(Icons.Default.Refresh, contentDescription = "Refresh")
             }

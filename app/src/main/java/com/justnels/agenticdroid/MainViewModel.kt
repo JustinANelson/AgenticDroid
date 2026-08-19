@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -28,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.justnels.agenticdroid.util.NetworkUtil
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
@@ -319,7 +321,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     val isNodeEnvironment: Boolean
-        get() = environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.Node
+        get() = environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.Node ||
+                environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH
 
     val executionWorkingDirectory: String
         get() = when (val active = environmentManager.activeEnvironment) {
@@ -328,7 +331,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
     fun refreshNodeInstalledStatus() {
-        isNodeInstalled = environmentManager.bootstrapper.isInstalled()
+        isNodeInstalled = if (environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
+            true // Assume remote has Node for UI enablement; launchCommand performs actual check.
+        } else {
+            environmentManager.bootstrapper.isInstalled()
+        }
         installedRunnerGroups = environmentManager.installedRunnerGroups()
     }
 
@@ -397,14 +404,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         currentScreen = Screen.WebPreview
     }
 
-    fun getProjectType(project: Project): com.justnels.agenticdroid.workspace.ProjectType =
-        workspaceManager.getProjectType(project)
+    fun getProjectType(project: Project): com.justnels.agenticdroid.workspace.ProjectType {
+        if (project.isRemote) {
+            // For now, remote projects default to CUSTOM unless we implement remote detection.
+            return com.justnels.agenticdroid.workspace.ProjectType.CUSTOM
+        }
+        return workspaceManager.getProjectType(project)
+    }
 
-    fun getProjectActions(project: Project): List<com.justnels.agenticdroid.workspace.ProjectRunnerAction> =
-        workspaceManager.getProjectActions(project)
+    fun getProjectActions(project: Project): List<com.justnels.agenticdroid.workspace.ProjectRunnerAction> {
+        if (project.isRemote) {
+            // Remote projects don't have default actions yet.
+            return emptyList()
+        }
+        return workspaceManager.getProjectActions(project)
+    }
 
-    fun getProjectMetadata(project: Project): com.justnels.agenticdroid.workspace.ProjectMetadata =
-        workspaceManager.getProjectMetadata(project)
+    fun getProjectMetadata(project: Project): com.justnels.agenticdroid.workspace.ProjectMetadata {
+        if (project.isRemote) {
+            return com.justnels.agenticdroid.workspace.ProjectMetadata()
+        }
+        return workspaceManager.getProjectMetadata(project)
+    }
 
     fun saveProjectMetadata(project: Project, metadata: com.justnels.agenticdroid.workspace.ProjectMetadata) {
         workspaceManager.saveProjectMetadata(project, metadata)
@@ -434,7 +455,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 startWebDevServer(
                     preparation.command,
                     project.path,
-                    projectSecretsStore.getSecrets(project)
+                    projectSecretsStore.getSecrets(project),
+                    preparation.installRequired
                 )
                 action.previewUrl?.let { webPreviewUrl = it }
                 currentScreen = Screen.WebPreview
@@ -443,6 +465,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (action.command.isNotBlank() && terminalViewModel != null) {
                 val prelude = selectedProject?.let { projectSecretsStore.exportPrelude(it) }.orEmpty()
                 terminalViewModel.sendCommand(prelude + action.command)
+                // Interactive/one-shot terminal actions should always reveal their output.
+                // Web dev servers use the managed process/status path above instead.
+                currentScreen = Screen.Terminal
             }
             if (action.opensPreview) {
                 action.previewUrl?.let { webPreviewUrl = it }
@@ -504,17 +529,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshCurrentProject() {
         val project = selectedProject
-        projectNodes = if (project != null) {
-            workspaceManager.getFileTree(project)
-        } else {
-            emptyList()
+        if (project == null) {
+            projectNodes = emptyList()
+            return
         }
+
+        if (project.isRemote) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+                    val fs = env.filesystem()
+                    val nodes = fetchRemoteTree(fs, project.path)
+                    withContext(Dispatchers.Main) {
+                        projectNodes = nodes
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainViewModel", "Failed to fetch remote tree", e)
+                    withContext(Dispatchers.Main) {
+                        fileError = "Failed to load remote project: ${e.localizedMessage}"
+                    }
+                }
+            }
+        } else {
+            projectNodes = workspaceManager.getFileTree(project)
+        }
+    }
+
+    private fun fetchRemoteTree(fs: com.justnels.agenticdroid.env.FileSystemAccess, rootPath: String): List<com.justnels.agenticdroid.workspace.FileNode> {
+        var count = 0
+        val maxEntries = 1000 // Limit remote tree size for performance
+        val maxDepth = 5
+
+        fun build(path: String, depth: Int): List<com.justnels.agenticdroid.workspace.FileNode> {
+            if (depth > maxDepth || count > maxEntries) return emptyList()
+            return try {
+                fs.listEntries(path).mapNotNull { entry ->
+                    count++
+                    if (count > maxEntries) return@mapNotNull null
+                    com.justnels.agenticdroid.workspace.FileNode(
+                        name = entry.name,
+                        path = entry.path,
+                        isDirectory = entry.isDirectory,
+                        children = if (entry.isDirectory) build(entry.path, depth + 1) else emptyList()
+                    )
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+        return build(rootPath, 0)
+    }
+
+    fun selectRemoteProject(path: String) {
+        val name = path.substringAfterLast('/').ifEmpty { "RemoteProject" }
+        selectProject(Project(name, path, isRemote = true))
     }
 
     fun selectProject(project: Project?) {
         if (selectedProject?.path != project?.path) {
+            webDevGeneration++
             activeWebDevSession?.kill()
             activeWebDevSession = null
+            isWebDevActive = false
+            isWebDevReady = false
             webDevStatus = null
         }
         selectedProject = project
@@ -599,6 +676,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun createFile(name: String) {
         val project = selectedProject ?: return
         fileError = null
+        if (project.isRemote) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+                    val fullPath = if (project.path.endsWith("/")) "${project.path}$name" else "${project.path}/$name"
+                    env.filesystem().writeFile(fullPath, "")
+                    withContext(Dispatchers.Main) { refreshCurrentProject() }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) { fileError = "Could not create remote file: ${e.localizedMessage}" }
+                }
+            }
+            return
+        }
         runCatching { workspaceManager.createFile(project, name) }
             .onSuccess { created ->
                 if (!created) fileError = "Could not create that file inside the selected project."
@@ -611,9 +701,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteFile(path: String) {
         val project = selectedProject ?: return
-        val safePath = workspaceManager.resolveInsideProject(project, path)?.absolutePath ?: run {
-            fileError = "Refusing to delete a file outside the selected project."
-            return
+        val isRemote = project.isRemote
+        val safePath = if (isRemote) path else {
+            workspaceManager.resolveInsideProject(project, path)?.absolutePath ?: run {
+                fileError = "Refusing to delete a file outside the selected project."
+                return
+            }
         }
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
@@ -626,6 +719,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun renameFile(oldPath: String, newName: String) {
         val project = selectedProject ?: return
+        if (project.isRemote) {
+            val newPath = oldPath.substringBeforeLast('/') + "/" + newName
+            viewModelScope.launch(Dispatchers.IO) {
+                val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+                val renamed = env.filesystem().renameFile(oldPath, newPath)
+                withContext(Dispatchers.Main) {
+                    if (renamed) refreshCurrentProject() else fileError = "Could not rename the remote file."
+                }
+            }
+            return
+        }
         val safeOld = workspaceManager.resolveInsideProject(project, oldPath)?.absolutePath
         val safeNew = workspaceManager.safeSibling(project, oldPath, newName)?.absolutePath
         if (safeOld == null || safeNew == null) {
@@ -643,6 +747,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun copyFile(path: String, newName: String) {
         val project = selectedProject ?: return
+        if (project.isRemote) {
+            val destPath = path.substringBeforeLast('/') + "/" + newName
+            viewModelScope.launch(Dispatchers.IO) {
+                val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+                val copied = env.filesystem().copyFile(path, destPath)
+                withContext(Dispatchers.Main) {
+                    if (copied) refreshCurrentProject() else fileError = "Could not copy the remote file."
+                }
+            }
+            return
+        }
         val safeSource = workspaceManager.resolveInsideProject(project, path)?.absolutePath
         val safeDestination = workspaceManager.safeSibling(project, path, newName)?.absolutePath
         if (safeSource == null || safeDestination == null) {
@@ -660,6 +775,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openFile(path: String) {
         val project = selectedProject ?: return
+        if (project.isRemote) {
+            openRemoteFile(path)
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { workspaceManager.readTextFile(project, path) }
                 .onSuccess { content -> withContext(Dispatchers.Main) {
@@ -1232,15 +1351,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     @Volatile private var activeBuildSession: ProcessSession? = null
     @Volatile private var activeWebDevSession: ProcessSession? = null
+    @Volatile private var webDevGeneration = 0
     var webDevStatus by mutableStateOf<String?>(null)
         private set
     var webDevLog by mutableStateOf("")
         private set
+    var isWebDevActive by mutableStateOf(false)
+        private set
+    var isWebDevReady by mutableStateOf(false)
+        private set
 
-    private fun startWebDevServer(command: String, workingDirectory: String, secrets: Map<String, String>) {
+    private fun startWebDevServer(
+        command: String,
+        workingDirectory: String,
+        secrets: Map<String, String>,
+        installRequired: Boolean
+    ) {
+        val generation = ++webDevGeneration
         activeWebDevSession?.kill()
         activeWebDevSession = null
-        webDevStatus = "Starting local web server..."
+        isWebDevActive = true
+        isWebDevReady = false
+        webDevStatus = if (installRequired) "Preparing project dependencies..." else "Starting local web server..."
         webDevLog = ""
         viewModelScope.launch(Dispatchers.IO) {
             var startedSession: ProcessSession? = null
@@ -1251,16 +1383,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     retainedOutput.delete(0, retainedOutput.length - MAX_WEB_DEV_LOG_CHARS)
                 }
             }
+            fun updateProgressFrom(line: String) {
+                val nextStatus = when {
+                    line.contains("Installing project dependencies", ignoreCase = true) ->
+                        "Installing project dependencies on device..."
+                    line.contains("Local:", ignoreCase = true) ||
+                        (line.contains("VITE", ignoreCase = true) && line.contains("ready", ignoreCase = true)) ->
+                        "Local web server is running."
+                    else -> null
+                } ?: return
+                viewModelScope.launch(Dispatchers.Main) {
+                    if (webDevGeneration == generation) {
+                        webDevStatus = nextStatus
+                        if (nextStatus == "Local web server is running.") isWebDevReady = true
+                    }
+                }
+            }
 
             try {
                 val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
                 val session = env.exec(command, workingDirectory, secrets)
                 startedSession = session
+                if (webDevGeneration != generation) {
+                    session.kill()
+                    return@launch
+                }
                 activeWebDevSession = session
                 val stdoutJob = launch {
                     session.inputStream.bufferedReader().useLines { lines ->
                         lines.forEach { line ->
                             retain(line)
+                            updateProgressFrom(line)
                             Log.d("WebDevServer", line)
                         }
                     }
@@ -1269,6 +1422,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     session.errorStream.bufferedReader().useLines { lines ->
                         lines.forEach { line ->
                             retain(line)
+                            updateProgressFrom(line)
                             Log.w("WebDevServer", line)
                         }
                     }
@@ -1280,6 +1434,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.Main) {
                     webDevLog = output
                     if (activeWebDevSession === session) {
+                        isWebDevActive = false
+                        isWebDevReady = false
                         webDevStatus = if (exitCode == 0) "Web server stopped." else "Web server failed."
                         if (exitCode != 0) {
                             fileError = buildString {
@@ -1292,6 +1448,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 if (startedSession == null || activeWebDevSession === startedSession) {
                     withContext(Dispatchers.Main) {
+                        isWebDevActive = false
+                        isWebDevReady = false
                         webDevStatus = "Web server failed."
                         fileError = "Could not start the web server: ${e.localizedMessage ?: "unknown error"}"
                     }
@@ -1300,6 +1458,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (activeWebDevSession === startedSession) activeWebDevSession = null
             }
         }
+    }
+
+    fun stopWebDevServer() {
+        webDevGeneration++
+        activeWebDevSession?.kill()
+        activeWebDevSession = null
+        isWebDevActive = false
+        isWebDevReady = false
+        webDevStatus = "Web server stopped."
     }
 
     fun buildAndInstall(buildCommand: String = "./gradlew assembleDebug", secrets: Map<String, String> = emptyMap()) {
@@ -1486,6 +1653,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bootstrapWorkId.value = environmentManager.bootstrapWorkId
     }
 
+    /**
+     * Scans the local network for machines broadcasting SSH services via mDNS.
+     * Uses `mdns-scan` from the core toolchain.
+     */
+    fun scanForSshServers(onResult: (List<String>) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val env = environmentManager.getExecutionEnvironment(com.justnels.agenticdroid.env.EnvironmentConfig.Local)
+            // mdns-scan usually outputs " <host> <ip> <port> <service>"
+            val session = env.exec("mdns-scan", ".", emptyMap())
+            val results = mutableListOf<String>()
+            val reader = session.inputStream.bufferedReader()
+
+            // Run for 3 seconds to gather results
+            delay(3000)
+            session.kill()
+
+            reader.useLines { lines ->
+                lines.forEach { line ->
+                    if (line.contains("_ssh._tcp")) {
+                        // Extract host. Example: "  my-mac.local. 192.168.1.5:22 _ssh._tcp.local."
+                        val parts = line.trim().split(Regex("\\s+"))
+                        if (parts.isNotEmpty()) {
+                            results.add(parts[0].removeSuffix("."))
+                        }
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                onResult(results.distinct())
+            }
+        }
+    }
+
+    var adbConnectionStatus by mutableStateOf<String?>(null)
+        private set
+
+    fun connectWirelessAdb(port: Int) {
+        val ip = NetworkUtil.getPreferredAddress()
+        if (ip == null) {
+            adbConnectionStatus = "Could not find device IP address."
+            return
+        }
+
+        val activeEnv = environmentManager.activeEnvironment
+        if (activeEnv !is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
+            adbConnectionStatus = "Please activate an SSH environment first."
+            return
+        }
+
+        adbConnectionStatus = "Connecting to $ip:$port..."
+        viewModelScope.launch(Dispatchers.IO) {
+            val env = environmentManager.getExecutionEnvironment(activeEnv)
+            val result = env.exec("adb connect $ip:$port", ".", emptyMap())
+                .capture(timeoutMillis = 10_000)
+            
+            withContext(Dispatchers.Main) {
+                adbConnectionStatus = if (result.exitCode == 0 && result.stdout.contains("connected")) {
+                    "Successfully connected to $ip:$port"
+                } else {
+                    "Failed: ${result.stdout.ifBlank { result.stderr }.take(100)}"
+                }
+            }
+        }
+    }
+
+    fun dismissAdbStatus() {
+        adbConnectionStatus = null
+    }
+
     fun dismissGitError() {
         gitError = null
     }
@@ -1527,6 +1763,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshNodeInstalledStatus()
+        viewModelScope.launch {
+            snapshotFlow { environmentManager.activeEnvironment }.collect {
+                refreshNodeInstalledStatus()
+                refreshInstalledAgents()
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             environmentManager.reattachBootstrapWork()
             withContext(Dispatchers.Main) {
