@@ -22,6 +22,14 @@ class SSHExecutionEnvironment(
     private var tunnelProcess: Process? = null
     private var tunnelLocalPort: Int = 0
 
+    /** Whether the interactive PTY (see [ptyShellSpec]) reattaches into tmux/screen -
+     * exposed so [com.justnels.agenticdroid.ui.terminal.TerminalViewModel] can tell a
+     * freshly-created shell from one that might be a reattach into a session where an
+     * agent CLI is already mid-run, and skip writing speculative setup commands (cd,
+     * prompt-shortening) into it - those would land as literal keystrokes inside
+     * whatever's running there instead of a shell prompt. */
+    val usePersistentSession: Boolean get() = config.usePersistentSession
+
     // Lazily discovered once per connection and reused for every exec() call - see
     // ensurePosixShellDiscovered(). posixShellPath stays null both before probing and if
     // probing found nothing; posixShellProbed distinguishes "not yet tried" from "tried,
@@ -55,6 +63,36 @@ class SSHExecutionEnvironment(
         )
 
         private const val POSIX_PROBE_TOKEN = "AGENTICDROID_POSIX_SHELL_OK"
+
+        /** Fixed name so reconnecting (same profile, same remote) reattaches to the same
+         * tmux/screen session rather than accumulating a new one per connection attempt -
+         * see [SSHConfig.usePersistentSession]. */
+        private const val PERSISTENT_SESSION_NAME = "agenticdroid"
+
+        /** The remote command line [ptyShellSpec] sends when
+         * [SSHConfig.usePersistentSession] is on: reattaches an existing tmux/screen
+         * session by name if one is still alive (e.g. from before a dropped connection)
+         * rather than always creating a new one, and falls through to the plain login
+         * shell - with a visible message, so a silent `||` fallback doesn't leave the user
+         * thinking they're in a persistent session when they aren't - if neither tool is
+         * present on the remote. [workingDirectory] is passed to tmux's own `-c`, which
+         * only applies when *creating* a new session (`-A` makes it a no-op on an actual
+         * reattach) - deliberately not a separate `cd` command sent after the fact, since
+         * that would land as literal keystrokes inside whatever's already running in a
+         * reattached session (e.g. an agent CLI's TUI) instead of a shell prompt. A plain
+         * top-level function (not inlined into [ptyShellSpec]) so its content is
+         * unit-testable without needing a real Android `Context`/toolchain, which the rest
+         * of [ptyShellSpec] requires. */
+        internal fun persistentSessionCommand(workingDirectory: String): String {
+            val dirArg = if (workingDirectory.isNotBlank() && workingDirectory != ".") {
+                " -c ${quoteForEitherShellDialect(workingDirectory)}"
+            } else {
+                ""
+            }
+            return "tmux new-session -A -s $PERSISTENT_SESSION_NAME$dirArg 2>/dev/null || " +
+                "screen -xR $PERSISTENT_SESSION_NAME || " +
+                "(echo '[agenticdroid] tmux/screen not found on this host - persistent session unavailable, using a plain shell instead'; exec \"\$SHELL\" -l)"
+        }
 
         /**
          * Wraps [arg] in double quotes, escaping only embedded double quotes. This one
@@ -383,6 +421,14 @@ class SSHExecutionEnvironment(
         }
 
         args.add("${config.username}@${config.host}")
+        if (config.usePersistentSession) {
+            // A single argv element: the local `ssh` process is exec'd directly (no local
+            // shell involved), so this string reaches the remote sshd as one already-formed
+            // command line - no extra quoting needed here, unlike the exec()/SSHJ path's
+            // quoteForEitherShellDialect, which exists to survive an intermediate shell this
+            // path doesn't have.
+            args.add(persistentSessionCommand(workingDirectory))
+        }
 
         return PtyShellSpec(
             shellPath = sshBin.absolutePath,
@@ -657,7 +703,19 @@ data class SSHConfig(
     val privateKeyPath: String? = null,
     val privateKeyPassphrase: String? = null,
     val privateKeyContent: String? = null,
-    val useCloudflareTunnel: Boolean = false
+    val useCloudflareTunnel: Boolean = false,
+    /** Wraps the interactive terminal's remote shell in `tmux`/`screen` (see
+     * [SSHExecutionEnvironment.ptyShellSpec]) so a dropped mobile connection - the
+     * dominant real-world failure mode for an SSH client used from a phone - leaves the
+     * remote shell (and whatever's running inside it, e.g. an agent CLI) alive for a
+     * reconnect to resume, instead of killing it along with the local `ssh` process.
+     * Opt-in and POSIX-only: it's sent as a literal remote command line assuming a POSIX
+     * default shell, which a stock Windows OpenSSH remote (cmd.exe by default) won't
+     * parse - same constraint as [SSHExecutionEnvironment]'s non-interactive `exec()`
+     * path before its own POSIX-shell handling, but that fix can't apply here since a
+     * fresh interactive session has nothing to run the discovery probe on yet without
+     * blocking terminal startup on a network round trip. */
+    val usePersistentSession: Boolean = false
 ) {
     init {
         require(host.isNotBlank()) { "SSH host is required" }

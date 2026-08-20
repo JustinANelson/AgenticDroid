@@ -55,6 +55,16 @@ class TerminalViewModel(
     private var terminalBinder: TerminalService.TerminalServiceBinder? = null
     private val sessionKey = "terminal_${env.getEnvironmentInfo().name}_${workingDirectory.hashCode()}"
 
+    // A persistent-session SSH environment's PTY may be reattaching into a tmux/screen
+    // session where an agent CLI (or anything else) is already mid-run rather than
+    // starting a fresh shell - see SSHExecutionEnvironment.usePersistentSession. Since
+    // there's no way to tell "just created" from "reattached" from here, onTextChanged
+    // below skips its cd/prompt-shortening writes entirely in that case: a fresh session
+    // already gets the right directory from tmux's own -c (see persistentSessionCommand),
+    // and a reattached one must never receive speculative keystrokes that would land
+    // inside whatever's actually running there.
+    private val skipsShellCustomization = (env as? SSHExecutionEnvironment)?.usePersistentSession == true
+
     // getOrCreateSession only constructs the TerminalSession object - per this class's own
     // top-of-file doc, the shell itself is forked lazily, when a TerminalView first attaches
     // and reports its size. A caller that sends input right after triggering that attach
@@ -267,7 +277,7 @@ class TerminalViewModel(
 
         val isWindows = dialect == Dialect.WINDOWS
 
-        if (!hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
+        if (!skipsShellCustomization && !hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
             hasNavigatedToWorkingDirectory = true
             if (env is SSHExecutionEnvironment) {
                 val commands = StringBuilder()
@@ -291,7 +301,7 @@ class TerminalViewModel(
             }
         }
 
-        if (shortenDirectoryNames && !hasShortenedPrompt) {
+        if (!skipsShellCustomization && shortenDirectoryNames && !hasShortenedPrompt) {
             hasShortenedPrompt = true
             changedSession.write(if (isWindows) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
         }

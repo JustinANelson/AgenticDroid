@@ -237,6 +237,8 @@ class EnvironmentManager(private val context: Context) {
                 put("workingDirectory", config.workingDirectory)
                 put("authType", config.authType.name)
                 put("privateKeyPath", config.privateKeyPath ?: JSONObject.NULL)
+                put("useCloudflareTunnel", config.useCloudflareTunnel)
+                put("usePersistentSession", config.usePersistentSession)
             })
             config.password?.let { credentials.saveCredential("ssh_password_$id", it) }
             config.privateKeyPassphrase?.let { credentials.saveCredential("ssh_passphrase_$id", it) }
@@ -263,7 +265,9 @@ class EnvironmentManager(private val context: Context) {
                 authType = SSHAuthType.valueOf(item.optString("authType", SSHAuthType.PASSWORD.name)),
                 privateKeyPath = item.optString("privateKeyPath").takeIf { it.isNotBlank() },
                 privateKeyPassphrase = credentials.getCredential("ssh_passphrase_$id"),
-                privateKeyContent = credentials.getCredential("ssh_private_key_$id")
+                privateKeyContent = credentials.getCredential("ssh_private_key_$id"),
+                useCloudflareTunnel = item.optBoolean("useCloudflareTunnel", false),
+                usePersistentSession = item.optBoolean("usePersistentSession", false)
             ))
         }
     }.getOrElse { emptyList() }

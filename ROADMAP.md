@@ -34,15 +34,36 @@ See [NEXT_FEATURES.md](NEXT_FEATURES.md) for the analysis behind the items added
   server (they go through the same `ExecutionEnvironment.exec()` local runs do, so they
   should work, but see `READINESS_REVIEW.md` R7 for why that's unverified in general).
 
-### 2. [ ] Persistent Remote Sessions (tmux/screen over SSH)
+### 2. [/] Persistent Remote Sessions (tmux/screen over SSH)
 - **Impact**: Critical
+- **Status**: **Code complete, unit-tested, not yet verified against a real POSIX
+  remote.** Opt-in per SSH profile (`SSHConfig.usePersistentSession`, default off),
+  toggleable both when adding a profile and inline on an existing profile's card. This
+  device's only configured SSH profile is a Windows/cmd.exe host, which the feature
+  explicitly does not support (see below) and which the toggle was deliberately left off
+  for during smoke testing, since enabling it there would break that terminal rather than
+  demonstrate anything. No WSL/Linux/macOS remote was available in this environment to
+  actually exercise a create, a detach+reconnect reattach, or the no-tmux-or-screen
+  fallback. Verify all three against a real POSIX host before treating this as done.
 - **Description**: Auto-launch or attach to a `tmux`/`screen` session on the remote host
   for SSH-backed terminal/agent sessions, so a dropped mobile connection doesn't kill an
   in-flight remote process.
 - **Details**: Directly closes the gap `READINESS_REVIEW.md` R7 only tracks as an
   untested risk ("verify behavior when the phone backgrounds or loses network
   mid-session"). A mobile network dropping mid-run is the normal case, not an edge case,
-  for the SSH path. Pairs with item 1 for remote hosts.
+  for the SSH path. Pairs with item 1 for remote hosts. `SSHExecutionEnvironment.ptyShellSpec()`
+  appends `tmux new-session -A -s agenticdroid -c "<dir>" || screen -xR agenticdroid ||
+  <visible fallback message + plain shell>` as the remote command when enabled - `-c` only
+  applies when *creating* a session (a no-op on an actual `-A` reattach), and the fallback
+  prints a message rather than silently degrading. POSIX-only by design: sent as a literal
+  remote command line, so a stock Windows OpenSSH remote (cmd.exe default shell) won't
+  parse it - there's no POSIX-shell auto-detection here the way `exec()` has, since probing
+  would mean blocking interactive terminal startup on a network round trip from
+  `TerminalViewModel`'s `remember{}` construction. `TerminalViewModel` skips its
+  `cd`/prompt-shortening writes entirely for a persistent-session SSH environment (new
+  `skipsShellCustomization` flag), since it can't tell a freshly-created shell from a
+  reattach into a session where an agent CLI might already be mid-run, and those writes
+  would land as literal keystrokes inside whatever's actually running there.
 
 ### 3. [/] LSP (Language Server Protocol) Support
 - **Impact**: High

@@ -165,7 +165,21 @@ fun EnvironmentScreen(
                     onClick = { manager.activateEnvironment(config) },
                     onBootstrap = { viewModel.startBootstrap() },
                     onClear = { viewModel.clearBootstrap() },
-                    onRemove = { manager.removeEnvironment(config) }
+                    onRemove = { manager.removeEnvironment(config) },
+                    onTogglePersistentSession = { enabled ->
+                        if (config is EnvironmentConfig.SSH) {
+                            val wasActive = manager.activeEnvironment == config
+                            val updated = config.config.copy(usePersistentSession = enabled)
+                            manager.addSSHEnvironment(updated)
+                            // addSSHEnvironment replaces the profile with a new
+                            // EnvironmentConfig.SSH value (data class equality means it's a
+                            // different key than the old one) - if this was the active
+                            // profile, re-activate the new value so activeEnvironment and
+                            // the terminal/agent screens don't keep pointing at the
+                            // now-removed old one.
+                            if (wasActive) manager.activateEnvironment(EnvironmentConfig.SSH(updated))
+                        }
+                    }
                 )
             }
 
@@ -242,16 +256,18 @@ fun EnvironmentCard(
     onClick: () -> Unit,
     onBootstrap: () -> Unit,
     onClear: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onTogglePersistentSession: (Boolean) -> Unit = {}
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .clickable { if (isInstalled) onClick() else onBootstrap() },
-        colors = if (isActive) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) 
+        colors = if (isActive) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                  else CardDefaults.cardColors()
     ) {
+      Column {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -270,8 +286,9 @@ fun EnvironmentCard(
                     text = when (config) {
                         is EnvironmentConfig.Local -> "Local Android (Limited)"
                         is EnvironmentConfig.SSH -> {
-                            val suffix = if (config.config.useCloudflareTunnel) " (Tunnel)" else ""
-                            "Remote SSH: ${config.config.host}$suffix"
+                            val tunnelSuffix = if (config.config.useCloudflareTunnel) " (Tunnel)" else ""
+                            val persistentSuffix = if (config.config.usePersistentSession) " (Persistent)" else ""
+                            "Remote SSH: ${config.config.host}$tunnelSuffix$persistentSuffix"
                         }
                         is EnvironmentConfig.Node -> "Core Toolchain"
                     },
@@ -300,6 +317,25 @@ fun EnvironmentCard(
                 }
             }
         }
+        if (config is EnvironmentConfig.SSH) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Persistent session (tmux/screen)",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = config.config.usePersistentSession,
+                    onCheckedChange = onTogglePersistentSession
+                )
+            }
+        }
+      }
     }
 }
 
@@ -502,6 +538,7 @@ fun AddSSHDialog(
     var authType by remember { mutableStateOf(SSHAuthType.PASSWORD) }
     var hostKeyFingerprint by remember { mutableStateOf("") }
     var useCloudflareTunnel by remember { mutableStateOf(false) }
+    var usePersistentSession by remember { mutableStateOf(false) }
     var isScanning by remember { mutableStateOf(false) }
     var scannedHosts by remember { mutableStateOf(emptyList<String>()) }
     var showScanResults by remember { mutableStateOf(false) }
@@ -567,6 +604,21 @@ fun AddSSHDialog(
                     Switch(
                         checked = useCloudflareTunnel,
                         onCheckedChange = { useCloudflareTunnel = it }
+                    )
+                }
+
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Persistent terminal session", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = usePersistentSession,
+                            onCheckedChange = { usePersistentSession = it }
+                        )
+                    }
+                    Text(
+                        "Reattaches to a tmux/screen session on the remote host, so a dropped mobile connection doesn't kill what's running there. Requires tmux or screen and a POSIX shell (Linux/macOS/WSL) on the remote.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -652,7 +704,8 @@ fun AddSSHDialog(
                             privateKeyPath = privateKeyPath.trim().takeIf { authType == SSHAuthType.PRIVATE_KEY },
                             privateKeyPassphrase = privateKeyPassphrase.takeIf { it.isNotEmpty() },
                             privateKeyContent = privateKeyContent.trim().takeIf { it.isNotEmpty() },
-                            useCloudflareTunnel = useCloudflareTunnel
+                            useCloudflareTunnel = useCloudflareTunnel,
+                            usePersistentSession = usePersistentSession
                         )
                     )
                 }
