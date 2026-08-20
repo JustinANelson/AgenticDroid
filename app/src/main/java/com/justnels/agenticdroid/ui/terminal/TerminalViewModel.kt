@@ -40,7 +40,8 @@ class TerminalViewModel(
     var session by mutableStateOf<TerminalSession?>(null)
         private set
         
-    val unavailableReason: String?
+    var unavailableReason by mutableStateOf<String?>(null)
+        private set
 
     var sessionTitle by mutableStateOf<String?>(null)
         private set
@@ -87,6 +88,7 @@ class TerminalViewModel(
                     spec.env,
                     this@TerminalViewModel
                 )
+                unavailableReason = null
                 // Usually a no-op here (the shell isn't forked yet) - covers the case where
                 // this session was already running from an earlier attach (e.g. reattaching
                 // after switching screens), where it can flush immediately.
@@ -97,6 +99,7 @@ class TerminalViewModel(
         override fun onServiceDisconnected(name: ComponentName?) {
             terminalBinder = null
             session = null
+            unavailableReason = "Terminal service disconnected."
         }
     }
 
@@ -183,6 +186,7 @@ class TerminalViewModel(
     fun closeTerminal() {
         terminalBinder?.removeSession(sessionKey)
         session = null
+        unavailableReason = "Terminal closed."
     }
 
     override fun onCleared() {
@@ -245,6 +249,7 @@ class TerminalViewModel(
         Log.i(TAG, "Shell exited with status ${finishedSession.exitStatus}")
         terminalBinder?.removeSession(sessionKey)
         session = null
+        unavailableReason = "Terminal process exited with status ${finishedSession.exitStatus}."
         onSessionEnded()
     }
 

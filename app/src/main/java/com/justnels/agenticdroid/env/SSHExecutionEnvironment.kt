@@ -11,10 +11,55 @@ import java.nio.charset.StandardCharsets
 import java.io.ByteArrayOutputStream
 import java.net.ServerSocket
 
-class SSHExecutionEnvironment(private val context: Context, private val config: SSHConfig) : ExecutionEnvironment {
+class SSHExecutionEnvironment(
+    private val context: Context,
+    private val config: SSHConfig,
+    private val timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+    private val tunnelTimeoutMs: Long = DEFAULT_TUNNEL_TIMEOUT_MS
+) : ExecutionEnvironment {
     private var client: SSHClient? = null
     private var tunnelProcess: Process? = null
     private var tunnelLocalPort: Int = 0
+
+    companion object {
+        const val DEFAULT_TIMEOUT_MS = 10_000
+        const val DEFAULT_TUNNEL_TIMEOUT_MS = 10_000L
+
+        /**
+         * Probes the given local port for readiness by attempting TCP socket connections.
+         * Returns true if a connection succeeds before [timeoutMs], or false if the timeout
+         * expires or [isAlive] returns false.
+         */
+        internal fun probePortReady(
+            port: Int,
+            host: String = "127.0.0.1",
+            timeoutMs: Long = DEFAULT_TUNNEL_TIMEOUT_MS,
+            pollIntervalMs: Long = 50L,
+            isAlive: () -> Boolean = { true }
+        ): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                if (!isAlive()) {
+                    return false
+                }
+                try {
+                    java.net.Socket().use { socket ->
+                        socket.connect(java.net.InetSocketAddress(host, port), 200)
+                        return true
+                    }
+                } catch (e: Exception) {
+                    // Port not ready yet
+                }
+                try {
+                    Thread.sleep(pollIntervalMs)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+            return false
+        }
+    }
 
     private fun startTunnel(): Int {
         val port = ServerSocket(0).use { it.localPort }
@@ -33,12 +78,25 @@ class SSHExecutionEnvironment(private val context: Context, private val config: 
             NodeRuntime.configureEnvironment(context, env)
         }
 
-        tunnelProcess = pb.start()
+        val process = pb.start()
+        tunnelProcess = process
         tunnelLocalPort = port
 
-        // Wait a bit for the tunnel to establish. In a production app we'd probe the port
-        // or watch the stdout, but for a prototype this is usually enough for cloudflared.
-        Thread.sleep(1000)
+        val ready = probePortReady(
+            port = port,
+            timeoutMs = tunnelTimeoutMs,
+            isAlive = { process.isAlive }
+        )
+        if (!ready) {
+            val exitCode = if (!process.isAlive) runCatching { process.exitValue() }.getOrNull() else null
+            process.destroy()
+            tunnelProcess = null
+            if (exitCode != null) {
+                throw java.io.IOException("Cloudflare tunnel process exited unexpectedly with code $exitCode")
+            } else {
+                throw java.io.IOException("Timed out waiting for Cloudflare tunnel to listen on port $port")
+            }
+        }
         return port
     }
 
@@ -55,37 +113,46 @@ class SSHExecutionEnvironment(private val context: Context, private val config: 
             }
             val port = if (config.useCloudflareTunnel) tunnelLocalPort else config.port
 
-            client = SSHClient().apply {
+            val newClient = SSHClient().apply {
+                connectTimeout = timeoutMs
+                timeout = timeoutMs
                 addHostKeyVerifier(FingerprintVerifier.getInstance(config.hostKeyFingerprint))
-                connect(host, port)
-                when (config.authType) {
-                    SSHAuthType.PASSWORD -> authPassword(
-                        config.username,
-                        requireNotNull(config.password) { "SSH password is missing" }
-                    )
-                    SSHAuthType.PRIVATE_KEY -> {
-                        val temporaryKey = config.privateKeyContent?.let { content ->
-                            File.createTempFile("ssh-key-", ".key", context.cacheDir).apply {
-                                writeText(content)
-                                setReadable(false, false)
-                                setReadable(true, true)
-                                setWritable(false, false)
-                                setWritable(true, true)
+                try {
+                    connect(host, port)
+                    when (config.authType) {
+                        SSHAuthType.PASSWORD -> authPassword(
+                            config.username,
+                            requireNotNull(config.password) { "SSH password is missing" }
+                        )
+                        SSHAuthType.PRIVATE_KEY -> {
+                            val temporaryKey = config.privateKeyContent?.let { content ->
+                                File.createTempFile("ssh-key-", ".key", context.cacheDir).apply {
+                                    writeText(content)
+                                    setReadable(false, false)
+                                    setReadable(true, true)
+                                    setWritable(false, false)
+                                    setWritable(true, true)
+                                }
                             }
+                            val path = config.privateKeyPath ?: temporaryKey?.absolutePath
+                                ?: error("SSH private key is missing")
+                            val provider = try {
+                                config.privateKeyPassphrase?.takeIf(String::isNotEmpty)?.let {
+                                    loadKeys(path, it)
+                                } ?: loadKeys(path)
+                            } finally {
+                                temporaryKey?.delete()
+                            }
+                            authPublickey(config.username, provider)
                         }
-                        val path = config.privateKeyPath ?: temporaryKey?.absolutePath
-                            ?: error("SSH private key is missing")
-                        val provider = try {
-                            config.privateKeyPassphrase?.takeIf(String::isNotEmpty)?.let {
-                                loadKeys(path, it)
-                            } ?: loadKeys(path)
-                        } finally {
-                            temporaryKey?.delete()
-                        }
-                        authPublickey(config.username, provider)
                     }
+                } catch (e: Exception) {
+                    runCatching { disconnect() }
+                    runCatching { close() }
+                    throw e
                 }
             }
+            client = newClient
         }
         return client!!
     }
@@ -119,21 +186,83 @@ class SSHExecutionEnvironment(private val context: Context, private val config: 
     }
 
     override fun ptyShellSpec(workingDirectory: String): PtyShellSpec? {
+        // SSHJ-backed file/command access does not need the local Termux runtime, but the
+        // interactive PTY launches its OpenSSH client from that runtime. Never touch or
+        // execute a stale/partially-provisioned tree while BootstrapWorker is replacing it.
+        if (!NodeBootstrapper(context).isInstalled()) return null
         val sshBin = NodeRuntime.binDir(context).resolve("ssh")
         if (!sshBin.exists()) return null
 
         val envMap = mutableMapOf<String, String>()
         NodeRuntime.configureEnvironment(context, envMap)
-        
-        // We use the local ssh binary to connect to the remote host.
-        // We force a PTY (-t) and immediately CD to the project directory.
+        envMap["TERM"] = "xterm-256color"
+        envMap["COLORTERM"] = "truecolor"
+
+        val userHome = NodeRuntime.homeDir(context).also { it.mkdirs() }
+        val sshDir = File(userHome, ".ssh").also { it.mkdirs() }
+        val knownHosts = File(sshDir, "known_hosts")
+
         val args = mutableListOf(
             "-p", config.port.toString(),
             "-o", "StrictHostKeyChecking=accept-new",
-            "-t",
-            "${config.username}@${config.host}",
-            "cd ${ShellEscaping.quote(workingDirectory)} ; exec \$SHELL -l"
+            "-o", "UserKnownHostsFile=${knownHosts.absolutePath}",
+            "-t"
         )
+
+        if (config.useCloudflareTunnel) {
+            val cloudflared = NodeRuntime.binDir(context).resolve("cloudflared")
+            if (cloudflared.exists()) {
+                args.add("-o")
+                args.add("ProxyCommand=${cloudflared.absolutePath} access tcp --hostname ${config.host}")
+            }
+        }
+
+        when (config.authType) {
+            SSHAuthType.PRIVATE_KEY -> {
+                val keyPath = config.privateKeyPath ?: config.privateKeyContent?.let { content ->
+                    val keyFile = File(context.filesDir, "ssh_identity_${config.host.hashCode()}").apply {
+                        writeText(content)
+                        setReadable(false, false)
+                        setReadable(true, true)
+                        setWritable(false, false)
+                        setWritable(true, true)
+                    }
+                    keyFile.absolutePath
+                }
+                if (keyPath != null) {
+                    args.add("-i")
+                    args.add(keyPath)
+                    args.add("-o")
+                    args.add("IdentitiesOnly=yes")
+                }
+            }
+            SSHAuthType.PASSWORD -> {
+                config.password?.let { pwd ->
+                    val askpassFile = File(context.cacheDir, "ssh_askpass.sh").apply {
+                        writeText("#!/system/bin/sh\ncat << 'EOF_AGENTICDROID_PASS'\n$pwd\nEOF_AGENTICDROID_PASS\n")
+                        setReadable(false, false)
+                        setReadable(true, true)
+                        setWritable(false, false)
+                        setWritable(true, true)
+                        setExecutable(true, true)
+                    }
+                    envMap["SSH_ASKPASS"] = askpassFile.absolutePath
+                    envMap["SSH_ASKPASS_REQUIRE"] = "force"
+                    envMap["DISPLAY"] = ":0"
+                    args.add("-o")
+                    args.add("PreferredAuthentications=password,keyboard-interactive")
+                }
+            }
+        }
+
+        args.add("${config.username}@${config.host}")
+
+        val remoteCommand = if (workingDirectory.isNotBlank() && workingDirectory != ".") {
+            "cd ${ShellEscaping.quote(workingDirectory)} 2>/dev/null || true ; exec \${SHELL:-/bin/sh} -l"
+        } else {
+            "exec \${SHELL:-/bin/sh} -l"
+        }
+        args.add(remoteCommand)
 
         return PtyShellSpec(
             shellPath = sshBin.absolutePath,
@@ -178,50 +307,55 @@ class SSHProcessSession(private val session: Session, private val cmd: Session.C
     }
 }
 
-class SSHFileSystemAccess(private val clientProvider: () -> SSHClient) : FileSystemAccess {
+class SSHFileSystemAccess(
+    private val clientProvider: () -> SSHClient,
+    private val existingSftp: net.schmizz.sshj.sftp.SFTPClient? = null
+) : FileSystemAccess {
     private val client get() = clientProvider()
 
-    override fun listEntries(path: String): List<FileSystemEntry> {
-        val sftp = client.newSFTPClient()
-        return try {
-            sftp.ls(path)
-                .asSequence()
-                .filterNot { it.name == "." || it.name == ".." }
-                .map { FileSystemEntry(it.name, it.path, it.isDirectory, it.attributes.size) }
-                .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-                .toList()
-        } finally {
-            sftp.close()
-        }
-    }
-
-    override fun readFile(path: String): String {
-        val sftp = client.newSFTPClient()
-        return try {
-            val size = sftp.stat(path).size
-            if (size > 5L * 1024L * 1024L) throw java.io.IOException("Remote file is larger than 5 MiB")
-            sftp.open(path).use { file ->
-                file.RemoteFileInputStream().use { input ->
-                    val bytes = ByteArrayOutputStream(minOf(size.toInt().coerceAtLeast(0), 64 * 1024))
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (bytes.size() + read > 5 * 1024 * 1024) throw java.io.IOException("Remote file is larger than 5 MiB")
-                        bytes.write(buffer, 0, read)
-                    }
-                    val data = bytes.toByteArray()
-                    if (data.take(4096).any { it == 0.toByte() }) throw java.io.IOException("Remote file appears to be binary")
-                    data.toString(StandardCharsets.UTF_8)
-                }
+    private inline fun <T> useSftp(block: (net.schmizz.sshj.sftp.SFTPClient) -> T): T {
+        return if (existingSftp != null) {
+            block(existingSftp)
+        } else {
+            val sftp = client.newSFTPClient()
+            try {
+                block(sftp)
+            } finally {
+                runCatching { sftp.close() }
             }
-        } finally {
-            sftp.close()
         }
     }
 
-    override fun writeFile(path: String, content: String) {
-        val sftp = client.newSFTPClient()
+    override fun listEntries(path: String): List<FileSystemEntry> = useSftp { sftp ->
+        sftp.ls(path)
+            .asSequence()
+            .filterNot { it.name == "." || it.name == ".." }
+            .map { FileSystemEntry(it.name, it.path, it.isDirectory, it.attributes.size) }
+            .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+            .toList()
+    }
+
+    override fun readFile(path: String): String = useSftp { sftp ->
+        val size = sftp.stat(path).size
+        if (size > 5L * 1024L * 1024L) throw java.io.IOException("Remote file is larger than 5 MiB")
+        sftp.open(path).use { file ->
+            file.RemoteFileInputStream().use { input ->
+                val bytes = ByteArrayOutputStream(minOf(size.toInt().coerceAtLeast(0), 64 * 1024))
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (bytes.size() + read > 5 * 1024 * 1024) throw java.io.IOException("Remote file is larger than 5 MiB")
+                    bytes.write(buffer, 0, read)
+                }
+                val data = bytes.toByteArray()
+                if (data.take(4096).any { it == 0.toByte() }) throw java.io.IOException("Remote file appears to be binary")
+                data.toString(StandardCharsets.UTF_8)
+            }
+        }
+    }
+
+    override fun writeFile(path: String, content: String) = useSftp { sftp ->
         val temporaryPath = "$path.agenticdroid-${System.nanoTime()}.tmp"
         try {
             sftp.open(
@@ -244,42 +378,32 @@ class SSHFileSystemAccess(private val clientProvider: () -> SSHClient) : FileSys
             }
         } finally {
             runCatching { sftp.rm(temporaryPath) }
-            sftp.close()
         }
     }
 
-    override fun deleteFile(path: String): Boolean {
-        val sftp = client.newSFTPClient()
-        return try {
+    override fun deleteFile(path: String): Boolean = useSftp { sftp ->
+        try {
             sftp.rm(path)
             true
         } catch (e: Exception) {
             false
-        } finally {
-            sftp.close()
         }
     }
 
-    override fun exists(path: String): Boolean {
-        val sftp = client.newSFTPClient()
-        return try {
+    override fun exists(path: String): Boolean = useSftp { sftp ->
+        try {
             sftp.stat(path) != null
         } catch (e: Exception) {
             false
-        } finally {
-            sftp.close()
         }
     }
 
-    override fun renameFile(oldPath: String, newPath: String): Boolean {
-        val sftp = client.newSFTPClient()
-        return try {
+    override fun renameFile(oldPath: String, newPath: String): Boolean = useSftp { sftp ->
+        try {
             sftp.rename(oldPath, newPath)
             true
         } catch (e: Exception) {
             false
-        } finally {
-            sftp.close()
         }
     }
 
@@ -300,12 +424,19 @@ class SSHFileSystemAccess(private val clientProvider: () -> SSHClient) : FileSys
         }
     }
 
-    override fun downloadFile(remotePath: String, localDest: File) {
+    override fun downloadFile(remotePath: String, localDest: File) = useSftp { sftp ->
+        sftp.get(remotePath, net.schmizz.sshj.xfer.FileSystemFile(localDest))
+    }
+
+    override fun <T> withBatch(block: (FileSystemAccess) -> T): T {
+        if (existingSftp != null) {
+            return block(this)
+        }
         val sftp = client.newSFTPClient()
-        try {
-            sftp.get(remotePath, net.schmizz.sshj.xfer.FileSystemFile(localDest))
+        return try {
+            block(SSHFileSystemAccess(clientProvider, sftp))
         } finally {
-            sftp.close()
+            runCatching { sftp.close() }
         }
     }
 }

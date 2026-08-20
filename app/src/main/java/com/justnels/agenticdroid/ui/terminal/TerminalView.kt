@@ -67,7 +67,7 @@ fun TerminalScreen(
         if (session == null) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = viewModel.unavailableReason ?: "No terminal session",
+                    text = viewModel.unavailableReason ?: "Connecting to terminal…",
                     color = Color.White,
                     fontFamily = FontFamily.Monospace
                 )

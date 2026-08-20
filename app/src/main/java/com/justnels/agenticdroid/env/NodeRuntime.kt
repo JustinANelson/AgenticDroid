@@ -26,14 +26,24 @@ object NodeRuntime {
         nativeLibBinary(context, "libnode_native_${qemuArch()}.so") ?: File(binDir(context), "node")
     fun gitBinary(context: Context): File =
         nativeLibBinary(context, "libgit_native_${qemuArch()}.so") ?: File(binDir(context), "git")
+    fun npmBinary(context: Context): File =
+        nativeLibBinary(context, "libnpm_wrapper.so") ?: File(binDir(context), "npm")
+    fun npxBinary(context: Context): File =
+        nativeLibBinary(context, "libnpx_wrapper.so") ?: File(binDir(context), "npx")
     fun pythonBinary(context: Context): File {
+        nativeLibBinary(context, "libpython_native_${qemuArch()}.so")?.let { return it }
         val py = File(binDir(context), "python")
         return if (py.exists()) py else File(binDir(context), "python3")
     }
     fun pipBinary(context: Context): File {
+        nativeLibBinary(context, "libpip_wrapper.so")?.let { return it }
         val pip = File(binDir(context), "pip")
         return if (pip.exists()) pip else File(binDir(context), "pip3")
     }
+    fun jdkCommandBinary(context: Context, tool: String): File =
+        nativeLibBinary(context, "libjdk_${tool}_wrapper.so") ?: File(binDir(context), tool)
+    fun kotlincBinary(context: Context): File =
+        nativeLibBinary(context, "libkotlinc_wrapper.so") ?: File(binDir(context), "kotlinc")
 
     /** Termux's Bionic-native aapt2 build (installed as part of RunnerPackageGroup.JVM) -
      * see [ensureGradleUserHomeProperties] for why AGP needs to be pointed at it. Prefers
@@ -136,7 +146,8 @@ object NodeRuntime {
      * dependencies from [android.content.pm.ApplicationInfo.nativeLibraryDir] - the
      * PackageManager-extracted, W^X-exempt directory every native-lib-packaged binary
      * this app bundles (qemu-user-aarch64, node, git, aapt2, and their combined DT_NEEDED
-     * closure) lives in. Returns null (not just a missing file) when the file doesn't
+     * closure, plus the npm/npx native-lib scripts) lives in. Returns null (not just a
+     * missing file) when the file doesn't
      * exist there, so every caller falls back to the existing downloaded-storage path -
      * only arm64-v8a is bundled so far, so this is always null on other ABIs.
      */
@@ -175,6 +186,7 @@ object NodeRuntime {
         "libicuuc.so.78" to "libicuuc.so",
         "liblzma.so.5" to "liblzma.so",
         "libnettle.so.8" to "libnettle.so",
+        "libpython3.14.so" to "libpython3_14.so",
         "libssl.so.3" to "libssl.so",
         "libz.so.1" to "libz.so",
         "libzstd.so.1" to "libzstd.so"
@@ -226,7 +238,7 @@ object NodeRuntime {
         for ((alias, canonical) in nativeLibSonameAliases) {
             ensureSymlink(File(aliasDir, alias), File(nativeDir, canonical))
         }
-        // Plain-named aliases (node/git/aapt2, no lib*.so wrapping) so PATH-based lookup -
+        // Plain-named aliases (node/git/aapt2/npm/npx, no lib*.so names exposed) so PATH-based lookup -
         // the interactive PTY Terminal's own shell resolves commands this way, a separate
         // code path from NodeExecutionEnvironment.exec()'s explicit binary resolution -
         // finds the W^X-exempt native-lib copy instead of falling through to whatever
@@ -243,8 +255,111 @@ object NodeRuntime {
         get() = mapOf(
             "node" to "libnode_native_${qemuArch()}.so",
             "git" to "libgit_native_${qemuArch()}.so",
-            "aapt2" to "libaapt2_native_${qemuArch()}.so"
+            "aapt2" to "libaapt2_native_${qemuArch()}.so",
+            "npm" to "libnpm_wrapper.so",
+            "npx" to "libnpx_wrapper.so",
+            "python" to "libpython_native_${qemuArch()}.so",
+            "python3" to "libpython_native_${qemuArch()}.so",
+            "python3.14" to "libpython_native_${qemuArch()}.so",
+            "pip" to "libpip_wrapper.so",
+            "pip3" to "libpip3_wrapper.so",
+            "java" to "libjdk_java_wrapper.so",
+            "javac" to "libjdk_javac_wrapper.so",
+            "jar" to "libjdk_jar_wrapper.so",
+            "keytool" to "libjdk_keytool_wrapper.so",
+            "javap" to "libjdk_javap_wrapper.so",
+            "jlink" to "libjdk_jlink_wrapper.so",
+            "kotlinc" to "libkotlinc_wrapper.so",
+            "kotlinc-jvm" to "libkotlinc_wrapper.so"
         )
+
+    /** Replaces Python's downloaded launcher, libpython names, and every standard-library
+     * extension module with symlinks to their PackageManager-installed copies. The mapping
+     * is generated and pinned by tools/fetch_python_native_libs.py; keeping it as an asset
+     * avoids duplicating roughly 120 version-specific paths in Kotlin. */
+    fun ensurePythonNativeLinks(context: Context) {
+        // The packaged native closure exists even before the optional Python runner is
+        // downloaded. Do not project it into usr/lib while ArchiveExtractor is still
+        // populating that same tree: extraction must never write through these symlinks.
+        if (!groupReadyMarker(context, RunnerPackageGroup.PYTHON).isFile) return
+        ensureMappedNativeLinks(context, "libpython_native_${qemuArch()}.so", "python-native-links.json")
+    }
+
+    fun removePythonNativeLinks(context: Context) {
+        removeMappedNativeLinks(context, "python-native-links.json")
+    }
+
+    /** Replaces the downloaded JDK launchers and native libraries with links to the
+     * PackageManager-installed closure. Its patched libjli reads the validated JAVA_HOME
+     * supplied by [configureEnvironment], because /proc/self/exe points into the flat
+     * native-library directory at a raised target SDK. */
+    fun ensureJvmNativeLinks(context: Context) {
+        if (!groupReadyMarker(context, RunnerPackageGroup.JVM).isFile) return
+        ensureMappedNativeLinks(
+            context,
+            "libjdk_java_${qemuArch()}.so",
+            "jvm-native-links.json",
+            excludedPaths = setOf("lib/jvm/java-17-openjdk/lib/server/libjvm.so")
+        )
+    }
+
+    fun removeJvmNativeLinks(context: Context) {
+        removeMappedNativeLinks(context, "jvm-native-links.json")
+    }
+
+    /** Removes only symlinks named by a generated native-link manifest. This is called
+     * before retrying an interrupted runner install so ArchiveExtractor sees ordinary
+     * in-root paths, while regular downloaded files and unrelated user data are preserved. */
+    private fun removeMappedNativeLinks(context: Context, assetName: String) {
+        val usr = usrDir(context)
+        if (!usr.isDirectory) return
+        val mappings = runCatching {
+            context.assets.open(assetName).bufferedReader().use { reader ->
+                org.json.JSONArray(reader.readText())
+            }
+        }.getOrElse { return }
+        for (index in 0 until mappings.length()) {
+            val relativePath = java.nio.file.Path.of(
+                mappings.getJSONObject(index).getString("path")
+            ).normalize()
+            if (relativePath.isAbsolute || relativePath.startsWith("..")) continue
+            val path = File(usr, relativePath.toString()).toPath()
+            if (java.nio.file.Files.isSymbolicLink(path)) {
+                java.nio.file.Files.deleteIfExists(path)
+            }
+        }
+    }
+
+    private fun ensureMappedNativeLinks(
+        context: Context,
+        requiredNativeFile: String,
+        assetName: String,
+        excludedPaths: Set<String> = emptySet()
+    ) {
+        if (nativeLibBinary(context, requiredNativeFile) == null) return
+        val usr = usrDir(context)
+        if (!usr.isDirectory) return
+        val mappings = runCatching {
+            context.assets.open(assetName).bufferedReader().use { reader ->
+                org.json.JSONArray(reader.readText())
+            }
+        }.getOrElse { return }
+        for (index in 0 until mappings.length()) {
+            val item = mappings.getJSONObject(index)
+            val relative = item.getString("path")
+            if (relative in excludedPaths) continue
+            val targetName = item.getString("target")
+            val relativePath = java.nio.file.Path.of(relative).normalize()
+            if (relativePath.isAbsolute || relativePath.startsWith("..")) continue
+            val link = File(usr, relativePath.toString())
+            val target = File(context.applicationInfo.nativeLibraryDir, targetName)
+            if (!target.isFile) continue
+            // Treat the generated asset as untrusted input at this filesystem boundary:
+            // a malformed future mapping must never escape the runtime root.
+            link.parentFile?.mkdirs()
+            ensureSymlink(link, target)
+        }
+    }
 
     /**
      * `git clone`/`fetch`/`push` against an `https://` remote makes `git` (already
@@ -291,8 +406,8 @@ object NodeRuntime {
         }
     }
 
-    /** `LD_LIBRARY_PATH` entries for any native-lib-packaged binary (qemu, node, git,
-     * aapt2) to resolve its own dependency closure: the alias-symlink dir first (for
+    /** `LD_LIBRARY_PATH` entries for any native-lib-packaged executable (qemu, node, git,
+     * aapt2, npm, npx) to resolve its own dependency closure: the alias-symlink dir first (for
      * versioned sonames), then the native-lib dir itself (for dependencies whose bundled
      * filename already matches the requested soname exactly). Always returns a path -
      * `nativeLibraryDir` exists for every install of this app regardless of ABI (it at
@@ -348,14 +463,16 @@ object NodeRuntime {
         val javaHome = File(usrDir(context), "lib/jvm/java-17-openjdk")
         val javaBin = File(javaHome, "bin")
 
-        // Native-lib-packaged binaries (qemu, node, git, aapt2 - see AGENT_RUNTIME_RESEARCH.md
-        // Sections 7-9 and 12) need their own dependency closure resolvable from the
+        // Native-lib-packaged executables (qemu, node, git, aapt2, npm, npx - see
+        // AGENT_RUNTIME_RESEARCH.md Sections 7-9, 12, and 14) need their own dependency closure resolvable from the
         // W^X-exempt native-lib dir; searched first so a native-lib binary never
         // accidentally picks up a same-named but differently-built copy from the
         // downloaded Termux tree. Harmless to prepend unconditionally even when nothing
         // native-lib-packaged is actually invoked - see nativeLibLdPath's own doc.
         environment["LD_LIBRARY_PATH"] = "${nativeLibLdPath(context)}:${libDir(context).absolutePath}"
-        // nativeLibAliasDir first so its plain node/git/aapt2 symlinks (see
+        ensurePythonNativeLinks(context)
+        ensureJvmNativeLinks(context)
+        // nativeLibAliasDir first so its plain node/git/aapt2/npm/npx symlinks (see
         // ensureNativeLibAliases) shadow the same-named writable-storage copies still
         // present in binDir from the original download - matters for any PATH-based
         // lookup that doesn't go through NodeExecutionEnvironment.exec()'s own explicit
@@ -389,7 +506,28 @@ object NodeRuntime {
         // Java & Gradle JVM configurations
         if (javaHome.exists()) {
             environment["JAVA_HOME"] = javaHome.absolutePath
+            environment["KOTLIN_HOME"] = File(usrDir(context), "opt/kotlin").absolutePath
         }
+        environment["JAVA_TOOL_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
+        environment["_JAVA_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
+        environment["GRADLE_OPTS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
+        environment["ANDROID_USER_HOME"] = androidUserHome.absolutePath
+        environment["ANDROID_SDK_HOME"] = userHome.absolutePath
+        environment["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
+        
+        // Node reports process.platform === "android" for any Bionic build, including this
+        // bundled one - and some npm packages (confirmed: clipboardy, a dependency of
+        // Google's Gemini CLI) throw unconditionally at module-load time on that platform
+        // unless $TERMUX_VERSION is set, without actually checking Termux is present. Set
+        // generically here (not just for one agent) since any future pure-JS agent CLI can
+        // hit the same check.
+        environment["TERMUX_VERSION"] = "0.118.0"
+        environment["NPM_CONFIG_PREFIX"] = globalDir(context).absolutePath
+        environment["QEMU_BIN"] = qemuBinary(context).absolutePath
+        environment["QEMU_SYSROOT"] = usrDir(context).absolutePath
+        environment["GLIBC_SYSROOT"] = glibcSysrootDir(context).absolutePath
+        environment["NPM_CLI"] = npmCli(context).absolutePath
+        ensureGitRemoteHelperLinks(context)
         environment["JAVA_TOOL_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
         environment["_JAVA_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
         environment["GRADLE_OPTS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
@@ -428,7 +566,7 @@ object NodeRuntime {
 
     /** QEMU's own arch naming for its user-mode binary, matching the device ABI. */
     fun qemuArch(): String {
-        return android.os.Build.SUPPORTED_ABIS.firstNotNullOfOrNull {
+        return android.os.Build.SUPPORTED_ABIS?.firstNotNullOfOrNull {
             when (it) {
                 "arm64-v8a" -> "aarch64"
                 "x86_64" -> "x86_64"

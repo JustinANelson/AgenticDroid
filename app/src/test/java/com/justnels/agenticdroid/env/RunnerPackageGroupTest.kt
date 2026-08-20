@@ -9,6 +9,25 @@ import org.junit.Test
 class RunnerPackageGroupTest {
 
     @Test
+    fun `core includes the complete declared openssh runtime closure`() {
+        assertTrue(
+            RunnerPackageGroup.CORE.termuxPackages.containsAll(
+                setOf(
+                    "openssh",
+                    "krb5",
+                    "ldns",
+                    "libandroid-support",
+                    "libedit",
+                    "openssh-sftp-server",
+                    "openssl",
+                    "termux-auth",
+                    "zlib"
+                )
+            )
+        )
+    }
+
+    @Test
     fun corePackagesAreNeverRemovable() {
         // CORE isn't itself in installedGroups (it's implicit), but every package it
         // lists must survive removing any other single group.

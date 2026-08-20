@@ -142,10 +142,11 @@ class EnvironmentManager(private val context: Context) {
     }
 
     fun activateEnvironment(config: EnvironmentConfig) {
+        // Installation state can change between Compose rendering a card and dispatching
+        // its click (notably when a provisioning-version bump invalidates CORE). Treat a
+        // stale activation as a no-op; an expected UI race must never crash the main thread.
+        if (config is EnvironmentConfig.Node && !bootstrapper.isInstalled()) return
         activeEnvironment = config
-        require(config !is EnvironmentConfig.Node || bootstrapper.isInstalled()) {
-            "Node environment is not installed"
-        }
         val value = when (config) {
             EnvironmentConfig.Local -> "local"
             EnvironmentConfig.Node -> "node"

@@ -69,7 +69,7 @@ fun EnvironmentScreen(
         HintBox(
             hintId = "hint_node_toolchain",
             title = "Development Toolchains",
-            text = "AI agents, web apps, and Python tools require the 'Node & Python Toolchain'. Tap the card below to download and set it up.",
+            text = "AI agents and web apps require the Core Toolchain. Python and other language runners are optional installs shown after Core is ready.",
             hintsShown = viewModel.hintsShown,
             onDismiss = { viewModel.markHintShown(it) }
         )
@@ -110,7 +110,7 @@ fun EnvironmentScreen(
                         text = when {
                             lastError != null -> "Setup Failed"
                             bootstrapSuccess -> "Setup Successful!"
-                            else -> "Setting up Node & Python Toolchain..."
+                            else -> "Setting up toolchains..."
                         }, 
                         style = MaterialTheme.typography.titleSmall
                     )
@@ -161,7 +161,7 @@ fun EnvironmentScreen(
                 EnvironmentCard(
                     config = config,
                     isActive = manager.activeEnvironment == config,
-                    isInstalled = if (config is EnvironmentConfig.Node) viewModel.isNodeInstalled else true,
+                    isInstalled = if (config is EnvironmentConfig.Node) viewModel.isCoreToolchainInstalled else true,
                     onClick = { manager.activateEnvironment(config) },
                     onBootstrap = { viewModel.startBootstrap() },
                     onClear = { viewModel.clearBootstrap() },
@@ -169,7 +169,7 @@ fun EnvironmentScreen(
                 )
             }
 
-            if (viewModel.isNodeInstalled && !isBootstrapping) {
+            if (viewModel.isCoreToolchainInstalled && !isBootstrapping) {
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(text = "Runners", style = MaterialTheme.typography.titleMedium)
@@ -273,7 +273,7 @@ fun EnvironmentCard(
                             val suffix = if (config.config.useCloudflareTunnel) " (Tunnel)" else ""
                             "Remote SSH: ${config.config.host}$suffix"
                         }
-                        is EnvironmentConfig.Node -> "Node.js & Python Toolchain"
+                        is EnvironmentConfig.Node -> "Core Toolchain"
                     },
                     style = MaterialTheme.typography.titleMedium
                 )

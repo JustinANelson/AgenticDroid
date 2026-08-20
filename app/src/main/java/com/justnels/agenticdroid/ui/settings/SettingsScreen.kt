@@ -35,7 +35,7 @@ fun SettingsScreen(
         item {
             SettingItem(
                 title = "Environments",
-                description = "Configure Local, Node Toolchain, or SSH",
+                description = "Configure Local, Core Toolchain, or SSH",
                 onClick = onNavigateToEnvironments
             )
         }

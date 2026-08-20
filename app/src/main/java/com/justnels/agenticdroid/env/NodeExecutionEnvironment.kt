@@ -25,7 +25,8 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
         val firstWord = command.substringBefore(" ").trim()
         val rest = command.substringAfter(firstWord, "").trim()
 
-        // Native-lib-packaged binaries (see NodeRuntime.nativeLibBinary) must win over any
+        // Native-lib-packaged executables (ELF binaries and npm/npx scripts; see
+        // NodeRuntime.nativeLibBinary) must win over any
         // same-named file left in binDir from the original download - otherwise a plain
         // "git"/"node"/"aapt2" command silently execve()s the writable-storage copy, which
         // is W^X-blocked at a raised targetSdk even though a W^X-exempt copy is bundled.
@@ -33,6 +34,13 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
             "node" -> NodeRuntime.nodeBinary(context)
             "git" -> NodeRuntime.gitBinary(context)
             "aapt2" -> NodeRuntime.aapt2Binary(context)
+            "npm" -> NodeRuntime.npmBinary(context)
+            "npx" -> NodeRuntime.npxBinary(context)
+            "python", "python3", "python3.14" -> NodeRuntime.pythonBinary(context)
+            "pip", "pip3" -> NodeRuntime.pipBinary(context)
+            "java", "javac", "jar", "keytool", "javap", "jlink" ->
+                NodeRuntime.jdkCommandBinary(context, firstWord)
+            "kotlinc", "kotlinc-jvm" -> NodeRuntime.kotlincBinary(context)
             else -> null
         }?.takeIf { it.exists() }
 
@@ -79,7 +87,7 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
             tools.add("gh")
         }
         return EnvironmentInfo(
-            name = "Node & Python Toolchain",
+            name = "Core Toolchain",
             os = "Android (native)",
             architecture = System.getProperty("os.arch") ?: "unknown",
             installedTools = tools

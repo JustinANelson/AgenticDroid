@@ -67,7 +67,7 @@ fun MainScreen(viewModel: MainViewModel) {
     LaunchedEffect(viewModel.resetRequested) {
         if (viewModel.resetRequested) activity?.finishAndRemoveTask()
     }
-    val terminalViewModel = remember(activeEnv, viewModel.selectedProject) {
+    val terminalViewModel = remember(activeEnv, viewModel.selectedProject, viewModel.isCoreToolchainInstalled) {
         val path = viewModel.executionWorkingDirectory
         TerminalViewModel(application, activeEnv, path, onSessionEnded = viewModel::onAgentStopped)
     }
@@ -96,49 +96,49 @@ fun MainScreen(viewModel: MainViewModel) {
                     selected = viewModel.currentScreen == Screen.Workspace,
                     onClick = { viewModel.currentScreen = Screen.Workspace },
                     icon = { Icon(Icons.Default.Folder, contentDescription = "Files") },
-                    label = { Text("Files") },
+                    label = { BottomNavigationLabel("Files") },
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Terminal,
                     onClick = { viewModel.currentScreen = Screen.Terminal },
                     icon = { Icon(Icons.Default.Terminal, contentDescription = "Terminal") },
-                    label = { Text("Terminal") },
+                    label = { BottomNavigationLabel("Terminal") },
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.WebPreview,
                     onClick = { viewModel.currentScreen = Screen.WebPreview },
                     icon = { Icon(Icons.Default.Language, contentDescription = "Preview") },
-                    label = { Text("Preview") },
+                    label = { BottomNavigationLabel("Preview") },
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Git,
                     onClick = { viewModel.currentScreen = Screen.Git },
                     icon = { Icon(Icons.Default.Source, contentDescription = "Git") },
-                    label = { Text("Git") },
+                    label = { BottomNavigationLabel("Git") },
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Agents,
                     onClick = { viewModel.currentScreen = Screen.Agents },
                     icon = { Icon(Icons.Default.SmartToy, contentDescription = "Agents") },
-                    label = { Text("Agents") },
+                    label = { BottomNavigationLabel("Agents") },
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Search,
                     onClick = { viewModel.currentScreen = Screen.Search },
                     icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    label = { Text("Search") },
+                    label = { BottomNavigationLabel("Search") },
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Settings,
                     onClick = { viewModel.currentScreen = Screen.Settings },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                    label = { Text("Settings") },
+                    label = { BottomNavigationLabel("Settings") },
                     alwaysShowLabel = false
                 )
             }
@@ -248,7 +248,48 @@ fun MainScreen(viewModel: MainViewModel) {
                         }
 
                         val nodes = viewModel.projectNodes
-                        if (nodes.isEmpty()) {
+                        val treeError = viewModel.projectTreeError
+                        if (viewModel.isProjectTreeLoading) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator()
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text("Loading remote project...")
+                                }
+                            }
+                        } else if (treeError != null) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(24.dp)
+                                ) {
+                                    Text("Couldn't load remote project", style = MaterialTheme.typography.titleMedium)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(treeError, color = MaterialTheme.colorScheme.error)
+                                    Row {
+                                        Button(
+                                            onClick = viewModel::refreshCurrentProject,
+                                            modifier = Modifier.padding(8.dp)
+                                        ) {
+                                            Text("Retry")
+                                        }
+                                        Button(
+                                            onClick = { viewModel.selectProject(null) },
+                                            modifier = Modifier.padding(8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                        ) {
+                                            Text("Back")
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (nodes.isEmpty()) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = androidx.compose.ui.Alignment.Center
@@ -258,12 +299,16 @@ fun MainScreen(viewModel: MainViewModel) {
                                     Row {
                                         Button(
                                             onClick = {
-                                                File(viewModel.selectedProject!!.path, "README.md").writeText("# ${viewModel.selectedProject!!.name}\n\nProject created in AgenticDroid.")
-                                                viewModel.refreshCurrentProject() 
+                                                if (currentProject.isRemote) {
+                                                    viewModel.refreshCurrentProject()
+                                                } else {
+                                                    File(currentProject.path, "README.md").writeText("# ${currentProject.name}\n\nProject created in AgenticDroid.")
+                                                    viewModel.refreshCurrentProject()
+                                                }
                                             },
                                             modifier = Modifier.padding(16.dp)
                                         ) {
-                                            Text("Create README")
+                                            Text(if (currentProject.isRemote) "Refresh" else "Create README")
                                         }
                                         Button(
                                             onClick = { viewModel.selectProject(null) },
@@ -532,7 +577,7 @@ fun MainScreen(viewModel: MainViewModel) {
                             Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
                                 Text("Agents require a Node.js environment.", style = MaterialTheme.typography.titleMedium)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Please activate the Node Toolchain or an SSH environment in Settings.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                Text("Please activate the Core Toolchain or an SSH environment in Settings.", textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                 Button(onClick = { viewModel.currentScreen = Screen.Environments }, modifier = Modifier.padding(top = 16.dp)) {
                                     Text("Go to Environments")
                                 }
@@ -624,6 +669,16 @@ fun MainScreen(viewModel: MainViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun BottomNavigationLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        softWrap = false
+    )
 }
 
 enum class Screen {

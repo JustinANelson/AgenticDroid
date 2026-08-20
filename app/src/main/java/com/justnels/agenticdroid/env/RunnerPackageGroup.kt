@@ -21,7 +21,13 @@ enum class RunnerPackageGroup(
             "nodejs", "libc++", "openssl", "c-ares", "libicu", "libsqlite", "zlib", "libffi",
             "git", "libcurl", "libexpat", "libiconv", "pcre2", "less",
             "libnghttp2", "libnghttp3", "libngtcp2", "libssh2",
-            "curl", "gh", "npm", "openssh", "cloudflared", "mdns-scan",
+            "curl", "gh", "npm",
+            // NodeBootstrapper deliberately installs an explicit package list rather than
+            // resolving Depends. Keep OpenSSH's complete declared runtime dependency set
+            // here; omitting ldns made the PTY's local ssh process exit before connecting,
+            // which the Terminal screen surfaced only as "No terminal session".
+            "openssh", "krb5", "ldns", "libedit", "openssh-sftp-server", "termux-auth",
+            "cloudflared", "mdns-scan",
             // qemu-user-<arch> dependency closure, plus libzstd (libdw needs it but
             // doesn't declare it) - qemu-user-<arch> itself is added per-arch in
             // NodeBootstrapper since its package name depends on the device ABI.
@@ -54,7 +60,11 @@ enum class RunnerPackageGroup(
     JVM(
         "Java / Kotlin",
         "OpenJDK 17, aapt2, and the Kotlin compiler - needed for Android and JVM builds",
-        listOf("openjdk-17", "aapt2", "kotlin")
+        // NodeBootstrapper intentionally installs exactly this list; it does not ask apt
+        // to resolve Depends. Keep the libraries needed by the basic OpenJDK launch path
+        // explicit. alsa-plugins is deliberately omitted for now: its PulseAudio tree is
+        // only relevant to Java Sound and is not needed for java/javac/project builds.
+        listOf("openjdk-17", "libjpeg-turbo", "littlecms", "aapt2", "kotlin")
     ),
     RUST(
         "Rust",

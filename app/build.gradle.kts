@@ -45,9 +45,10 @@ android {
         // for a verified-on-device prototype (NodeRuntime.nativeLibBinary and the
         // combined DT_NEEDED dependency closure for qemu-user-aarch64, node, git, and
         // aapt2 - including running real installed agent CLIs, Claude Code and Codex, as
-        // qemu's guest) showing all four run successfully at a raised targetSdk (tested
-        // at 34; Play's actual requirement is API 36, not yet re-tested at that level).
-        // Not yet adopted app-wide - see AGENT_RUNTIME_RESEARCH.md Section 6e/12 for what's left.
+        // qemu's guest) showing the major arm64 lanes at raised targetSdk values. Python,
+        // npm/npx, git HTTPS, the native helpers, and the patched OpenJDK launcher have
+        // also passed at API 36. Not yet adopted app-wide - see
+        // AGENT_RUNTIME_RESEARCH.md Sections 18-21 for the remaining gates.
         targetSdk = 28
         versionCode = 1
         versionName = "1.0"
@@ -94,9 +95,26 @@ android {
         compose = true
         buildConfig = true
     }
+    sourceSets {
+        getByName("main") {
+            // These maintained, 16 KB-aligned rebuilds used to be APK assets only; no
+            // runtime code ever copied that asset override into the downloaded Termux
+            // tree. Package them as real native libraries so PackageManager installs
+            // them in the W^X-exempt nativeLibraryDir instead.
+            jniLibs.directories.add("src/main/assets/native-overrides/libandroid-spawn")
+        }
+    }
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += setOf(
+                "**/libnpm_wrapper.so",
+                "**/libnpx_wrapper.so",
+                "**/libpip_wrapper.so",
+                "**/libpip3_wrapper.so",
+                "**/libkotlinc_wrapper.so",
+                "**/libjdk_*_wrapper.so",
+            )
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

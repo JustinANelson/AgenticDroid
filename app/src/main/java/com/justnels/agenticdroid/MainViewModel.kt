@@ -223,6 +223,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var projects by mutableStateOf<List<Project>>(emptyList())
     var projectNodes by mutableStateOf<List<com.justnels.agenticdroid.workspace.FileNode>>(emptyList())
         private set
+    var isProjectTreeLoading by mutableStateOf(false)
+        private set
+    var projectTreeError by mutableStateOf<String?>(null)
+        private set
+    private var projectTreeGeneration = 0
 
     var gitBranch by mutableStateOf("loading...")
     var gitChanges by mutableStateOf<List<String>>(emptyList())
@@ -259,6 +264,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     var isNodeInstalled by mutableStateOf(false)
         private set
+
+    val isCoreToolchainInstalled: Boolean
+        get() = isNodeInstalled
 
     var installedRunnerGroups by mutableStateOf<Set<com.justnels.agenticdroid.env.RunnerPackageGroup>>(emptySet())
         private set
@@ -326,7 +334,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val executionWorkingDirectory: String
         get() = when (val active = environmentManager.activeEnvironment) {
-            is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> active.config.workingDirectory
+            is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> {
+                selectedProject?.path?.takeIf { it.isNotBlank() } ?: active.config.workingDirectory
+            }
             else -> selectedProject?.path ?: workspaceRoot.absolutePath
         }
 
@@ -528,42 +538,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshCurrentProject() {
+        val generation = ++projectTreeGeneration
         val project = selectedProject
         if (project == null) {
             projectNodes = emptyList()
+            isProjectTreeLoading = false
+            projectTreeError = null
             return
         }
 
         if (project.isRemote) {
+            projectNodes = emptyList()
+            isProjectTreeLoading = true
+            projectTreeError = null
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
                     val fs = env.filesystem()
                     val nodes = fetchRemoteTree(fs, project.path)
                     withContext(Dispatchers.Main) {
-                        projectNodes = nodes
+                        if (generation == projectTreeGeneration && selectedProject == project) {
+                            projectNodes = nodes
+                            isProjectTreeLoading = false
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e("MainViewModel", "Failed to fetch remote tree", e)
                     withContext(Dispatchers.Main) {
-                        fileError = "Failed to load remote project: ${e.localizedMessage}"
+                        if (generation == projectTreeGeneration && selectedProject == project) {
+                            projectNodes = emptyList()
+                            projectTreeError = e.localizedMessage ?: "Failed to list the remote directory"
+                            isProjectTreeLoading = false
+                        }
                     }
                 }
             }
         } else {
+            isProjectTreeLoading = false
+            projectTreeError = null
             projectNodes = workspaceManager.getFileTree(project)
         }
     }
 
     private fun fetchRemoteTree(fs: com.justnels.agenticdroid.env.FileSystemAccess, rootPath: String): List<com.justnels.agenticdroid.workspace.FileNode> {
-        var count = 0
-        val maxEntries = 1000 // Limit remote tree size for performance
-        val maxDepth = 5
+        return fs.withBatch { batchFs ->
+            var count = 0
+            val maxEntries = 1000 // Limit remote tree size for performance
+            val maxDepth = 5
 
-        fun build(path: String, depth: Int): List<com.justnels.agenticdroid.workspace.FileNode> {
-            if (depth > maxDepth || count > maxEntries) return emptyList()
-            return try {
-                fs.listEntries(path).mapNotNull { entry ->
+            fun build(path: String, depth: Int, isRoot: Boolean = false): List<com.justnels.agenticdroid.workspace.FileNode> {
+                if (depth > maxDepth || count > maxEntries) return emptyList()
+                val entries = if (isRoot) {
+                    // A root-listing failure means the project could not be loaded; do not
+                    // misrepresent an SSH/authentication error as an empty project.
+                    batchFs.listEntries(path)
+                } else {
+                    try {
+                        batchFs.listEntries(path)
+                    } catch (e: Exception) {
+                        return emptyList()
+                    }
+                }
+                return entries.mapNotNull { entry ->
                     count++
                     if (count > maxEntries) return@mapNotNull null
                     com.justnels.agenticdroid.workspace.FileNode(
@@ -573,11 +609,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         children = if (entry.isDirectory) build(entry.path, depth + 1) else emptyList()
                     )
                 }
-            } catch (e: Exception) {
-                emptyList()
             }
+            build(rootPath, 0, isRoot = true)
         }
-        return build(rootPath, 0)
     }
 
     fun selectRemoteProject(path: String) {
@@ -1597,12 +1631,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "outputs/apk/debug/app-debug.apk"
         )
         
-        for (loc in commonLocations) {
-            val fullPath = if (path.endsWith("/")) "$path$loc" else "$path/$loc"
-            if (fs.exists(fullPath)) {
-                return File(fullPath)
+        val found = fs.withBatch { batchFs ->
+            commonLocations.firstNotNullOfOrNull { loc ->
+                val fullPath = if (path.endsWith("/")) "$path$loc" else "$path/$loc"
+                if (batchFs.exists(fullPath)) File(fullPath) else null
             }
         }
+        if (found != null) return found
 
         if (fs is com.justnels.agenticdroid.env.LocalFileSystemAccess) {
             return File(path).walkTopDown()

@@ -36,7 +36,8 @@ class NodeBootstrapper(private val context: Context) {
     // RunnerPackageGroups instead of one all-or-nothing list, so any prior install (whose
     // on-disk layout the old code assumed) needs to be redone under the new bookkeeping.
     // Bumped again "16"->"17": added openssh to CORE.
-    private val provisioningVersion = "17"
+    // Bumped "17"->"18": install OpenSSH's complete declared dependency closure.
+    private val provisioningVersion = "18"
     private val maxArtifactBytes = 512L * 1024L * 1024L
 
     // This is a path *inside Termux package archives*, not an Android filesystem path.
@@ -336,6 +337,7 @@ class NodeBootstrapper(private val context: Context) {
         val requestedGroups = groups + RunnerPackageGroup.CORE
         val pendingGroups = requestedGroups.filterNot { isGroupInstalled(it) }
         if (pendingGroups.isEmpty()) {
+            ensureKotlinWrapper()
             ensureResolvConf()
             onProgress("Environment ready!")
             return@withContext
@@ -362,6 +364,14 @@ class NodeBootstrapper(private val context: Context) {
         }
         val usr = NodeRuntime.usrDir(context)
         listOf(usr, NodeRuntime.homeDir(context), NodeRuntime.globalDir(context)).forEach { it.mkdirs() }
+
+        // A failed earlier install may have been observed by a concurrently-created
+        // execution environment, which historically projected packaged Python/JVM files
+        // into usr as symlinks before the runner-ready marker existed. Remove exactly
+        // those generated mappings before extraction; ArchiveExtractor correctly rejects
+        // a destination whose existing symlink resolves outside usr.
+        if (RunnerPackageGroup.PYTHON in pendingGroups) NodeRuntime.removePythonNativeLinks(context)
+        if (RunnerPackageGroup.JVM in pendingGroups) NodeRuntime.removeJvmNativeLinks(context)
 
         val abi = abi()
         val termuxArch = TermuxPackageIndex.termuxArch(abi)
@@ -469,6 +479,7 @@ class NodeBootstrapper(private val context: Context) {
                     }
                 }
             }
+            ensureKotlinWrapper()
 
             File(usr, "tmp").mkdirs()
             File(NodeRuntime.homeDir(context), ".android").mkdirs()
@@ -519,6 +530,34 @@ class NodeBootstrapper(private val context: Context) {
         }
 
         onProgress("Environment ready!")
+    }
+
+    /**
+     * Termux's Kotlin package hard-codes Termux's private `/data/data/com.termux/.../env
+     * bash` shebang, which cannot exist in this app. Replace it with a portable Android
+     * shell launcher that invokes the compiler in the same way as upstream's script.
+     */
+    private fun ensureKotlinWrapper() {
+        val kotlinHome = File(NodeRuntime.usrDir(context), "opt/kotlin")
+        val preloader = File(kotlinHome, "lib/kotlin-preloader.jar")
+        val compiler = File(kotlinHome, "lib/kotlin-compiler.jar")
+        if (!preloader.isFile || !compiler.isFile) return
+
+        val kotlinc = File(NodeRuntime.binDir(context), "kotlinc")
+        kotlinc.writeText(
+            """#!/system/bin/sh
+                |exec "${'$'}JAVA_HOME/bin/java" ${'$'}{JAVA_OPTS:--Xmx512M -Xms128M} \
+                |  -cp "${preloader.absolutePath}" \
+                |  org.jetbrains.kotlin.preloading.Preloader \
+                |  -cp "${compiler.absolutePath}" \
+                |  org.jetbrains.kotlin.cli.jvm.K2JVMCompiler "${'$'}@"
+                |""".trimMargin()
+        )
+        kotlinc.setExecutable(true)
+
+        val kotlincJvm = File(NodeRuntime.binDir(context), "kotlinc-jvm")
+        kotlincJvm.writeText("#!/system/bin/sh\nexec \"${kotlinc.absolutePath}\" \"\$@\"\n")
+        kotlincJvm.setExecutable(true)
     }
 
     private suspend fun downloadPackage(artifact: PackageArtifact, cacheDir: File): File {

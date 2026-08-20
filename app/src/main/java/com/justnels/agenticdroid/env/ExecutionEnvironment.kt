@@ -129,6 +129,12 @@ interface FileSystemAccess {
     fun copyFile(srcPath: String, destPath: String): Boolean
     /** Downloads a remote file to a local destination. */
     fun downloadFile(remotePath: String, localDest: File)
+
+    /**
+     * Executes the given block within a shared batch session (e.g., reusing an open SFTP channel)
+     * to avoid opening and closing channels repeatedly for each operation.
+     */
+    fun <T> withBatch(block: (FileSystemAccess) -> T): T = block(this)
 }
 
 data class FileSystemEntry(
