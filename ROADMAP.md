@@ -2,33 +2,101 @@
 
 This document outlines the planned enhancements and new features for AgenticDroid, categorized by impact and status.
 
+See [NEXT_FEATURES.md](NEXT_FEATURES.md) for the analysis behind the items added
+2026-08-20, and [READINESS_REVIEW.md](READINESS_REVIEW.md) for engineering-risk items
+(signing, W^X, device coverage) that are tracked separately from this feature roadmap.
+
 ## 🚀 High Impact & Critical
 
-### 1. [/] LSP (Language Server Protocol) Support
+### 1. [ ] Headless Agent Runs + Notifications
 - **Impact**: Critical
+- **Description**: Let an agent CLI run unattended (headless invocation, e.g. `claude -p`,
+  `codex exec`) instead of only inside the live interactive terminal PTY, backed by a
+  foreground service that survives the app being backgrounded, with a system notification
+  on completion/failure/approval-needed.
+- **Details**: `AgentProfile.launchCommand()` only ever execs into the attached terminal
+  session today. This is the single change that lets a user kick off a long agent task
+  and put the phone away, which the current architecture doesn't support. Needs a
+  companion "Agent Runs" list (past + running) with output logged to a file so a run
+  survives app/process death, not just backgrounding.
+
+### 2. [ ] Persistent Remote Sessions (tmux/screen over SSH)
+- **Impact**: Critical
+- **Description**: Auto-launch or attach to a `tmux`/`screen` session on the remote host
+  for SSH-backed terminal/agent sessions, so a dropped mobile connection doesn't kill an
+  in-flight remote process.
+- **Details**: Directly closes the gap `READINESS_REVIEW.md` R7 only tracks as an
+  untested risk ("verify behavior when the phone backgrounds or loses network
+  mid-session"). A mobile network dropping mid-run is the normal case, not an edge case,
+  for the SSH path. Pairs with item 1 for remote hosts.
+
+### 3. [/] LSP (Language Server Protocol) Support
+- **Impact**: High
 - **Status**: **Partial** (Python/Pyright implemented; JS/TS/tsserver pending)
 - **Description**: Add autocompletion, "Go to Definition," and real-time diagnostics to the code editor.
-- **Details**: `LspManager` is functional and integrated with `MainViewModel`.
+- **Details**: `LspManager` is functional and integrated with `MainViewModel`, currently
+  mapping only `.py`. JS/TS (tsserver) is next; `rust-analyzer`, `gopls`, and `clangd` are
+  natural follow-ons once tsserver proves the pattern, since the Rust/Go/C++
+  `RunnerPackageGroup`s already provision those toolchains.
 
-### 2. [ ] Docker Remote Integration
+### 4. [ ] Remote Dev-Server Preview
+- **Impact**: High
+- **Description**: SSH local-port-forward UI to tunnel a remote dev server
+  (`localhost:5173` etc.) back to the phone for in-app/browser preview.
+- **Details**: `WebProjectPreflight.kt` already gives on-device (local-toolchain)
+  projects a live preview. Remote (SSH) projects have no equivalent — the biggest
+  remaining functional gap between the local and remote workflows.
+
+### 5. [ ] Docker Remote Integration
 - **Impact**: High
 - **Description**: Connect to remote Docker daemons and manage containers.
-- **Details**: Add a dedicated "Docker" tab or integrate container management into the terminal.
+- **Details**: Most valuable paired with items 2 and 4 — the real use case is "my remote
+  host runs my stack in Compose, let me see it's up and reach its ports," not general
+  fleet management. Add a dedicated "Docker" tab or integrate into the terminal.
 
 ## ✨ Productivity & UX
 
-### 3. [/] Custom Agent Profiles UI
+### 6. [/] Custom Agent Profiles UI
 - **Impact**: Medium
 - **Status**: **Partial** (Manager logic implemented; UI form pending)
 - **Description**: Allow users to add their own CLI agents via a simple form.
-- **Details**: `AgentManager.addAgent` is ready; needs a "Custom Agent" button and form in the Agents screen.
+- **Details**: `AgentManager.addAgent` is ready; needs a "Custom Agent" button and form in
+  the Agents screen. Removes the per-CLI maintenance burden for any future agent that's
+  pure-JS/pure-Python (no native binary to smuggle past Zygote's seccomp filter).
 
-### 4. [ ] Markdown Preview
+### 7. [ ] Headless Run Tool-Approval UX
+- **Impact**: Medium
+- **Description**: A notification action (approve/deny) or a pre-authorized permission
+  profile (e.g. "auto-approve file edits in the project, always ask before network/shell")
+  for agent tool-use prompts that occur during a headless run.
+- **Details**: Depends on item 1. Today this only works because the agent is attached to
+  a live PTY the user is looking at; a backgrounded run has no surface for it yet.
+
+### 8. [ ] Active Sessions Panel
+- **Impact**: Medium
+- **Description**: A panel listing live agent runs, terminal sessions, and any forwarded
+  ports, each with a stop/reattach action.
+- **Details**: Successor to the existing single-session "active-agent tracking with a
+  Stop command" once runs can outlive the screen that started them (items 1–2).
+
+### 9. [ ] Terminal Extra-Keys Expansion
+- **Impact**: Medium
+- **Description**: Add Esc / Tab / arrow-keys / Ctrl-modifier-for-next-keypress to the
+  terminal's extra-keys row, and confirm/expose the quick-command chip as user-saveable.
+- **Details**: The scrollable extra-keys row already exists (mic/voice input, a
+  quick-command chip, copy, ENTER, CTRL-C) but is missing the keys that matter most for
+  `vim`/`less`/REPL use inside an agent's shell tool on a soft keyboard with no physical
+  Ctrl/Esc.
+
+### 10. [ ] Markdown Preview
 - **Impact**: Medium
 - **Description**: A "Live Preview" mode for `.md` files.
 - **Details**: Use a library like `commonmark` to render READMEs and documentation nicely.
 
 ## ✅ Completed Features
+- [x] **Remote File Transfer**: Upload/download and directory-archive-download over SSH,
+  with progress, cancel, speed/ETA, and share-out (`FileTransferManager`,
+  `TransferProgressBanner`, `FileShare`).
 - [x] **Visual Git Diff**: Replaced raw text diffs with a side-by-side visual diff viewer in the UI.
 - [x] **MCP Integration**: Deepened agentic capabilities with support for Model Context Protocol (MCP) servers.
 - [x] **File Search Integration**: Moved file search into the Files tab with a project/workspace scope toggle.
