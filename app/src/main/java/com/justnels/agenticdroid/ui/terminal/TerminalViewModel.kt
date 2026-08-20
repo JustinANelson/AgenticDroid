@@ -69,28 +69,32 @@ class TerminalViewModel(
     private var hasNavigatedToWorkingDirectory = false
     private var hasShortenedPrompt = false
 
-    // Heuristic (path shape, not a real handshake) shared by both the cd-injection and the
-    // prompt-shortening below, since an SSH remote's shell dialect is otherwise unknown to
-    // this class - see the non-interactive-exec equivalent problem this mirrors in
-    // SSHExecutionEnvironment.ensurePosixShellDiscovered, which can't be reused here as
-    // that discovery needs a live network round-trip and this runs on the main thread.
-    //
-    // Matches both a raw Windows path (C:\Users\..., or C:/Users/... - Windows accepts
-    // forward slashes too) and the "/C:/Users/..." form Win32-OpenSSH's SFTP subsystem
-    // actually hands back for a drive-rooted path - confirmed the hard way: a project
-    // selected via RemoteBrowserScreen (which walks paths exactly as SFTP returns them)
-    // carries that leading-slash form, which neither a bare backslash check nor
-    // path[1] == ':' catches, so the POSIX branch was firing against a Windows remote and
-    // failing immediately on its very first token ('[' is not a recognized command).
-    private val isWindowsRemote =
-        workingDirectory.contains("\\") || Regex("^/?[A-Za-z]:[/\\\\]").containsMatchIn(workingDirectory)
-
-    // cmd.exe's own `cd /d` rejects the "/C:/Users/..." SFTP form outright ("The syntax of
-    // the command is incorrect.") even though Windows APIs generally accept forward
-    // slashes - confirmed directly against cmd.exe: "C:/Users/..." and "C:\Users\..." both
-    // work, "/C:/Users/..." does not. Only strips the leading slash when isWindowsRemote,
-    // so a genuinely POSIX path (which legitimately starts with '/') is never touched.
-    private val cdTargetPath = if (isWindowsRemote) workingDirectory.removePrefix("/") else workingDirectory
+    /**
+     * Whether the SSH remote's interactive shell is cmd.exe, shared by both the
+     * cd-injection and the prompt-shortening below since this class otherwise has no way
+     * to know the remote shell's dialect (see the non-interactive-exec equivalent problem
+     * in SSHExecutionEnvironment.ensurePosixShellDiscovered, which can't be reused here as
+     * that discovery needs a live network round-trip and this runs on the main thread).
+     *
+     * Two independent signals, either sufficient on its own:
+     * 1. [workingDirectory]'s shape (a raw "C:\Users\..." or "C:/Users/..." path - Windows
+     *    accepts forward slashes too). This alone is not reliable: it's blind whenever the
+     *    configured working directory is a *relative* path (e.g. "./Projects/Foo", which
+     *    carries no OS-identifying information at all) - confirmed the hard way, this
+     *    exact case sent the POSIX PS1 command to a Windows remote.
+     * 2. [session]'s own transcript so far, checked for cmd.exe's standard interactive
+     *    startup banner ("Microsoft Windows [Version ...") or its default drive-rooted
+     *    prompt shape ("C:\...>") - text the remote itself already sent, needing no extra
+     *    round-trip. This is what actually catches the relative-working-directory case
+     *    signal 1 misses, since it doesn't depend on the working directory at all.
+     */
+    private fun isWindowsRemote(session: TerminalSession): Boolean {
+        val pathLooksWindows =
+            workingDirectory.contains("\\") || Regex("^/?[A-Za-z]:[/\\\\]").containsMatchIn(workingDirectory)
+        if (pathLooksWindows) return true
+        val transcript = runCatching { session.emulator?.screen?.transcriptText }.getOrNull().orEmpty()
+        return transcript.contains("Microsoft Windows") || Regex("[A-Za-z]:\\\\[^>]*>").containsMatchIn(transcript)
+    }
 
     private fun flushPendingInput() {
         if (pendingInput.isEmpty()) return
@@ -256,14 +260,20 @@ class TerminalViewModel(
         if (!hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
             hasNavigatedToWorkingDirectory = true
             if (env is SSHExecutionEnvironment) {
-                val cdCmd = if (isWindowsRemote) "cd /d \"$cdTargetPath\"\r\n" else "cd \"$workingDirectory\"\n"
+                val isWindows = isWindowsRemote(changedSession)
+                // cmd.exe's own `cd /d` rejects a leading slash before the drive letter
+                // ("The syntax of the command is incorrect", confirmed directly against
+                // cmd.exe) even though it accepts both "C:/Users/..." and "C:\Users\...".
+                // Only stripped when isWindows, so a genuinely POSIX path (which
+                // legitimately starts with '/') is never touched.
+                val cdCmd = if (isWindows) "cd /d \"${workingDirectory.removePrefix("/")}\"\r\n" else "cd \"$workingDirectory\"\r\n"
                 changedSession.write(cdCmd)
             }
         }
 
         if (shortenDirectoryNames && !hasShortenedPrompt) {
             hasShortenedPrompt = true
-            changedSession.write(if (isWindowsRemote) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
+            changedSession.write(if (isWindowsRemote(changedSession)) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
         }
 
         try {
@@ -348,16 +358,22 @@ class TerminalViewModel(
          * this works unmodified on every shell tested (sh, mksh, bash, dash); zsh is the one
          * common exception - it needs `setopt PROMPT_SUBST` for command substitution in
          * prompts, so this enables that first when $ZSH_VERSION is set, then falls through
-         * to the same PS1 assignment. Only sent when [isWindowsRemote] is false - a Windows
-         * remote's exec-channel default shell is cmd.exe, which can't parse any of this
+         * to the same PS1 assignment. Only sent when [isWindowsRemote] returns false for
+         * the session - a Windows remote's shell is cmd.exe, which can't parse any of this
          * (confirmed the hard way: `2>/dev/null` alone made cmd.exe fail with "The system
          * cannot find the path specified", trying to redirect to a literal file named
          * `/dev/null` since that's not a device path on Windows) - see
          * [SHORTEN_PROMPT_COMMAND_WINDOWS] for that case.
+         *
+         * Ends in `\r\n`, not a bare `\n`: confirmed the hard way that a bare LF doesn't
+         * submit the line on at least one shell this reaches (matches sendCommand's own
+         * doc above, which uses `\r` for the same reason) - it instead got silently
+         * appended to whatever was sent next, concatenating this command onto the cd
+         * command above into one garbled, failing line.
          */
         private val SHORTEN_PROMPT_COMMAND_POSIX =
             "[ -n \"\$ZSH_VERSION\" ] && setopt PROMPT_SUBST; " +
-                "PS1='\$(basename \"\$PWD\")\$ '\n"
+                "PS1='\$(basename \"\$PWD\")\$ '\r\n"
 
         /**
          * cmd.exe equivalent of [SHORTEN_PROMPT_COMMAND_POSIX]. cmd's PROMPT variable has no
