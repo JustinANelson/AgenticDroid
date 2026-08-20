@@ -80,6 +80,7 @@ data class GithubRepo(
     val name: String,
     val fullName: String,
     val cloneUrl: String,
+    val sshUrl: String,
     val isPrivate: Boolean
 )
 
@@ -252,6 +253,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
     var githubRepos by mutableStateOf<List<GithubRepo>>(emptyList())
         private set
+
+    /**
+     * When true, remotes the app constructs automatically (auto-link, create-and-share,
+     * clone-from-list) use `git@github.com:` SSH URLs instead of HTTPS. This relies on the
+     * active execution environment already having its own SSH key/agent configured for
+     * GitHub - AgenticDroid never generates or stores a git-auth SSH key itself.
+     */
+    var preferSshGitRemote by mutableStateOf(false)
+        private set
+
+    fun updatePreferSshGitRemote(enabled: Boolean) {
+        preferSshGitRemote = enabled
+        prefs.edit { putBoolean("prefer_ssh_git_remote", enabled) }
+    }
 
     var githubDeviceFlowState by mutableStateOf<GithubDeviceFlowState?>(null)
         private set
@@ -1079,8 +1094,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val username = githubUsername.trim()
         val projectName = selectedProject?.name?.trim()
         if (username.isNotBlank() && !projectName.isNullOrBlank()) {
-            val encodedName = java.net.URLEncoder.encode(projectName, "UTF-8").replace("+", "%20")
-            val url = "https://github.com/$username/$encodedName.git"
+            val url = if (preferSshGitRemote) {
+                "git@github.com:$username/$projectName.git"
+            } else {
+                val encodedName = java.net.URLEncoder.encode(projectName, "UTF-8").replace("+", "%20")
+                "https://github.com/$username/$encodedName.git"
+            }
             gitAddRemote("origin", url)
         } else {
             gitError = "Cannot auto-link: GitHub username or Project name is missing."
@@ -1159,8 +1178,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             
             // 2. Add Remote
             Log.d("MainViewModel", "Step 2: Adding remote 'origin'")
-            val encodedName = java.net.URLEncoder.encode(cleanName, "UTF-8").replace("+", "%20")
-            val url = "https://github.com/$cleanUsername/$encodedName.git"
+            val url = if (preferSshGitRemote) {
+                "git@github.com:$cleanUsername/$cleanName.git"
+            } else {
+                val encodedName = java.net.URLEncoder.encode(cleanName, "UTF-8").replace("+", "%20")
+                "https://github.com/$cleanUsername/$encodedName.git"
+            }
             val remoteResult = manager.addRemote("origin", url)
             if (remoteResult is com.justnels.agenticdroid.git.GitResult.Failure) {
                 withContext(Dispatchers.Main) {
@@ -1263,6 +1286,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         name = repoJson.getString("name"),
                         fullName = repoJson.getString("full_name"),
                         cloneUrl = repoJson.getString("clone_url"),
+                        sshUrl = repoJson.getString("ssh_url"),
                         isPrivate = repoJson.getBoolean("private")
                     ))
                 }
@@ -1838,6 +1862,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 bootstrapWorkId.value = environmentManager.bootstrapWorkId
             }
         }
+        preferSshGitRemote = prefs.getBoolean("prefer_ssh_git_remote", false)
         githubUsername = prefs.getString("github_username", "") ?: ""
         val legacyToken = prefs.getString("github_token", null)
         githubToken = credentialManager.getCredential(CredentialManager.GITHUB_TOKEN)

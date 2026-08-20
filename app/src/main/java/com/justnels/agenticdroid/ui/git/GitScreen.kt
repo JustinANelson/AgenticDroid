@@ -28,6 +28,7 @@ fun GitScreen(
     hasGithubToken: Boolean,
     githubDeviceFlow: com.justnels.agenticdroid.GithubDeviceFlowState?,
     hintsShown: Set<String>,
+    preferSshGitRemote: Boolean = false,
     modifier: Modifier = Modifier,
     lastOutput: String? = null,
     error: String? = null,
@@ -41,6 +42,7 @@ fun GitScreen(
     onSetConfig: (String, String) -> Unit,
     onUpdateGithubUsername: (String) -> Unit,
     onUpdateGithubToken: (String) -> Unit,
+    onSetPreferSshGitRemote: (Boolean) -> Unit = {},
     onStartGithubDeviceFlow: () -> Unit,
     onCancelGithubDeviceFlow: () -> Unit,
     onRenameToMain: () -> Unit,
@@ -332,8 +334,8 @@ fun GitScreen(
                     OutlinedTextField(
                         value = remoteUrl,
                         onValueChange = { remoteUrl = it },
-                        label = { Text("URL (HTTPS)") },
-                        placeholder = { Text("https://github.com/user/repo.git") },
+                        label = { Text("URL (HTTPS or SSH)") },
+                        placeholder = { Text("https://github.com/user/repo.git or git@github.com:user/repo.git") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -361,6 +363,7 @@ fun GitScreen(
         var userEmail by remember { mutableStateOf("") }
         var githubUser by remember { mutableStateOf(githubUsername) }
         var githubTokenValue by remember { mutableStateOf("") }
+        var sshPreferenceValue by remember { mutableStateOf(preferSshGitRemote) }
         AlertDialog(
             onDismissRequest = { showConfigDialog = false },
             title = { Text("Git Configuration") },
@@ -421,6 +424,26 @@ fun GitScreen(
                         style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(top = 8.dp)
                     )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = sshPreferenceValue,
+                            onCheckedChange = { sshPreferenceValue = it }
+                        )
+                        Text("Use SSH (git@github.com) remotes")
+                    }
+                    Text(
+                        text = "Auto-linked and cloned remotes will use SSH instead of HTTPS. " +
+                            "Requires an SSH key for GitHub already set up wherever this project's " +
+                            "commands run (this device, or the remote machine when connected over SSH) " +
+                            "— AgenticDroid does not manage that key.",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
                 }
             },
             confirmButton = {
@@ -429,6 +452,7 @@ fun GitScreen(
                     if (userEmail.isNotBlank()) onSetConfig("user.email", userEmail)
                     onUpdateGithubUsername(githubUser)
                     if (githubTokenValue.isNotBlank()) onUpdateGithubToken(githubTokenValue)
+                    onSetPreferSshGitRemote(sshPreferenceValue)
                     showConfigDialog = false
                 }) {
                     Text("Save")

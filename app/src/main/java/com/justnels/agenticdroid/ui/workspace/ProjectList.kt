@@ -25,6 +25,7 @@ import com.justnels.agenticdroid.workspace.Project
 fun ProjectList(
     projects: List<Project>,
     githubRepos: List<com.justnels.agenticdroid.GithubRepo>,
+    preferSshGitRemote: Boolean = false,
     hintsShown: Set<String>,
     onProjectSelected: (Project) -> Unit,
     onCreateProject: (String, com.justnels.agenticdroid.workspace.ProjectTemplate) -> Unit,
@@ -346,7 +347,8 @@ fun ProjectList(
                                         .clickable(enabled = !isCloning) {
                                             attempted = true
                                             onDismissCloneError()
-                                            onCloneProject(repo.cloneUrl, repo.name)
+                                            val cloneUrl = if (preferSshGitRemote) repo.sshUrl else repo.cloneUrl
+                                            onCloneProject(cloneUrl, repo.name)
                                         }
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {

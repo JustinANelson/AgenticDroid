@@ -179,6 +179,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         ProjectList(
                             projects = viewModel.projects,
                             githubRepos = viewModel.githubRepos,
+                            preferSshGitRemote = viewModel.preferSshGitRemote,
                             hintsShown = viewModel.hintsShown,
                             onProjectSelected = { viewModel.selectProject(it) },
                             onCreateProject = { name, template -> viewModel.createProject(name, template) },
@@ -542,6 +543,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         hasGithubToken = viewModel.hasGithubToken,
                         githubDeviceFlow = viewModel.githubDeviceFlowState,
                         hintsShown = viewModel.hintsShown,
+                        preferSshGitRemote = viewModel.preferSshGitRemote,
                         lastOutput = viewModel.lastGitOutput,
                         error = viewModel.gitError,
                         onCommit = { viewModel.gitCommit(it) },
@@ -554,6 +556,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         onSetConfig = { key, value -> viewModel.gitSetConfig(key, value) },
                         onUpdateGithubUsername = { viewModel.updateGithubUsername(it) },
                         onUpdateGithubToken = { viewModel.updateGithubToken(it) },
+                        onSetPreferSshGitRemote = { viewModel.updatePreferSshGitRemote(it) },
                         onStartGithubDeviceFlow = { viewModel.startGithubDeviceFlow() },
                         onCancelGithubDeviceFlow = { viewModel.cancelGithubDeviceFlow() },
                         onRenameToMain = { viewModel.gitRenameToMain() },
