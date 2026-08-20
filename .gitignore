@@ -30,7 +30,7 @@ app/src/main/jniLibs/
 
 # Local Claude Code tool config
 .claude/
-# .artifacts/ # Uncomment if you want to ignore AI agent artifacts
+.artifacts/
 
 # Logs
 *.log

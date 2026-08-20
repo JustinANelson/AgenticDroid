@@ -69,6 +69,14 @@ class TerminalViewModel(
     private var hasNavigatedToWorkingDirectory = false
     private var hasShortenedPrompt = false
 
+    // Heuristic (path shape, not a real handshake) shared by both the cd-injection and the
+    // prompt-shortening below, since an SSH remote's shell dialect is otherwise unknown to
+    // this class - see the non-interactive-exec equivalent problem this mirrors in
+    // SSHExecutionEnvironment.ensurePosixShellDiscovered, which can't be reused here as
+    // that discovery needs a live network round-trip and this runs on the main thread.
+    private val isWindowsRemote =
+        workingDirectory.contains("\\") || (workingDirectory.length >= 2 && workingDirectory[1] == ':')
+
     private fun flushPendingInput() {
         if (pendingInput.isEmpty()) return
         val current = session ?: return
@@ -233,15 +241,14 @@ class TerminalViewModel(
         if (!hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
             hasNavigatedToWorkingDirectory = true
             if (env is SSHExecutionEnvironment) {
-                val isWindows = workingDirectory.contains("\\") || (workingDirectory.length >= 2 && workingDirectory[1] == ':')
-                val cdCmd = if (isWindows) "cd /d \"$workingDirectory\"\r\n" else "cd \"$workingDirectory\"\n"
+                val cdCmd = if (isWindowsRemote) "cd /d \"$workingDirectory\"\r\n" else "cd \"$workingDirectory\"\n"
                 changedSession.write(cdCmd)
             }
         }
 
         if (shortenDirectoryNames && !hasShortenedPrompt) {
             hasShortenedPrompt = true
-            changedSession.write(SHORTEN_PROMPT_COMMAND)
+            changedSession.write(if (isWindowsRemote) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
         }
 
         try {
@@ -326,11 +333,41 @@ class TerminalViewModel(
          * this works unmodified on every shell tested (sh, mksh, bash, dash); zsh is the one
          * common exception - it needs `setopt PROMPT_SUBST` for command substitution in
          * prompts, so this enables that first when $ZSH_VERSION is set, then falls through
-         * to the same PS1 assignment.
+         * to the same PS1 assignment. Only sent when [isWindowsRemote] is false - a Windows
+         * remote's exec-channel default shell is cmd.exe, which can't parse any of this
+         * (confirmed the hard way: `2>/dev/null` alone made cmd.exe fail with "The system
+         * cannot find the path specified", trying to redirect to a literal file named
+         * `/dev/null` since that's not a device path on Windows) - see
+         * [SHORTEN_PROMPT_COMMAND_WINDOWS] for that case.
          */
-        private val SHORTEN_PROMPT_COMMAND =
-            "[ -n \"\$ZSH_VERSION\" ] && setopt PROMPT_SUBST 2>/dev/null; " +
+        private val SHORTEN_PROMPT_COMMAND_POSIX =
+            "[ -n \"\$ZSH_VERSION\" ] && setopt PROMPT_SUBST; " +
                 "PS1='\$(basename \"\$PWD\")\$ '\n"
+
+        /**
+         * cmd.exe equivalent of [SHORTEN_PROMPT_COMMAND_POSIX]. cmd's PROMPT variable has no
+         * "last path segment only" code (unlike bash's \W) and no way to embed a live command
+         * substitution the way POSIX PS1 does, so getting a folder-name-only prompt that
+         * keeps working after subsequent `cd`s needs two parts, sent as two separate typed
+         * lines (matching how a real interactive session would receive them, rather than
+         * chained with `&` on one line - `%`-expansion inside a single cmd.exe line happens
+         * once at parse time for the whole line, before any earlier `&`-joined command on
+         * that same line has run, which silently breaks a one-liner version of this):
+         * 1. A `doskey` macro override of `cd` that, after actually changing directory, also
+         *    re-derives the new directory's name and calls the `prompt` builtin with it -
+         *    doskey macros use `$T` (not a literal `&`) to separate chained commands inside
+         *    the macro body, and only take effect for input coming through a real console
+         *    (confirmed: they're silently skipped over a plain redirected pipe with no
+         *    console allocated) - Windows OpenSSH's `-t`/pty-requested sessions use ConPTY,
+         *    which does allocate one, so this is expected to fire the same way it would if
+         *    typed directly.
+         * 2. The same directory-name-into-prompt command run immediately once, so the very
+         *    first prompt (before any `cd` happens) is already shortened rather than only
+         *    taking effect after the first directory change.
+         */
+        private val SHORTEN_PROMPT_COMMAND_WINDOWS =
+            "doskey cd=cd \$* \$Tfor %I in (\".\") do @prompt %~nxI\$G\r\n" +
+                "for %I in (\".\") do @prompt %~nxI\$G\r\n"
 
         private val ANSI_REGEX = Regex("\u001B\\[[0-9;?]*[a-zA-Z]|\u001B\\][^\u0007\u001B]*[\u0007\u001B]\\\\?")
         private val URL_START_REGEX = Regex("https?://[a-zA-Z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+", RegexOption.IGNORE_CASE)
