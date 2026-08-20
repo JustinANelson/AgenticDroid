@@ -74,8 +74,23 @@ class TerminalViewModel(
     // this class - see the non-interactive-exec equivalent problem this mirrors in
     // SSHExecutionEnvironment.ensurePosixShellDiscovered, which can't be reused here as
     // that discovery needs a live network round-trip and this runs on the main thread.
+    //
+    // Matches both a raw Windows path (C:\Users\..., or C:/Users/... - Windows accepts
+    // forward slashes too) and the "/C:/Users/..." form Win32-OpenSSH's SFTP subsystem
+    // actually hands back for a drive-rooted path - confirmed the hard way: a project
+    // selected via RemoteBrowserScreen (which walks paths exactly as SFTP returns them)
+    // carries that leading-slash form, which neither a bare backslash check nor
+    // path[1] == ':' catches, so the POSIX branch was firing against a Windows remote and
+    // failing immediately on its very first token ('[' is not a recognized command).
     private val isWindowsRemote =
-        workingDirectory.contains("\\") || (workingDirectory.length >= 2 && workingDirectory[1] == ':')
+        workingDirectory.contains("\\") || Regex("^/?[A-Za-z]:[/\\\\]").containsMatchIn(workingDirectory)
+
+    // cmd.exe's own `cd /d` rejects the "/C:/Users/..." SFTP form outright ("The syntax of
+    // the command is incorrect.") even though Windows APIs generally accept forward
+    // slashes - confirmed directly against cmd.exe: "C:/Users/..." and "C:\Users\..." both
+    // work, "/C:/Users/..." does not. Only strips the leading slash when isWindowsRemote,
+    // so a genuinely POSIX path (which legitimately starts with '/') is never touched.
+    private val cdTargetPath = if (isWindowsRemote) workingDirectory.removePrefix("/") else workingDirectory
 
     private fun flushPendingInput() {
         if (pendingInput.isEmpty()) return
@@ -241,7 +256,7 @@ class TerminalViewModel(
         if (!hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
             hasNavigatedToWorkingDirectory = true
             if (env is SSHExecutionEnvironment) {
-                val cdCmd = if (isWindowsRemote) "cd /d \"$workingDirectory\"\r\n" else "cd \"$workingDirectory\"\n"
+                val cdCmd = if (isWindowsRemote) "cd /d \"$cdTargetPath\"\r\n" else "cd \"$workingDirectory\"\n"
                 changedSession.write(cdCmd)
             }
         }
