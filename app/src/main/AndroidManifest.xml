@@ -33,6 +33,14 @@
                 android:value="Maintains interactive terminal sessions and AI agent processes" />
         </service>
 
+        <service
+            android:name=".agents.HeadlessAgentRunService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs AI agent CLIs unattended to completion" />
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.justnels.agenticdroid.fileprovider"

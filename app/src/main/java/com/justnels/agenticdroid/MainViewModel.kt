@@ -106,6 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     val workspaceManager = WorkspaceManager(workspaceRoot)
     val agentManager = AgentManager()
+    val headlessRunController = com.justnels.agenticdroid.agents.HeadlessRunController(application)
     val environmentManager = EnvironmentManager(application)
     val transferManager = com.justnels.agenticdroid.util.FileTransferManager(application)
     val transfers get() = transferManager.transfers
@@ -178,6 +179,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAgentStopped() {
         activeAgent = null
+    }
+
+    /** Starts [agent] unattended (see [HeadlessAgentRunService]) against the currently
+     * active environment/project rather than the live terminal PTY - returns the new
+     * run's ID, or null if [agent] has no headless mode
+     * ([com.justnels.agenticdroid.agents.AgentProfile.headlessPromptArgs] unset) or the
+     * active environment couldn't be opened. */
+    fun startHeadlessAgentRun(agent: com.justnels.agenticdroid.agents.AgentProfile, prompt: String): String? {
+        val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
+            .getOrNull() ?: return null
+        val project = selectedProject
+        val secrets = project?.let { projectSecretsStore.getSecrets(it) } ?: emptyMap()
+        val label = when (val active = environmentManager.activeEnvironment) {
+            is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> "${active.config.username}@${active.config.host}"
+            com.justnels.agenticdroid.env.EnvironmentConfig.Node -> "On-device toolchain"
+            com.justnels.agenticdroid.env.EnvironmentConfig.Local -> "Local"
+        }
+        return headlessRunController.startRun(
+            agent = agent,
+            prompt = prompt,
+            env = env,
+            workingDirectory = executionWorkingDirectory,
+            projectPath = project?.path ?: executionWorkingDirectory,
+            environmentLabel = label,
+            environmentVariables = secrets
+        )
     }
 
     var installedAgentIds by mutableStateOf<Set<String>>(emptySet())
@@ -2016,6 +2043,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeWebDevSession?.kill()
         environmentManager.close()
         bridgeServer.stop()
+        headlessRunController.unbind()
     }
 
     private fun setupMcpBridge(context: Context) {

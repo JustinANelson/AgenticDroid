@@ -8,17 +8,23 @@ See [NEXT_FEATURES.md](NEXT_FEATURES.md) for the analysis behind the items added
 
 ## 🚀 High Impact & Critical
 
-### 1. [ ] Headless Agent Runs + Notifications
+### 1. [x] Headless Agent Runs + Notifications
 - **Impact**: Critical
-- **Description**: Let an agent CLI run unattended (headless invocation, e.g. `claude -p`,
-  `codex exec`) instead of only inside the live interactive terminal PTY, backed by a
-  foreground service that survives the app being backgrounded, with a system notification
-  on completion/failure/approval-needed.
-- **Details**: `AgentProfile.launchCommand()` only ever execs into the attached terminal
-  session today. This is the single change that lets a user kick off a long agent task
-  and put the phone away, which the current architecture doesn't support. Needs a
-  companion "Agent Runs" list (past + running) with output logged to a file so a run
-  survives app/process death, not just backgrounding.
+- **Status**: **Done** for Claude/Codex/Gemini (each has a non-interactive prompt mode);
+  Aider/Antigravity don't expose one, so they still only offer interactive Launch.
+- **Description**: Run an agent CLI unattended on a single prompt (`claude -p`,
+  `codex exec`, `gemini -p`), independent of the live interactive terminal PTY, backed by
+  `HeadlessAgentRunService` - a foreground service that survives the app being
+  backgrounded - with a system notification on completion/failure/timeout.
+- **Details**: `AgentProfile.headlessArgv()` builds the non-interactive invocation;
+  `HeadlessRunStore` persists run metadata and a bounded transcript per run to app-private
+  storage so a run started before the app/process died is still visible after; the new
+  "Agent Runs" screen (reached from a "Runs" button on the Agents tab, or a "Run in
+  background" button per installed agent) lists past + in-progress runs, lets you stop one,
+  and shows its captured output. Not yet covered: tool-approval prompts during a headless
+  run (item 7 below), and SSH-backed remote runs haven't been exercised against a live
+  server (they go through the same `ExecutionEnvironment.exec()` local runs do, so they
+  should work, but see `READINESS_REVIEW.md` R7 for why that's unverified in general).
 
 ### 2. [ ] Persistent Remote Sessions (tmux/screen over SSH)
 - **Impact**: Critical

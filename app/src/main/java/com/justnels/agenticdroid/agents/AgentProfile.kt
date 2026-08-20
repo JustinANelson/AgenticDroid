@@ -17,7 +17,12 @@ data class AgentProfile(
     // Antigravity is intentionally left null: it isn't npm-distributed, and its manifest
     // endpoint only ever serves "whatever is current" with no distinct version to query
     // ahead of a reinstall - see DefaultAgents.antigravityInstallCommand.
-    val npmPackageForVersionCheck: String? = null
+    val npmPackageForVersionCheck: String? = null,
+    // The flag(s) that switch this CLI from its interactive TUI into a single-shot,
+    // non-interactive "run this prompt and exit" mode (e.g. listOf("-p") for Claude,
+    // listOf("exec") for Codex) - null for agents with no such mode (Aider, Antigravity),
+    // which [HeadlessAgentRunService] uses to decide whether "Run" is offered at all.
+    val headlessPromptArgs: List<String>? = null
 ) {
     /**
      * Starts an existing agent immediately, or installs it first when it is absent.
@@ -53,6 +58,16 @@ data class AgentProfile(
         )
         """.trimIndent()
     }
+
+    /** The argv for an unattended, non-PTY invocation of this agent (no shell string, no
+     * install-fallback logic - a headless run assumes the agent is already installed and
+     * simply won't start otherwise), or null if [headlessPromptArgs] isn't set for this
+     * agent. Deliberately excludes [defaultArgs]: those (`--ax-screen-reader`,
+     * `--no-alt-screen`) tune the interactive TUI this mode never opens. Passed directly
+     * to [com.justnels.agenticdroid.env.ExecutionEnvironment.exec]'s argv overload, which
+     * shell-quotes each element itself. */
+    fun headlessArgv(prompt: String): List<String>? =
+        headlessPromptArgs?.let { listOf(command) + it + listOf(prompt) }
 
     /** stdin is redirected from /dev/null since a bare `--version` on some of these
      * (confirmed: agy) blocks forever reading from a live PTY instead of exiting - see
@@ -205,7 +220,8 @@ object DefaultAgents {
         installCommand = codexInstallCommand(),
         prepareCommand = "(codex login status >/dev/null 2>&1 || codex login --device-auth)",
         defaultArgs = listOf("--no-alt-screen"),
-        npmPackageForVersionCheck = "@openai/codex"
+        npmPackageForVersionCheck = "@openai/codex",
+        headlessPromptArgs = listOf("exec")
     )
 
     val Claude = AgentProfile(
@@ -214,7 +230,8 @@ object DefaultAgents {
         command = "claude",
         installCommand = npmMuslAgentInstallCommand("@anthropic-ai/claude-code", "claude"),
         defaultArgs = listOf("--ax-screen-reader"),
-        npmPackageForVersionCheck = "@anthropic-ai/claude-code"
+        npmPackageForVersionCheck = "@anthropic-ai/claude-code",
+        headlessPromptArgs = listOf("-p")
     )
 
     /**
@@ -272,7 +289,8 @@ object DefaultAgents {
         name = "Gemini CLI",
         command = "gemini",
         installCommand = geminiInstallCommand(),
-        npmPackageForVersionCheck = "@google/gemini-cli"
+        npmPackageForVersionCheck = "@google/gemini-cli",
+        headlessPromptArgs = listOf("-p")
     )
 
     /**

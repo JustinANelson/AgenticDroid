@@ -704,6 +704,11 @@ fun MainScreen(viewModel: MainViewModel) {
                                 terminalViewModel.sendRawInput("\u0003")
                                 viewModel.onAgentStopped()
                             },
+                            onRunHeadless = { agent, prompt ->
+                                viewModel.startHeadlessAgentRun(agent, prompt)
+                                viewModel.currentScreen = Screen.AgentRuns
+                            },
+                            onOpenRuns = { viewModel.currentScreen = Screen.AgentRuns },
                             onDismissHint = { viewModel.markHintShown(it) }
                         )
                     }
@@ -714,6 +719,17 @@ fun MainScreen(viewModel: MainViewModel) {
                         hintsShown = viewModel.hintsShown,
                         onDismissHint = { viewModel.markHintShown(it) },
                         keepScreenOn = viewModel.keepScreenOnDuringTerminal
+                    )
+                }
+                Screen.AgentRuns -> {
+                    com.justnels.agenticdroid.ui.agents.AgentRunsScreen(
+                        runs = viewModel.headlessRunController.runs,
+                        isRunning = { id -> viewModel.headlessRunController.isRunning(id) },
+                        onKill = { id -> viewModel.headlessRunController.killRun(id) },
+                        onDelete = { id -> viewModel.headlessRunController.deleteRun(id) },
+                        onRefresh = { viewModel.headlessRunController.refresh() },
+                        readLog = { id -> viewModel.headlessRunController.readLog(id) },
+                        onBack = { viewModel.currentScreen = Screen.Agents }
                     )
                 }
                 Screen.Settings -> {
@@ -766,5 +782,5 @@ private fun BottomNavigationLabel(text: String) {
 }
 
 enum class Screen {
-    Workspace, Terminal, WebPreview, Git, Agents, AgentSession, Settings, Environments
+    Workspace, Terminal, WebPreview, Git, Agents, AgentSession, AgentRuns, Settings, Environments
 }
