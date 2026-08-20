@@ -416,23 +416,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getProjectType(project: Project): com.justnels.agenticdroid.workspace.ProjectType {
         if (project.isRemote) {
-            // For now, remote projects default to CUSTOM unless we implement remote detection.
-            return com.justnels.agenticdroid.workspace.ProjectType.CUSTOM
+            val allPaths = mutableSetOf<String>()
+            fun collectPaths(nodes: List<com.justnels.agenticdroid.workspace.FileNode>) {
+                for (node in nodes) {
+                    allPaths.add(node.name)
+                    val rel = node.path.removePrefix(project.path).trimStart('/')
+                    if (rel.isNotBlank()) allPaths.add(rel)
+                    if (node.children.isNotEmpty()) {
+                        collectPaths(node.children)
+                    }
+                }
+            }
+            collectPaths(projectNodes)
+            return com.justnels.agenticdroid.workspace.ProjectType.detectFromPaths(allPaths)
         }
         return workspaceManager.getProjectType(project)
     }
 
     fun getProjectActions(project: Project): List<com.justnels.agenticdroid.workspace.ProjectRunnerAction> {
-        if (project.isRemote) {
-            // Remote projects don't have default actions yet.
-            return emptyList()
-        }
-        return workspaceManager.getProjectActions(project)
+        val type = getProjectType(project)
+        val meta = getProjectMetadata(project)
+        return com.justnels.agenticdroid.workspace.ProjectRunnerAction.defaultActionsFor(type, meta)
     }
 
     fun getProjectMetadata(project: Project): com.justnels.agenticdroid.workspace.ProjectMetadata {
         if (project.isRemote) {
-            return com.justnels.agenticdroid.workspace.ProjectMetadata()
+            val detectedType = getProjectType(project)
+            return com.justnels.agenticdroid.workspace.ProjectMetadata(type = detectedType)
         }
         return workspaceManager.getProjectMetadata(project)
     }
@@ -448,12 +458,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         action: com.justnels.agenticdroid.workspace.ProjectRunnerAction,
         terminalViewModel: com.justnels.agenticdroid.ui.terminal.TerminalViewModel? = null
     ) {
-        if (action.isBuild) {
-            val secrets = selectedProject?.let { projectSecretsStore.getSecrets(it) }.orEmpty()
+        val project = selectedProject ?: return
+        val projectType = getProjectType(project)
+        if (action.isBuild && projectType == com.justnels.agenticdroid.workspace.ProjectType.ANDROID) {
+            val secrets = projectSecretsStore.getSecrets(project)
             buildAndInstall(action.command, secrets)
         } else {
-            if (action.id == "web_dev" && isNodeEnvironment) {
-                val project = selectedProject ?: return
+            if (action.id == "web_dev" && isNodeEnvironment && !project.isRemote) {
                 val preparation = com.justnels.agenticdroid.workspace.WebProjectPreflight.prepare(
                     File(project.path),
                     action.command
@@ -473,13 +484,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return
             }
             if (action.command.isNotBlank() && terminalViewModel != null) {
-                val prelude = selectedProject?.let { projectSecretsStore.exportPrelude(it) }.orEmpty()
+                val prelude = projectSecretsStore.exportPrelude(project)
                 terminalViewModel.sendCommand(prelude + action.command)
                 // Interactive/one-shot terminal actions should always reveal their output.
-                // Web dev servers use the managed process/status path above instead.
                 currentScreen = Screen.Terminal
-            }
-            if (action.opensPreview) {
+            } else if (action.opensPreview) {
                 action.previewUrl?.let { webPreviewUrl = it }
                 currentScreen = Screen.WebPreview
             }
@@ -581,6 +590,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun fetchRemoteTree(fs: com.justnels.agenticdroid.env.FileSystemAccess, rootPath: String): List<com.justnels.agenticdroid.workspace.FileNode> {
+        val excludedDirectories = setOf(
+            ".git", ".gradle", "build", "node_modules", "target", "dist",
+            ".next", ".nuxt", ".venv", "venv", "__pycache__", ".cache", ".idea", ".vscode"
+        )
         return fs.withBatch { batchFs ->
             var count = 0
             val maxEntries = 1000 // Limit remote tree size for performance
@@ -602,11 +615,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return entries.mapNotNull { entry ->
                     count++
                     if (count > maxEntries) return@mapNotNull null
+                    val shouldTraverse = entry.isDirectory && entry.name !in excludedDirectories && depth < maxDepth
                     com.justnels.agenticdroid.workspace.FileNode(
                         name = entry.name,
                         path = entry.path,
                         isDirectory = entry.isDirectory,
-                        children = if (entry.isDirectory) build(entry.path, depth + 1) else emptyList()
+                        children = if (shouldTraverse) build(entry.path, depth + 1) else emptyList()
                     )
                 }
             }
@@ -615,7 +629,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectRemoteProject(path: String) {
-        val name = path.substringAfterLast('/').ifEmpty { "RemoteProject" }
+        val normalized = path.replace('\\', '/').trimEnd('/')
+        val name = normalized.substringAfterLast('/').ifEmpty { "RemoteProject" }
         selectProject(Project(name, path, isRemote = true))
     }
 
@@ -1417,19 +1432,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     retainedOutput.delete(0, retainedOutput.length - MAX_WEB_DEV_LOG_CHARS)
                 }
             }
+            val urlPattern = Regex("""https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d+)""")
+            val portPattern = Regex("""(?:listening on|running on|running at|available at|port)\s*(?:port\s*)?:?\s*(\d{2,5})""", RegexOption.IGNORE_CASE)
+
             fun updateProgressFrom(line: String) {
+                val matchedPort = urlPattern.find(line)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: portPattern.find(line)?.groupValues?.get(1)?.toIntOrNull()
+
                 val nextStatus = when {
                     line.contains("Installing project dependencies", ignoreCase = true) ->
                         "Installing project dependencies on device..."
+                    matchedPort != null ->
+                        "Local web server is running on port $matchedPort."
                     line.contains("Local:", ignoreCase = true) ||
                         (line.contains("VITE", ignoreCase = true) && line.contains("ready", ignoreCase = true)) ->
                         "Local web server is running."
                     else -> null
                 } ?: return
+
                 viewModelScope.launch(Dispatchers.Main) {
                     if (webDevGeneration == generation) {
+                        if (matchedPort != null) {
+                            webPreviewUrl = "http://localhost:$matchedPort"
+                            isWebDevReady = true
+                        }
                         webDevStatus = nextStatus
-                        if (nextStatus == "Local web server is running.") isWebDevReady = true
+                        if (nextStatus.startsWith("Local web server is running")) isWebDevReady = true
                     }
                 }
             }

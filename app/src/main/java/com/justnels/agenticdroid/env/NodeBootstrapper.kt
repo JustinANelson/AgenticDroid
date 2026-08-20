@@ -36,8 +36,9 @@ class NodeBootstrapper(private val context: Context) {
     // RunnerPackageGroups instead of one all-or-nothing list, so any prior install (whose
     // on-disk layout the old code assumed) needs to be redone under the new bookkeeping.
     // Bumped again "16"->"17": added openssh to CORE.
-    // Bumped "17"->"18": install OpenSSH's complete declared dependency closure.
-    private val provisioningVersion = "18"
+    // Bumped "18"->"19": bump for openssh closure.
+    // Bumped "19"->"20": add libresolv-wrapper and libdb for krb5/openssh runtime closure.
+    private val provisioningVersion = "20"
     private val maxArtifactBytes = 512L * 1024L * 1024L
 
     // This is a path *inside Termux package archives*, not an Android filesystem path.

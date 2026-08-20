@@ -658,6 +658,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         serverStatus = viewModel.webDevStatus,
                         serverActive = viewModel.isWebDevActive,
                         serverReady = viewModel.isWebDevReady,
+                        serverLog = viewModel.webDevLog,
                         onStopServer = viewModel::stopWebDevServer
                     )
                 }

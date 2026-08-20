@@ -104,7 +104,7 @@ fun ProjectActionsDialog(
                         onValueChange = { customRunCmd = it },
                         label = { Text("Run Command") },
                         placeholder = { Text(when (selectedType) {
-                            ProjectType.WEB -> "npm run dev"
+                            ProjectType.WEB -> "npm run dev -- --host"
                             ProjectType.NODE_JS -> "node index.js"
                             ProjectType.PYTHON -> "python main.py"
                             ProjectType.JVM -> "java -jar app.jar"

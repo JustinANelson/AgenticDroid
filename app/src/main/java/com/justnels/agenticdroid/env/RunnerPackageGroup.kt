@@ -23,10 +23,10 @@ enum class RunnerPackageGroup(
             "libnghttp2", "libnghttp3", "libngtcp2", "libssh2",
             "curl", "gh", "npm",
             // NodeBootstrapper deliberately installs an explicit package list rather than
-            // resolving Depends. Keep OpenSSH's complete declared runtime dependency set
-            // here; omitting ldns made the PTY's local ssh process exit before connecting,
-            // which the Terminal screen surfaced only as "No terminal session".
+            // resolving Depends. Keep OpenSSH and krb5's complete declared runtime dependency
+            // closure here (including libresolv-wrapper and libdb).
             "openssh", "krb5", "ldns", "libedit", "openssh-sftp-server", "termux-auth",
+            "libresolv-wrapper", "libdb",
             "cloudflared", "mdns-scan",
             // qemu-user-<arch> dependency closure, plus libzstd (libdw needs it but
             // doesn't declare it) - qemu-user-<arch> itself is added per-arch in

@@ -21,6 +21,8 @@ class RunnerPackageGroupTest {
                     "openssh-sftp-server",
                     "openssl",
                     "termux-auth",
+                    "libresolv-wrapper",
+                    "libdb",
                     "zlib"
                 )
             )

@@ -1,0 +1,1136 @@
+{
+  "$schema_note": "Provenance manifest for app/src/main/jniLibs/arm64-v8a - the native-lib-packaging prototype from AGENT_RUNTIME_RESEARCH.md, covering qemu-user-aarch64 (+ agent CLI guest support), node, git, and aapt2. Regenerate with tools/fetch_native_libs.py. Each entry's DT_NEEDED closure was derived by parsing real ELF dynamic sections recursively against Termux's package index, not by trusting apt Depends: metadata. 'used_by' lists which main binary(ies) actually need each library, per real DT_NEEDED chasing (a library can be shared - e.g. libz.so is needed by all four).",
+  "source_index": "https://packages-cf.termux.dev/apt/termux-main",
+  "target_abi": "aarch64 (arm64-v8a)",
+  "generated": "2026-08-19",
+  "libraries": [
+    {
+      "bundled_filename": "libaapt2_native_aarch64.so",
+      "termux_package": "aapt2",
+      "version": "16.0.0.4-1",
+      "source_deb_sha256": "d35298f13ec26eee362d4e84f534b29b8e5f288b86c89d803ba4fb8ccb9784aa",
+      "source_path": "data/data/com.termux/files/usr/bin/aapt2",
+      "used_by": [
+        "aapt2"
+      ],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libabsl_base.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_city.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_cord.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_cord_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_cordz_functions.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_cordz_handle.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_cordz_info.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_crc32c.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_crc_cord_state.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_crc_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_decode_rust_punycode.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_demangle_rust.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_die_if_null.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_examine_stack.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_exponential_biased.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_commandlineflag.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_commandlineflag_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_config.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_marshalling.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_private_handle_accessor.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_program_name.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_reflection.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_usage.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_flags_usage_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_hash.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_hashtablez_sampler.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_int128.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_kernel_timeout_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_leak_check.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_globals.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_check_op.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_conditions.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_fnmatch.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_format.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_globals.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_log_sink_set.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_message.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_nullguard.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_proto.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_internal_structured_proto.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_severity.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_log_sink.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_malloc_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_profile_builder.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_entropy_pool.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_platform.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_randen.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_randen_hwaes.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_randen_hwaes_impl.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_randen_slow.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_internal_seed_material.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_random_seed_gen_exception.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_raw_hash_set.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_raw_logging_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_spinlock_wait.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_stacktrace.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_status.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_statusor.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_str_format_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_strerror.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_strings.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_strings_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_symbolize.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_synchronization.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_throw_delegate.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_time.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_time_zone.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_tracing_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_utf8_for_code_point.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libabsl_vlog_config_internal.so",
+      "termux_package": "abseil-cpp",
+      "version": "20260526.0",
+      "source_deb_sha256": "e489fac652cddc39d9436141e627285f1034a545a06fbb19c420514a419ad877",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libandroid-shmem.so",
+      "termux_package": "libandroid-shmem",
+      "version": "0.7",
+      "source_deb_sha256": "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libandroid-support.so",
+      "termux_package": "libandroid-support",
+      "version": "29-1",
+      "source_deb_sha256": "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libargp.so",
+      "termux_package": "argp",
+      "version": "1.5.0-1",
+      "source_deb_sha256": "4096bfb8cba379efc3699e94e1cee400e72c274d734b5c1ed5f274ec42003405",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libbz2.so",
+      "termux_package": "libbz2",
+      "version": "1.0.8-8",
+      "source_deb_sha256": "4335d7f060650b0aabef545d1334c2f9f280223d5962e13c24a00ec934b794ba",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libc++_shared.so",
+      "termux_package": "ndk-multilib",
+      "version": "29-1",
+      "source_deb_sha256": "67425d11353491fdf324f2ffc37e646c3a3113e18e2d54858a470c743699f720",
+      "used_by": [
+        "qemu-user-aarch64",
+        "nodejs",
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libcares.so",
+      "termux_package": "c-ares",
+      "version": "1.34.8",
+      "source_deb_sha256": "7681fc23e822d7988ba8b2adf3468f93ae68f724dda365cff1385096a9fa87e6",
+      "used_by": [
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libcrypto.so",
+      "termux_package": "openssl",
+      "version": "1:3.6.3",
+      "source_deb_sha256": "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa",
+      "used_by": [
+        "qemu-user-aarch64",
+        "nodejs",
+        "git"
+      ]
+    },
+    {
+      "bundled_filename": "libcurl.so",
+      "termux_package": "libcurl",
+      "version": "8.21.0",
+      "source_deb_sha256": "ad644c7e16183d40eaf0f55df339021a69b25cc9b390e9634251e681be1ddcb8",
+      "used_by": [
+        "git"
+      ]
+    },
+    {
+      "bundled_filename": "libdw.so",
+      "termux_package": "libdw",
+      "version": "0.193-1",
+      "source_deb_sha256": "9b24d896aba9aa306b19c2dff9697074194ab6abeb9821b7f59ff5fe7e466b68",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libelf.so",
+      "termux_package": "libelf",
+      "version": "0.193-1",
+      "source_deb_sha256": "98fba46ed571c59d38269e5e0c36a7555335ed3546dc9eb0ea5889763e66e621",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libevent-2.1.so",
+      "termux_package": "libevent",
+      "version": "2.1.13",
+      "source_deb_sha256": "cf99e8e6cd1218c0e4956d2ee69efbb26520211b3e03407463eac9016fe55f25",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libevent_core-2.1.so",
+      "termux_package": "libevent",
+      "version": "2.1.13",
+      "source_deb_sha256": "cf99e8e6cd1218c0e4956d2ee69efbb26520211b3e03407463eac9016fe55f25",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libexpat.so",
+      "termux_package": "libexpat",
+      "version": "2.8.3",
+      "source_deb_sha256": "86dac6db293a44dc2689d4a28fdba96e38fccd378a9c9ef17b4e840b4cf4d81c",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libffi.so",
+      "termux_package": "libffi",
+      "version": "3.5.2",
+      "source_deb_sha256": "8c8c1d6ffb049d8496a21c1202d9b4dc9145140886fdbb45716684565f4ed3f5",
+      "used_by": [
+        "qemu-user-aarch64",
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libfmt.so",
+      "termux_package": "fmt",
+      "version": "1:11.2.0",
+      "source_deb_sha256": "0377ac55cc99e409a5a2ba55a7cacf86fc1f79f330c2998801e293e95cac1996",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libgit_native_aarch64.so",
+      "termux_package": "git",
+      "version": "2.55.0",
+      "source_deb_sha256": "21b16fa06837e5bf94ad257da532c40eb049c120d21f6cb60a6411c0bcee7197",
+      "source_path": "data/data/com.termux/files/usr/bin/git",
+      "used_by": [
+        "git"
+      ],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libgit_remote_https_native_aarch64.so",
+      "termux_package": "git",
+      "version": "2.55.0",
+      "source_deb_sha256": "21b16fa06837e5bf94ad257da532c40eb049c120d21f6cb60a6411c0bcee7197",
+      "source_path": "data/data/com.termux/files/usr/libexec/git-core/git-remote-https",
+      "used_by": [
+        "git"
+      ],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libglib-2.0.so",
+      "termux_package": "glib",
+      "version": "2.88.3",
+      "source_deb_sha256": "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libgmodule-2.0.so",
+      "termux_package": "glib",
+      "version": "2.88.3",
+      "source_deb_sha256": "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libgmp.so",
+      "termux_package": "libgmp",
+      "version": "6.3.0-2",
+      "source_deb_sha256": "5a3c1325638946ca212ddcb89bffb2c4459b4c90757d6e69f820e176534037fa",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libgnutls.so",
+      "termux_package": "libgnutls",
+      "version": "3.8.13-1",
+      "source_deb_sha256": "eb12f2cf82923caf288edd99bc4c19a9dd0cf1de4a03855ff4457a1bbdae146d",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libgobject-2.0.so",
+      "termux_package": "glib",
+      "version": "2.88.3",
+      "source_deb_sha256": "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libhogweed.so",
+      "termux_package": "libnettle",
+      "version": "4.0+really3.10.2",
+      "source_deb_sha256": "f2d2a84083e66beab642e88496eb16976ccdb12d1278466e687f01431db8a5fb",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libiconv.so",
+      "termux_package": "libiconv",
+      "version": "1.18-1",
+      "source_deb_sha256": "b19e6f348034bb48d2a5590b5cb242769f682c476717374d134d004cc663dc84",
+      "used_by": [
+        "qemu-user-aarch64",
+        "git"
+      ]
+    },
+    {
+      "bundled_filename": "libicudata.so",
+      "termux_package": "libicu",
+      "version": "78.3",
+      "source_deb_sha256": "f536403f65a08fe0df6e7304184e902d54def77d5c3bd5edfd9109d57601d276",
+      "used_by": [
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libicui18n.so",
+      "termux_package": "libicu",
+      "version": "78.3",
+      "source_deb_sha256": "f536403f65a08fe0df6e7304184e902d54def77d5c3bd5edfd9109d57601d276",
+      "used_by": [
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libicutu.so",
+      "termux_package": "libicu",
+      "version": "78.3",
+      "source_deb_sha256": "f536403f65a08fe0df6e7304184e902d54def77d5c3bd5edfd9109d57601d276",
+      "used_by": [
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libicuuc.so",
+      "termux_package": "libicu",
+      "version": "78.3",
+      "source_deb_sha256": "f536403f65a08fe0df6e7304184e902d54def77d5c3bd5edfd9109d57601d276",
+      "used_by": [
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libidn2.so",
+      "termux_package": "libidn2",
+      "version": "2.3.8-1",
+      "source_deb_sha256": "a450a1ba25759ebf78738484a3efee316c51a1fe7bafb0b01a68e2c058a91020",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "liblzma.so",
+      "termux_package": "liblzma",
+      "version": "5.8.3",
+      "source_deb_sha256": "594925a313879f590fbd24050305551a78eadd9a9319f6e612389b1a521113c6",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libnettle.so",
+      "termux_package": "libnettle",
+      "version": "4.0+really3.10.2",
+      "source_deb_sha256": "f2d2a84083e66beab642e88496eb16976ccdb12d1278466e687f01431db8a5fb",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libnghttp2.so",
+      "termux_package": "libnghttp2",
+      "version": "1.70.0",
+      "source_deb_sha256": "ab2e0a3408fe4934ffdf774bd5049a265db2e6db62dcb651baecbecfb81e3f0b",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libnghttp3.so",
+      "termux_package": "libnghttp3",
+      "version": "1.18.0",
+      "source_deb_sha256": "0be2ee96def3608afaf24eb0b4b55f3484a37c95ea21bb1d6d85c7d543467603",
+      "used_by": [
+        "git"
+      ]
+    },
+    {
+      "bundled_filename": "libngtcp2.so",
+      "termux_package": "libngtcp2",
+      "version": "1.25.0",
+      "source_deb_sha256": "f471bad7f4329b6b0b4aedf124e0a23a35f6ac99bfbae73304136f8bfd570fc3",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libngtcp2_crypto_ossl.so",
+      "termux_package": "libngtcp2",
+      "version": "1.25.0",
+      "source_deb_sha256": "f471bad7f4329b6b0b4aedf124e0a23a35f6ac99bfbae73304136f8bfd570fc3",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libnode_native_aarch64.so",
+      "termux_package": "nodejs",
+      "version": "26.4.0-1",
+      "source_deb_sha256": "eaf3ed8a6e4b72ebaa8c2cb3bad778c577cdf9ea87ca91761213d8a3940fc090",
+      "source_path": "data/data/com.termux/files/usr/bin/node",
+      "used_by": [
+        "nodejs"
+      ],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libp11-kit.so",
+      "termux_package": "p11-kit",
+      "version": "0.26.5",
+      "source_deb_sha256": "7911d7427e3c7182cf364e56a45a92307e5e7fddc105dc468f25ae39aa3e0ad7",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libpcre2-8.so",
+      "termux_package": "pcre2",
+      "version": "10.47",
+      "source_deb_sha256": "51f915d22de639bfca6ec029ae613987bbe3bc73626eede13319fd2e95f50b63",
+      "used_by": [
+        "qemu-user-aarch64",
+        "git"
+      ]
+    },
+    {
+      "bundled_filename": "libpixman-1.so",
+      "termux_package": "libpixman",
+      "version": "0.46.4-1",
+      "source_deb_sha256": "364b8c82ff68f8513930e5d413459fb7c52eccc7ba75a97a8c5a38760eee8d33",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libpng16.so",
+      "termux_package": "libpng",
+      "version": "1.6.58",
+      "source_deb_sha256": "e47937405c72734867513cf0c63d27f36400d462666b65dfada984667d7228c4",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libprotobuf.so",
+      "termux_package": "libprotobuf",
+      "version": "2:35.1",
+      "source_deb_sha256": "a1ba7c7f0e5903a2134662653d3e7b9ffceaa78bdd00e07ac985e2d313ebc738",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libqemu_user_aarch64.so",
+      "termux_package": "qemu-user-aarch64",
+      "version": "1:11.0.3",
+      "source_deb_sha256": "afc75a6e1ace9e9d989101b3b94d997560e27550b200b427f81e5e99117fd4ee",
+      "source_path": "data/data/com.termux/files/usr/bin/qemu-aarch64",
+      "used_by": [
+        "qemu-user-aarch64"
+      ],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libsqlite3.so",
+      "termux_package": "libsqlite",
+      "version": "3.53.4",
+      "source_deb_sha256": "0e909ce0d50fe123305446cd22e0c5edf535d40344b9b065fbdcdee52f53198d",
+      "used_by": [
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libssh2.so",
+      "termux_package": "libssh2",
+      "version": "1.11.1-2",
+      "source_deb_sha256": "1add4e0a926b848814e7e2f1817ea28b123c54cabd5bbc4e5cfd65291cbad84e",
+      "used_by": [
+        "git"
+      ]
+    },
+    {
+      "bundled_filename": "libssl.so",
+      "termux_package": "openssl",
+      "version": "1:3.6.3",
+      "source_deb_sha256": "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa",
+      "used_by": [
+        "qemu-user-aarch64",
+        "nodejs"
+      ]
+    },
+    {
+      "bundled_filename": "libtasn1.so",
+      "termux_package": "libtasn1",
+      "version": "4.21.0",
+      "source_deb_sha256": "1d02de3a7e5ef4ff7d893597091176b8ddf135f1ddfacff951f76c18711a7342",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libunbound.so",
+      "termux_package": "libunbound",
+      "version": "1.26.0",
+      "source_deb_sha256": "b7dc8206c8aa22463938b2691f15358b5a656f04100e24ad799b50df0a7a0a1a",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libunistring.so",
+      "termux_package": "libunistring",
+      "version": "1.4.2",
+      "source_deb_sha256": "5ff75cdf3ddd4ddf5dc9705050f270c3422820295a4b26f93496d3e8e9060122",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    },
+    {
+      "bundled_filename": "libutf8_validity.so",
+      "termux_package": "libprotobuf",
+      "version": "2:35.1",
+      "source_deb_sha256": "a1ba7c7f0e5903a2134662653d3e7b9ffceaa78bdd00e07ac985e2d313ebc738",
+      "used_by": [
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libz.so",
+      "termux_package": "zlib",
+      "version": "1.3.2",
+      "source_deb_sha256": "75e7d0af17fcc3b40004309fdc00a1ddb9ae08346dce5e269902c34ac3966ac9",
+      "used_by": [
+        "qemu-user-aarch64",
+        "nodejs",
+        "git",
+        "aapt2"
+      ]
+    },
+    {
+      "bundled_filename": "libzstd.so",
+      "termux_package": "zstd",
+      "version": "1.5.7-1",
+      "source_deb_sha256": "e1b4a5113648da8de189620ba1fce74c48b2d0833d9043391b9a1c91fb606fd3",
+      "used_by": [
+        "qemu-user-aarch64"
+      ]
+    }
+  ]
+}

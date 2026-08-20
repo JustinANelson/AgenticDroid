@@ -66,11 +66,22 @@ fun TerminalScreen(
 
         if (session == null) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = viewModel.unavailableReason ?: "Connecting to terminal…",
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Text(
+                        text = viewModel.unavailableReason ?: "Connecting to terminal…",
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (viewModel.unavailableReason != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { viewModel.reconnect() }) {
+                            Text("Reconnect")
+                        }
+                    }
+                }
             }
         } else {
             AndroidView(
@@ -127,16 +138,21 @@ fun TerminalScreen(
                     "CLOSE" -> viewModel.closeTerminal()
                     "OPEN-LINK" -> {
                         viewModel.lastDetectedUrl?.let { url ->
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()).apply {
-                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri()).apply {
+                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context, "Could not open link: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                             }
-                            context.startActivity(intent)
                         }
                     }
                     "COPY" -> {
                         viewModel.lastDetectedUrl?.let { url ->
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("terminal-url", url))
+                            android.widget.Toast.makeText(context, "Link copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                     "Y" -> viewModel.sendRawInput(if (isShiftActive) "Y" else "y")

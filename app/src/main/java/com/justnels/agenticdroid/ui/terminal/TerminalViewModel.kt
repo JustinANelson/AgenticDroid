@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import com.justnels.agenticdroid.env.ExecutionEnvironment
+import com.justnels.agenticdroid.env.SSHExecutionEnvironment
 import com.justnels.agenticdroid.terminal.TerminalService
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -64,6 +65,7 @@ class TerminalViewModel(
     // (onTextChanged, below). NOTE: this alone is not sufficient to make a cold-start
     // Launch tap reliable - see the known issue noted on sendCommand/onLaunchAgent.
     private val pendingInput = mutableListOf<String>()
+    private var hasNavigatedToWorkingDirectory = false
 
     private fun flushPendingInput() {
         if (pendingInput.isEmpty()) return
@@ -189,6 +191,31 @@ class TerminalViewModel(
         unavailableReason = "Terminal closed."
     }
 
+    fun reconnect() {
+        hasNavigatedToWorkingDirectory = false
+        val binder = terminalBinder
+        val spec = env.ptyShellSpec(workingDirectory)
+        if (binder != null && spec != null) {
+            binder.removeSession(sessionKey)
+            session = binder.getOrCreateSession(
+                sessionKey,
+                spec.shellPath,
+                spec.cwd,
+                spec.args,
+                spec.env,
+                this
+            )
+            unavailableReason = null
+        } else if (spec != null) {
+            unavailableReason = null
+            val intent = Intent(getApplication(), TerminalService::class.java)
+            getApplication<Application>().startForegroundService(intent)
+            isServiceBound = getApplication<Application>().bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        } else {
+            unavailableReason = "Interactive terminal isn't available for ${env.getEnvironmentInfo().name}."
+        }
+    }
+
     override fun onCleared() {
         dispose()
     }
@@ -201,39 +228,35 @@ class TerminalViewModel(
         flushPendingInput()
         onScreenUpdate?.invoke()
 
+        if (!hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
+            hasNavigatedToWorkingDirectory = true
+            if (env is SSHExecutionEnvironment) {
+                val isWindows = workingDirectory.contains("\\") || (workingDirectory.length >= 2 && workingDirectory[1] == ':')
+                val cdCmd = if (isWindows) "cd /d \"$workingDirectory\"\r\n" else "cd \"$workingDirectory\"\n"
+                changedSession.write(cdCmd)
+            }
+        }
+
         try {
             val emulator = changedSession.emulator
             val screen = emulator.screen
-            
-            // 1. Get the raw text and split into lines.
             val rawTranscript = screen.transcriptText
-            val lines = rawTranscript.lines()
-            
-            // 2. Join lines for the URL scanner.
-            // We join with NO spaces, but we trim each line to remove 
-            // both leading indentation and trailing padding.
-            val joinedText = lines.joinToString("") { it.trim() }
-            
-            // 3. Greedy regex to capture EVERYTHING until whitespace or terminal symbols
-            val urlRegex = Regex("https?://[^\\s\"\'<>|\\[\\]]+", RegexOption.IGNORE_CASE)
-            val matches = urlRegex.findAll(joinedText)
-            
-            // 4. Pick the longest match (auth URLs are significantly longer than others)
-            val match = matches.maxByOrNull { it.value.length }
+            val detected = extractUrls(rawTranscript)
 
-            if (match != null) {
-                var cleanUrl = match.value
-                // Remove trailing punctuation that commonly gets trapped by greedy regex
-                val toStrip = setOf('.', ',', ')', '!', '?', ';', ':', '>', ']', '}', '\'')
-                while (cleanUrl.isNotEmpty() && cleanUrl.last() in toStrip) {
-                    cleanUrl = cleanUrl.dropLast(1)
-                }
-                
-                if (cleanUrl.length > 15 && cleanUrl != lastDetectedUrl) {
-                    lastDetectedUrl = cleanUrl
+            // Prioritize auth/login/oauth URLs if present, otherwise pick the latest URL
+            val bestUrl = detected.findLast { 
+                it.contains("oauth", ignoreCase = true) || 
+                it.contains("auth", ignoreCase = true) || 
+                it.contains("login", ignoreCase = true) || 
+                it.contains("accounts.google", ignoreCase = true) ||
+                it.contains("github.com/login", ignoreCase = true)
+            } ?: detected.lastOrNull()
+
+            if (bestUrl != null) {
+                if (bestUrl != lastDetectedUrl) {
+                    lastDetectedUrl = bestUrl
                 }
             } else if (lastDetectedUrl != null) {
-                // Clear the URL if it's no longer on screen
                 lastDetectedUrl = null
             }
         } catch (e: Exception) {
@@ -283,5 +306,78 @@ class TerminalViewModel(
 
     companion object {
         private const val TAG = "TerminalViewModel"
+
+        private val ANSI_REGEX = Regex("\u001B\\[[0-9;?]*[a-zA-Z]|\u001B\\][^\u0007\u001B]*[\u0007\u001B]\\\\?")
+        private val URL_START_REGEX = Regex("https?://[a-zA-Z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+", RegexOption.IGNORE_CASE)
+        private val STRIP_CHARS = setOf('.', ',', ')', '!', '?', ';', ':', '>', ']', '}', '\'', '"', '\\', '|')
+
+        fun extractUrls(rawText: String?): List<String> {
+            if (rawText.isNullOrBlank()) return emptyList()
+            // 1. Strip ANSI escape codes
+            val cleanText = ANSI_REGEX.replace(rawText, "")
+            val rawLines = cleanText.lines()
+            val results = mutableListOf<String>()
+
+            var i = 0
+            while (i < rawLines.size) {
+                val line = rawLines[i].trimEnd()
+                val match = URL_START_REGEX.find(line)
+                if (match != null) {
+                    val sb = StringBuilder()
+                    val urlStartIndex = match.range.first
+                    val lineAfterUrlStart = line.substring(urlStartIndex)
+                    val firstLineToken = lineAfterUrlStart.takeWhile { !it.isWhitespace() }
+                    sb.append(firstLineToken)
+
+                    // If this token went all the way to the end of the line, check if subsequent lines continue this wrapped URL
+                    if (urlStartIndex + firstLineToken.length >= line.length) {
+                        var nextIdx = i + 1
+                        while (nextIdx < rawLines.size) {
+                            val nextLine = rawLines[nextIdx].trimStart()
+                            if (nextLine.isEmpty()) break
+
+                            val nextToken = nextLine.takeWhile { !it.isWhitespace() }
+                            val restOfLine = nextLine.substring(nextToken.length).trimStart()
+
+                            val currentUrl = sb.toString()
+                            val prevEndsInSep = currentUrl.endsWith("=") || currentUrl.endsWith("&") || currentUrl.endsWith("/") || currentUrl.endsWith("-") || currentUrl.endsWith("_") || currentUrl.endsWith("?") || currentUrl.endsWith("%")
+                            val nextHasUrlSyntax = nextToken.contains("&") || nextToken.contains("=") || nextToken.contains("%") || 
+                                nextToken.contains(".com") || nextToken.contains(".org") || nextToken.contains(".io") || 
+                                nextToken.contains(".net") || nextToken.contains(".gov") || nextToken.contains("?") || nextToken.contains("/")
+                            val isPlainEnglishPrompt = nextToken.equals("Enter", ignoreCase = true) || nextToken.equals("Please", ignoreCase = true) || 
+                                nextToken.equals("Waiting", ignoreCase = true) || nextToken.equals("Code:", ignoreCase = true) || 
+                                nextToken.equals("To", ignoreCase = true) || nextToken.equals("Press", ignoreCase = true) ||
+                                (restOfLine.isNotEmpty() && !nextHasUrlSyntax && !prevEndsInSep)
+
+                            if (!isPlainEnglishPrompt && (nextHasUrlSyntax || prevEndsInSep || nextToken.length >= 25)) {
+                                sb.append(nextToken)
+                                if (restOfLine.isNotEmpty()) {
+                                    break
+                                }
+                                nextIdx++
+                            } else {
+                                break
+                            }
+                        }
+                    }
+
+                    var url = sb.toString()
+                    // Strip any whitespace characters completely to ensure clean URLs
+                    url = url.replace("\\s".toRegex(), "")
+
+                    // Strip trailing punctuation
+                    while (url.isNotEmpty() && url.last() in STRIP_CHARS) {
+                        url = url.dropLast(1)
+                    }
+
+                    if (url.length >= 10 && url.contains("://")) {
+                        results.add(url)
+                    }
+                }
+                i++
+            }
+
+            return results.distinct()
+        }
     }
 }

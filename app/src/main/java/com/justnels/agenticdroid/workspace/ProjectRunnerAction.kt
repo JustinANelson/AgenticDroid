@@ -52,7 +52,7 @@ data class ProjectRunnerAction(
                     )
                 }
                 ProjectType.WEB -> {
-                    val devCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "npm run dev"
+                    val devCmd = customConfig?.customRunCommand?.takeIf(String::isNotBlank) ?: "npm run dev -- --host"
                     val previewUrl = customConfig?.previewUrl ?: type.defaultPreviewUrl
                     actions.add(
                         ProjectRunnerAction(
@@ -82,7 +82,7 @@ data class ProjectRunnerAction(
                             id = "web_build",
                             label = "Build Production Bundle",
                             command = buildCmd,
-                            isBuild = true,
+                            isBuild = false,
                             description = "Builds production assets with npm run build",
                             iconName = "build"
                         )
@@ -90,12 +90,12 @@ data class ProjectRunnerAction(
                     actions.add(
                         ProjectRunnerAction(
                             id = "web_serve",
-                            label = "Serve Static (Port 3000)",
-                            command = "npx serve -l 3000 .",
+                            label = "Serve Static Web",
+                            command = "npx serve .",
                             isBuild = false,
                             opensPreview = true,
                             previewUrl = "http://localhost:3000",
-                            description = "Serves current directory with local static HTTP server",
+                            description = "Serves current directory with auto-selected port",
                             iconName = "play"
                         )
                     )
@@ -214,7 +214,7 @@ data class ProjectRunnerAction(
                             id = "jvm_build",
                             label = "Build (kotlinc)",
                             command = customConfig?.customBuildCommand?.takeIf(String::isNotBlank) ?: "kotlinc Main.kt -include-runtime -d app.jar",
-                            isBuild = true,
+                            isBuild = false,
                             description = "Compiles Main.kt into a runnable app.jar with kotlinc",
                             iconName = "build"
                         )
@@ -236,7 +236,7 @@ data class ProjectRunnerAction(
                             id = "rust_build",
                             label = "Cargo Build",
                             command = "cargo build",
-                            isBuild = true,
+                            isBuild = false,
                             description = "Compiles the Rust project",
                             iconName = "build"
                         )
@@ -268,7 +268,7 @@ data class ProjectRunnerAction(
                             id = "go_build",
                             label = "Go Build",
                             command = "go build .",
-                            isBuild = true,
+                            isBuild = false,
                             description = "Compiles the Go application",
                             iconName = "build"
                         )
@@ -304,7 +304,7 @@ data class ProjectRunnerAction(
                             id = "ssg_build",
                             label = "Build Static Site",
                             command = customConfig?.customBuildCommand?.takeIf(String::isNotBlank) ?: "hugo",
-                            isBuild = true,
+                            isBuild = false,
                             description = "Generates the static site production build",
                             iconName = "build"
                         )
@@ -318,7 +318,7 @@ data class ProjectRunnerAction(
                             id = "cpp_build",
                             label = "Build (make)",
                             command = buildCmd,
-                            isBuild = true,
+                            isBuild = false,
                             description = "Compiles the project using Makefile",
                             iconName = "build"
                         )
@@ -363,7 +363,7 @@ data class ProjectRunnerAction(
                             id = "custom_build",
                             label = "Build Project",
                             command = buildCmd,
-                            isBuild = true,
+                            isBuild = false,
                             description = "Executes the configured build command",
                             iconName = "build"
                         )

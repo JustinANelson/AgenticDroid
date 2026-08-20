@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.webkit.*
 import android.widget.Toast
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -38,6 +39,7 @@ fun WebPreviewScreen(
     serverStatus: String? = null,
     serverActive: Boolean = false,
     serverReady: Boolean = false,
+    serverLog: String = "",
     onStopServer: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -50,6 +52,16 @@ fun WebPreviewScreen(
     var progress by remember { mutableFloatStateOf(0f) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var startupRetries by remember(currentUrl) { mutableIntStateOf(0) }
+    var showLogDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentUrl) {
+        if (currentUrl.isNotBlank() && currentUrl != urlInput) {
+            urlInput = currentUrl
+            loadError = null
+            startupRetries = 0
+            webViewInstance?.loadUrl(formatUrl(currentUrl))
+        }
+    }
 
     val retryingLocalServer = loadError != null &&
         isLocalDevUrl(urlInput) && startupRetries < MAX_LOCAL_STARTUP_RETRIES
@@ -64,7 +76,9 @@ fun WebPreviewScreen(
 
     val quickPorts = listOf(
         "5173" to "Vite",
-        "3000" to "React/Next/Serve",
+        "5174" to "Vite (Alt)",
+        "3000" to "React/Next",
+        "3001" to "Next/Node (Alt)",
         "8000" to "Python",
         "8080" to "Webpack/HTTP",
         "5000" to "Flask",
@@ -207,6 +221,9 @@ fun WebPreviewScreen(
                         )
                     }
                     Text(serverStatus, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    if (serverLog.isNotBlank()) {
+                        TextButton(onClick = { showLogDialog = true }) { Text("View Logs") }
+                    }
                     if (serverActive) {
                         TextButton(onClick = onStopServer) { Text("Stop") }
                     }
@@ -328,7 +345,7 @@ fun WebPreviewScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Make sure your local dev server is running (e.g. npm run dev or python -m http.server).",
+                            text = "Make sure your dev server is running (e.g. npm run dev or python -m http.server).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -336,6 +353,13 @@ fun WebPreviewScreen(
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            if (serverLog.isNotBlank()) {
+                                OutlinedButton(onClick = { showLogDialog = true }) {
+                                    Icon(Icons.Default.Terminal, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("View Logs")
+                                }
+                            }
                             Button(
                                 onClick = onNavigateToTerminal
                             ) {
@@ -357,6 +381,45 @@ fun WebPreviewScreen(
                 }
             }
         }
+    }
+
+    if (showLogDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogDialog = false },
+            title = { Text("Server Output") },
+            text = {
+                val scrollState = rememberScrollState()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .padding(4.dp)
+                ) {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = serverLog.ifBlank { "No log output recorded yet." },
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.verticalScroll(scrollState)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLogDialog = false }) {
+                    Text("Close")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Server Log", serverLog))
+                    Toast.makeText(context, "Log copied to clipboard", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Copy")
+                }
+            }
+        )
     }
 }
 

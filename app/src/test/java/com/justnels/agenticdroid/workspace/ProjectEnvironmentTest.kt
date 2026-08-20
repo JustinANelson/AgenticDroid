@@ -1,6 +1,7 @@
-package com.justnels.agenticdroid.workspace
+package com.justnels.agenticdroid.workspace
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -247,7 +248,8 @@ class ProjectEnvironmentTest {
 
         val buildAction = actions.find { it.id == "web_build" }
         assertNotNull(buildAction)
-        assertTrue(buildAction!!.isBuild)
+        assertEquals("npm run build", buildAction!!.command)
+        assertFalse(buildAction.isBuild)
     }
 
     @Test

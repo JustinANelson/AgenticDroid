@@ -37,16 +37,16 @@ data class AgentProfile(
         val startAgent = prepareCommand?.let { "$it && exec $invocation" } ?: "exec $invocation"
         return """
         (
-        if command -v $command >/dev/null 2>&1; then
+        if command -v $command >/dev/null 2>&1 && $command --version </dev/null >/dev/null 2>&1; then
           $startAgent
         else
-          echo "Installing $name..."
+          echo "Installing or repairing $name..."
           $installCommand
           hash -r 2>/dev/null || true
-          if command -v $command >/dev/null 2>&1; then
+          if command -v $command >/dev/null 2>&1 && $command --version </dev/null >/dev/null 2>&1; then
             $startAgent
           else
-            echo "$name installation failed: '$command' was not found in PATH." >&2
+            echo "$name installation or repair failed: '$command' could not run successfully." >&2
             exit 127
           fi
         fi
@@ -306,6 +306,7 @@ object DefaultAgents {
         esac
         platform="linux_${'$'}agyarch"
         vendordir="${'$'}NPM_CONFIG_PREFIX/vendor/antigravity"
+        rm -rf "${'$'}vendordir"
         mkdir -p "${'$'}vendordir"
         cat > "${'$'}vendordir/fetch.js" <<'JSEOF'
         const https = require("https");

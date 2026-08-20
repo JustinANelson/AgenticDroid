@@ -165,10 +165,15 @@ class SSHExecutionEnvironment(
         val session = getClient().startSession()
         val environmentPrefix = environment.entries.joinToString(" ") { (key, value) ->
             require(key.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "Invalid environment variable name" }
-            "$key=${ShellEscaping.quote(value)}"
+            "$key=\"${value.replace("\"", "\\\"")}\""
         }
         val remoteCommand = if (environmentPrefix.isBlank()) command else "env $environmentPrefix $command"
-        val cmd = session.exec("cd ${ShellEscaping.quote(workingDirectory)} && $remoteCommand")
+        val fullCommand = if (workingDirectory.isNotBlank() && workingDirectory != ".") {
+            "cd \"$workingDirectory\" && $remoteCommand"
+        } else {
+            remoteCommand
+        }
+        val cmd = session.exec(fullCommand)
         return SSHProcessSession(session, cmd)
     }
 
@@ -203,11 +208,18 @@ class SSHExecutionEnvironment(
         val knownHosts = File(sshDir, "known_hosts")
 
         val args = mutableListOf(
+            "ssh",
             "-p", config.port.toString(),
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "UserKnownHostsFile=${knownHosts.absolutePath}",
             "-t"
         )
+
+        val forwardedPorts = listOf(5173, 5174, 3000, 3001, 3002, 8000, 8080, 5000, 4173, 1313)
+        for (port in forwardedPorts) {
+            args.add("-L")
+            args.add("$port:127.0.0.1:$port")
+        }
 
         if (config.useCloudflareTunnel) {
             val cloudflared = NodeRuntime.binDir(context).resolve("cloudflared")
@@ -237,32 +249,25 @@ class SSHExecutionEnvironment(
                 }
             }
             SSHAuthType.PASSWORD -> {
-                config.password?.let { pwd ->
-                    val askpassFile = File(context.cacheDir, "ssh_askpass.sh").apply {
-                        writeText("#!/system/bin/sh\ncat << 'EOF_AGENTICDROID_PASS'\n$pwd\nEOF_AGENTICDROID_PASS\n")
+                args.add("-o")
+                args.add("PreferredAuthentications=password,keyboard-interactive")
+                config.password?.takeIf(String::isNotEmpty)?.let { pass ->
+                    val askPassFile = File(context.filesDir, "ssh_askpass_${config.host.hashCode()}").apply {
+                        writeText("#!/system/bin/sh\ncat << 'EOF_PASS'\n$pass\nEOF_PASS\n")
                         setReadable(false, false)
                         setReadable(true, true)
                         setWritable(false, false)
                         setWritable(true, true)
                         setExecutable(true, true)
                     }
-                    envMap["SSH_ASKPASS"] = askpassFile.absolutePath
+                    envMap["SSH_ASKPASS"] = askPassFile.absolutePath
                     envMap["SSH_ASKPASS_REQUIRE"] = "force"
                     envMap["DISPLAY"] = ":0"
-                    args.add("-o")
-                    args.add("PreferredAuthentications=password,keyboard-interactive")
                 }
             }
         }
 
         args.add("${config.username}@${config.host}")
-
-        val remoteCommand = if (workingDirectory.isNotBlank() && workingDirectory != ".") {
-            "cd ${ShellEscaping.quote(workingDirectory)} 2>/dev/null || true ; exec \${SHELL:-/bin/sh} -l"
-        } else {
-            "exec \${SHELL:-/bin/sh} -l"
-        }
-        args.add(remoteCommand)
 
         return PtyShellSpec(
             shellPath = sshBin.absolutePath,

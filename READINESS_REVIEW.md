@@ -1,15 +1,23 @@
 # AgenticDroid Readiness Review
 
-**Updated:** 2026-08-18  
+**Updated:** 2026-08-20  
+**Product goal:** Let a user do real agentic software development from a phone — running agent CLIs, editing, building, and previewing projects either fully on-device or against a remote machine reached over SSH.  
 **Distribution decision:** Sideload-only while the downloaded-toolchain architecture requires `targetSdk = 28`.  
-**Current verdict:** **Ready for controlled developer sideload testing; not yet ready for a production release.**
+**Current verdict:** **Ready for controlled developer sideload testing on local (on-device) workflows; remote-environment workflows are functionally present but unverified against live servers; not yet ready for a production/store release.**
+
+## Local vs. remote environment readiness, at a glance
+
+| Environment | Status | Notes |
+|---|---|---|
+| **Local (on-device toolchain)** | Usable, sideload-only | Node/Python/JVM/Rust/Go/C++ toolchains run via QEMU-hosted Termux/Alpine binaries downloaded to app-private storage; on-device Android self-build and web-project live preview both work end-to-end on the one configuration tested (see below). Blocked from `targetSdk` 29+ by W^X (see R1), which is the only thing forcing sideload-only distribution. |
+| **Remote (SSH to another machine)** | Functionally present, unverified | Full remote project browsing/open/create/rename/delete, Cloudflare Tunnel (no public IP needed), mDNS discovery of local SSH servers, and modern host-key algorithms (X25519 via Bouncy Castle) are implemented and unit-tested at the configuration level, but none of it has been run against a live SSH server yet (R7). This is the more mobile-friendly path long-term, since it avoids the on-device toolchain's storage/battery/thermal cost and the W^X ceiling entirely — but it inherits ordinary mobile-network risk (drops, backgrounding, captive portals) that hasn't been exercised. |
 
 ## Current verification
 
 | Gate | Result | Evidence |
 |---|---|---|
-| JVM unit tests | PASS | 61 tests, 0 failures, 0 errors |
-| Android lint | PASS | 0 errors, 4 dependency warnings |
+| JVM unit tests | NOT RE-VERIFIED THIS PASS | Prior count (61 tests) is stale — new `SSHExecutionEnvironmentTest.kt`, a new `ui/` terminal test package, `NodeRuntimeTest.kt`, and `RunnerPackageGroupTest.kt` additions exist since the last count; a fresh full run against a cold Gradle daemon did not complete inside a single review pass. Re-run and record an updated total before the next release decision. |
+| Android lint | PASS (as of 2026-08-18; not re-run this pass) | 0 errors, 4 dependency warnings |
 | Debug APK | PASS | `app/build/outputs/apk/debug/app-debug.apk` |
 | Release assembly | PASS | `app/build/outputs/apk/release/app-release-unsigned.apk` |
 | Release signing | CONFIGURED, NOT VERIFIED | Secure Gradle-property/environment hooks exist, but no signing credentials were supplied during review |
@@ -90,6 +98,48 @@ A new capability, verified end-to-end on a 16 KB-page-size x86_64 emulator (`Sma
 - **Daemon stability.** The default `org.gradle.jvmargs=-Xmx2048m` was too aggressive for this class of device (4 GB total RAM, shared with the Android system itself, Zygote, and this app's own foreground process); the Gradle daemon was repeatedly killed mid-build ("Gradle build daemon disappeared unexpectedly"). Lowered to `-Xmx640m`, after which a full build completed without a daemon crash.
 - Verified with a real, complete build: the in-app hammer/"Build & Install" action on this app's own project successfully compiled, resource-processed, dexed, and packaged a debug APK on-device, landing at both `.../files/downloads/latest_build.apk` and the project's normal `app/build/outputs/apk/debug/app-debug.apk` (both on external/shared storage, reachable without `run-as`). The only thing that stopped an actual install was the app's own (correct) signature-mismatch safety check, since the on-device build's auto-generated debug keystore differs from the one used to install the currently-running app.
 
+### W^X (targetSdk 29+) prototype — native-library-packaged toolchain binaries
+
+**Status: research + working prototype code, not yet load-bearing in production (`targetSdk` is still 28).**
+
+`AGENT_RUNTIME_RESEARCH.md` documents a real attempt to remove the single architectural blocker (R1) that forces sideload-only, API-28-only distribution: Android's post-API-28 W^X policy blocks executing files from app-private storage, which is where the current toolchain downloads Node/git/Python/etc. The prototype instead packages the toolchain as `jniLibs/` — `PackageManager`-extracted native libraries, which live in `nativeLibraryDir` and are exempt from W^X on any target SDK.
+
+- **What's bundled today:** ~269 files, ~164 MiB, under `app/src/main/jniLibs/arm64-v8a/` — `qemu-user-aarch64`, `node`, `git`, `aapt2`, `npm`/`npx`, Python plus its native extension modules, and a JVM/OpenJDK closure, each renamed to `lib*_native_<arch>.so` with their full recursively-resolved `DT_NEEDED` dependency closures verified by real ELF parsing (not package-manager metadata). A reproducible fetch pipeline (`tools/fetch_native_libs.py`, `tools/fetch_jvm_native_libs.py`, `tools/fetch_python_native_libs.py`, checksum-pinned manifests) regenerates this closure from Termux's package index — the same pinned-hash pattern already used for other runtime downloads (see R4).
+- **Verified on real devices, arm64 only, at raised `targetSdk` (34–36) in throwaway test builds:** QEMU, node, git (including the HTTPS remote helper via a real `execve`), `aapt2`, `npm`/`npx`, and Python all launch correctly from `nativeLibraryDir`, including running real agent CLIs (Claude Code, Codex) end-to-end as QEMU guests.
+- **Known remaining blocker: the JVM launcher.** OpenJDK derives its install root from `/proc/self/exe`, which breaks under `PackageManager`'s flat native-library directory layout. A patched `libjli.so` was built and works for `java`/`javac`/`kotlinc`, but `libjvm.so` (HotSpot itself) still needs app-private writable storage and currently only emits a deprecation warning on affected Android versions — this is explicitly unresolved, not worked around.
+- **Not yet attempted:** x86_64 ABI (arm64-only so far); no full interactive-PTY terminal session test through the native-lib path; no App Bundle / install-size measurement; no license/SBOM inventory for the newly-bundled third-party binaries.
+- **A separate, newly-identified gate: Play Store policy, independent of the technical fix.** Even a complete W^X workaround doesn't establish that Google Play's Device and Network Abuse policy permits this class of app at all. The research notes that Node/git/Python/the JVM — executed directly, with no VM or interpreter sandboxing boundary visible to the platform — plausibly look *harder* to justify under that policy than the QEMU-hosted agent CLIs. This is a policy/compliance question, not an engineering one, and needs to be answered before the technical work is treated as "unblocks the store."
+- **Present-day cost with no present-day benefit:** since `targetSdk` remains 28, the native-lib code paths are currently dead (they only activate when a native-lib file is present) and the ~164 MiB of `jniLibs/` ships in every build regardless, inflating APK/install size for a capability not yet switched on.
+
+This changes R1 from "no known path forward" to "a verified technical path exists for most of the toolchain, with one specific known JVM-launcher gap and a separate unresolved store-policy question" — see the revised R1 below.
+
+### Remote environments and mobile-network resilience
+
+Directly targets the "agentic development while mobile" goal by making a remote machine (reached over SSH) a first-class alternative to the on-device toolchain, and hardening the on-device path against the flakier networks a phone actually sees.
+
+- **Cloudflare Tunnel (`cloudflared`) support** lets a phone reach a home/dev machine that has no public IP or port-forwarding, avoiding the most common mobile-network blocker for remote development.
+- **Wireless connectivity helper** surfaces the device's local IPv4 addresses (Tailscale interfaces preferred when present) to make pairing with a remote dev machine easier.
+- **mDNS discovery** of local SSH servers (`_ssh._tcp`) for same-network setup without typing an IP.
+- **Full remote project management over SSH**: browse a remote filesystem, open a remote directory as a project, and create/rename/delete files remotely, without a local checkout. `ProjectType.detectFromPaths()` was added specifically so project-type detection works from a flat SFTP directory listing (no local `File` walk available).
+- **Modern SSH algorithm support**: Bouncy Castle added as a security provider for X25519 and other algorithms current OpenSSH servers default to, which the previous SSHJ-only configuration could not negotiate.
+- **Agent CLI installs now detect non-Android hosts** (`AgentProfile.kt` checks for `/system/bin`) and fall back to plain `npm install -g` when installing onto a remote SSH host rather than the on-device QEMU guest.
+- **Mobile-network flakiness mitigations** on the existing on-device/download paths: clone/GitHub-repo-fetch failures now surface inline instead of failing silently; the terminal shows "Connecting..." instead of a static "no session" and reports specific exit/disconnect reasons with input buffering during cold start; the Antigravity installer retries manifest/archive downloads; bootstrap extraction now has resumable markers; DNS resolution is derived from the device's active network config rather than assumed.
+- **Test coverage:** new `SSHExecutionEnvironmentTest.kt` and a new `ui/` terminal test package cover configuration and view-model behavior. None of the SSH/remote surface (Cloudflare Tunnel, mDNS, X25519 negotiation, remote file CRUD) has been exercised against a live server yet — folded into R7 below.
+
+### Web project live preview
+
+`WebProjectPreflight.kt` (new) inspects a project's `package.json` and runs its dev server (e.g. Vite) via the project-local entry point (`node node_modules/vite/bin/vite.js`) rather than depending on a global install or npm's `.bin` wrapper, which the native-exec work above doesn't cover yet. It also detects when `npm install` is needed and handles the Rollup/esbuild optional-package platform mismatch that shows up when a lockfile was generated on desktop and installed on Android. This is a real, working piece of the mobile web-dev story — not a prototype — but has no dedicated unit test yet, which is a coverage gap worth closing given it's pure, easily-testable logic.
+
+### Agent launcher hardening
+
+- Gemini CLI added as a supported agent, alongside the existing npm-distributed agents and Antigravity.
+- Active-agent tracking with a "Stop" command, and proactive install-status probing before launch.
+- APK self-update hardened: signature verification, "install unknown apps" permission handling, and backup/restore for rollback.
+
+### Self-build fixes made durable (partially closes R10)
+
+The two on-device Android self-build fixes noted in the prior review as "verified but only ever lived in test-device state" — the lowered Gradle daemon heap (`-Xmx640m`) and the `aapt2FromMavenOverride` `gradle.properties` write — are now committed into the project template/config rather than manually applied during testing, so a fresh install reproduces the working build path without hand-tuning. The rest of R10's scope (second real-world project, other AGP versions, missing-SDK-component recovery, cross-environment debug-keystore matching) remains open.
+
 ### Modular runner-package toolchain and agent extensibility
 
 The Node/Python/Rust/... toolchain bootstrap - previously one all-or-nothing, multi-hundred-MB download - is now split into independently installable `RunnerPackageGroup`s (`CORE`, `PYTHON`, `JVM`, `RUST`, `GOLANG`, `CPP`, `SSG`), so a project of one type no longer forces a download of every other language's toolchain.
@@ -119,11 +169,17 @@ The Node/Python/Rust/... toolchain bootstrap - previously one all-or-nothing, mu
 
 ### R1 — API 28 compatibility architecture
 
-**Severity:** Blocker for Play/modern production distribution.
+**Severity:** Blocker for Play/modern production distribution. **Updated: a verified technical path now exists; two new sub-gates identified.**
 
-The downloaded Node/Git/QEMU toolchain executes from app-private storage and relies on the API 28 compatibility policy. Moving to API 29+ requires an execution redesign; lint suppression only records the deliberate sideload exception.
+The downloaded Node/Git/QEMU toolchain executes from app-private storage and relies on the API 28 compatibility policy. A prototype (see "W^X (targetSdk 29+) prototype" above) repackages the toolchain as `PackageManager`-extracted native libraries (`jniLibs/`), which are exempt from W^X at any target SDK, and has verified QEMU/node/git/aapt2/npm/Python running correctly this way at raised target SDKs (34–36) on real arm64 hardware. `targetSdk` in `build.gradle.kts` is still 28 today — none of this is live in production yet.
 
-**Next step:** Keep the current artifact explicitly sideload-only. Investigate a separately installed runtime, isolated service/runtime APK, supported native-library packaging, remote execution, or another architecture that permits a current target SDK before pursuing store distribution.
+Two sub-gates remain before this can actually raise `targetSdk`:
+- **R1a — JVM launcher.** OpenJDK's `/proc/self/exe`-based install-root detection breaks under the flat native-lib layout; `java`/`javac`/`kotlinc` work via a patched `libjli.so`, but `libjvm.so` (HotSpot) still needs writable app-private storage and only warns, rather than breaks, on current Android — a genuine gap, not a documentation nicety.
+- **R1b — Play Store policy risk, independent of the technical fix.** Google Play's Device and Network Abuse policy on downloadable/executable code has not been evaluated against this architecture even in its native-lib form. Node/git/Python/the JVM run directly with no VM/interpreter sandbox boundary visible to the platform, which plausibly reads as *harder* to justify under that policy than the already-QEMU-hosted agent CLIs. This must be resolved (or the store-distribution goal dropped in favor of a permanent sideload/direct-distribution model) regardless of R1a's outcome.
+
+Also unaddressed: x86_64 ABI (arm64-only so far), no interactive-PTY test through the native-lib path, no install-size/App-Bundle measurement (current `jniLibs/` payload is ~164 MiB and ships in every build today even though it's inert at `targetSdk = 28`), and no license/SBOM inventory for the newly-bundled binaries (relevant to R9).
+
+**Next step:** Resolve R1a (JVM launcher) and validate on x86_64. Separately and in parallel, get an explicit read on Play policy (R1b) before investing further engineering, since a "no" there makes the rest of R1 moot for store distribution specifically (sideload/direct distribution would be unaffected). Once both are clear, flip `targetSdk` in a test track and re-run the full device matrix (R5) before considering it resolved.
 
 ### R2 — Termux native library lacks 16 KB alignment
 
@@ -169,11 +225,11 @@ Primary credential reads/writes now use direct Android Keystore AES/GCM. Depreca
 
 ### R7 — Live SSH interoperability still needs device coverage
 
-**Severity:** Low.
+**Severity:** Raised from Low to Medium — the remote-environment workflow is now a primary path to the "agentic development while mobile" goal, not a side feature, so its verification gap matters more.
 
-SSH profiles are persisted with encrypted secrets and support passwords or encrypted private keys/passphrases, configurable ports, pinned host identities, cleanup, and remote browsing. Automated tests validate configuration boundaries, but no live test server was available for this pass.
+SSH profiles are persisted with encrypted secrets and support passwords or encrypted private keys/passphrases, configurable ports, pinned host identities, cleanup, and remote browsing. Since the last review this surface grew substantially: Cloudflare Tunnel support, mDNS discovery of local SSH servers, Bouncy Castle-backed modern algorithm negotiation (X25519), and full remote project management (browse/open/create/rename/delete over SFTP, via the new `ProjectType.detectFromPaths()`). Automated tests validate configuration boundaries and unit-level behavior, but none of this — old or new — has been exercised against a live SSH server.
 
-**Next step:** Exercise accepted, unknown, and changed host keys plus password, encrypted-key, reconnect, and SFTP behavior against controlled servers during the device matrix.
+**Next step:** Exercise accepted, unknown, and changed host keys plus password, encrypted-key, reconnect, and SFTP behavior against controlled servers during the device matrix. Specifically add: a Cloudflare Tunnel end-to-end connection, mDNS discovery against a real LAN SSH server, X25519 negotiation against a current OpenSSH server (the reason Bouncy Castle was added), and full remote file CRUD (create/rename/delete) against a real filesystem including error paths (permission denied, disk full, path already exists). Also verify behavior when the phone backgrounds or loses network mid-session, since that is the dominant real-world failure mode for a mobile SSH client that on-device workflows don't share.
 
 ### R8 — Remaining dependency warnings require ownership
 
@@ -193,7 +249,7 @@ README, privacy, and security guidance now exist, but the repository has no chos
 
 ### R10 — On-device self-build has narrow verified coverage
 
-**Severity:** Medium.
+**Severity:** Medium. **Partially closed this pass:** the two fixes previously flagged as "verified but only living in test-device state" (`-Xmx640m` heap, `aapt2FromMavenOverride` write) are now committed into the project config, so they no longer need to be manually reapplied. Everything below is still open.
 
 The on-device Android build path (`AndroidSdkBootstrapper`, native `aapt2`, the `aapt2FromMavenOverride` wiring) is verified end-to-end for exactly one configuration: this app's own project, AGP as currently pinned, `compileSdk = 37`, on one x86_64 emulator. Several parts are unverified generalizations:
 
@@ -207,6 +263,18 @@ The on-device Android build path (`AndroidSdkBootstrapper`, native `aapt2`, the 
 
 The `ANDROID_STARTER` template now bundles its own Gradle wrapper (see "Modular runner-package toolchain and agent extensibility" above), so a freshly scaffolded project - not just this app's own repo - can in principle exercise this same on-device build path. That specific combination (new project, bundled wrapper, first build fetching the pinned Gradle distribution over the network) has not yet been run on a device.
 
+### R11 — Build/toolchain payload growing ahead of activation (new)
+
+**Severity:** Low, but worth tracking.
+
+`app/src/main/jniLibs/` now bundles roughly 164 MiB of native-packaged toolchain binaries (arm64 only) that are inert in every build shipped today, since `targetSdk` remains 28 and the native-lib code paths only activate when a native-lib file is present. This inflates APK/install size with no current runtime benefit.
+
+**Next step:** Either gate `jniLibs/` inclusion behind a build variant so today's sideload builds stay lean, or accept the size cost explicitly and track it until R1 is resolved and the payload starts earning its place.
+
+### Process note — large uncommitted working tree at time of review
+
+As with a prior finding in this document ("a process gap, not a design one" — see Build/test/project hygiene above), this review was conducted against a working tree with substantial uncommitted changes across `MainActivity.kt`, `MainViewModel.kt`, `AgentProfile.kt`, `NodeBootstrapper.kt`, `RunnerPackageGroup.kt`, `SSHExecutionEnvironment.kt`, several UI files, and multiple new untracked files (`WebProjectPreflight.kt`, `SSHExecutionEnvironmentTest.kt`, a new `ui/` test package, `tools/`, `jniLibs/`, and the native-links asset manifests). All work described above was assessed from the working tree as it stood on 2026-08-20, not from `HEAD` alone. Recommend committing this work in reviewed, logically-scoped commits before it accumulates further, both to keep `git log` a trustworthy record and to re-establish a clean-clone build check (per the prior finding) before trusting it as "done."
+
 ## Production exit gate
 
-For the current sideload flavor, require a signed and versioned artifact, green CI, a completed device/ABI matrix, verified bootstrap failure recovery, and explicit acceptance of the API-28 and 16 KB limitations. A broader production/store claim additionally requires resolving R1 and R2 rather than suppressing or documenting them.
+For the current sideload flavor, require a signed and versioned artifact, green CI, a completed device/ABI matrix, verified bootstrap failure recovery, and explicit acceptance of the API-28 and 16 KB limitations. A broader production/store claim additionally requires resolving R1 (including its R1a JVM-launcher and R1b Play-policy sub-gates) and R2 rather than suppressing or documenting them.

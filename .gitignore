@@ -24,7 +24,17 @@ Thumbs.db
 
 # Project specific data
 .cast/
+
+# W^X native-lib prototype payload (regenerate via tools/fetch_*_native_libs.py)
+app/src/main/jniLibs/
+
+# Local Claude Code tool config
+.claude/
 # .artifacts/ # Uncomment if you want to ignore AI agent artifacts
 
 # Logs
 *.log
+
+
+# Python bytecode cache
+__pycache__/

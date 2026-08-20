@@ -163,7 +163,10 @@ fun AgentCard(
             }
 
             if (isInstalled) {
-                Row(modifier = Modifier.padding(top = 8.dp)) {
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     TextButton(onClick = onCheckVersion, enabled = !isCheckingVersion && !isUpdating) {
                         Text(if (isCheckingVersion) "Checking..." else "Check for Updates")
                     }
@@ -171,6 +174,9 @@ fun AgentCard(
                         TextButton(onClick = onUpdate, enabled = !isUpdating) {
                             Text(if (isUpdating) "Updating..." else "Update")
                         }
+                    }
+                    TextButton(onClick = onUpdate, enabled = !isUpdating) {
+                        Text(if (isUpdating) "Repairing..." else "Repair")
                     }
                 }
             }
