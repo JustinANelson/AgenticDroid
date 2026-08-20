@@ -167,14 +167,19 @@ class WorkspaceManager(private val rootDir: File) {
         atomicWrite(file, content)
     }
     /**
-     * Searches for a string in all files within the workspace.
+     * Searches for a string in files under [project] when given, or the whole local
+     * workspace (every project) otherwise. A [project] that fails local validation (e.g.
+     * a remote-only project, whose files live on the SSH host rather than under
+     * [canonicalRoot]) returns no results rather than silently widening the search to the
+     * whole workspace - there is nothing local to search for it.
      */
-    fun searchInFiles(query: String): List<SearchResult> {
+    fun searchInFiles(query: String, project: Project? = null): List<SearchResult> {
         if (query.isBlank()) return emptyList()
+        val root = if (project != null) (validatedProject(project) ?: return emptyList()) else canonicalRoot
         val results = mutableListOf<SearchResult>()
-        canonicalRoot.walkTopDown()
+        root.walkTopDown()
             .onEnter { directory ->
-                directory == canonicalRoot ||
+                directory == root ||
                     (!Files.isSymbolicLink(directory.toPath()) && directory.name !in EXCLUDED_DIRECTORIES && !directory.name.startsWith("."))
             }
             .forEach { file ->

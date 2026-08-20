@@ -134,13 +134,6 @@ fun MainScreen(viewModel: MainViewModel) {
                     alwaysShowLabel = false
                 )
                 NavigationBarItem(
-                    selected = viewModel.currentScreen == Screen.Search,
-                    onClick = { viewModel.currentScreen = Screen.Search },
-                    icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                    label = { BottomNavigationLabel("Search") },
-                    alwaysShowLabel = false
-                )
-                NavigationBarItem(
                     selected = viewModel.currentScreen == Screen.Settings,
                     onClick = { viewModel.currentScreen = Screen.Settings },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
@@ -153,6 +146,41 @@ fun MainScreen(viewModel: MainViewModel) {
         Surface(modifier = Modifier.padding(innerPadding)) {
             when (viewModel.currentScreen) {
                 Screen.Workspace -> {
+                    var showSearch by remember { mutableStateOf(false) }
+                    var searchProjectOnly by remember(viewModel.selectedProject) {
+                        mutableStateOf(viewModel.selectedProject != null)
+                    }
+
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            IconButton(onClick = { showSearch = !showSearch }) {
+                                Icon(
+                                    imageVector = if (showSearch) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = if (showSearch) "Close search" else "Search files"
+                                )
+                            }
+                        }
+                        if (showSearch) {
+                            com.justnels.agenticdroid.ui.workspace.SearchScreen(
+                                modifier = Modifier.weight(1f),
+                                projectOnlyAvailable = viewModel.selectedProject != null,
+                                searchProjectOnly = searchProjectOnly,
+                                onSetSearchProjectOnly = { searchProjectOnly = it },
+                                onSearch = { query, projectOnly ->
+                                    viewModel.workspaceManager.searchInFiles(
+                                        query,
+                                        if (projectOnly) viewModel.selectedProject else null
+                                    )
+                                },
+                                onResultSelected = { result ->
+                                    viewModel.openFile(result.path)
+                                    showSearch = false
+                                }
+                            )
+                        } else {
                     if (viewModel.openedFile != null) {
                         Column {
                             Row(
@@ -527,6 +555,8 @@ fun MainScreen(viewModel: MainViewModel) {
                             }
                         }
                     }
+                        }
+                    }
                 }
                 Screen.Terminal -> {
                     TerminalScreen(
@@ -643,15 +673,6 @@ fun MainScreen(viewModel: MainViewModel) {
                         keepScreenOn = viewModel.keepScreenOnDuringTerminal
                     )
                 }
-                Screen.Search -> {
-                    SearchScreen(
-                        onSearch = { query -> viewModel.workspaceManager.searchInFiles(query) },
-                        onResultSelected = { result ->
-                            viewModel.openFile(result.path)
-                            viewModel.currentScreen = Screen.Workspace
-                        }
-                    )
-                }
                 Screen.Settings -> {
                     SettingsScreen(
                         onNavigateToEnvironments = { viewModel.currentScreen = Screen.Environments },
@@ -702,5 +723,5 @@ private fun BottomNavigationLabel(text: String) {
 }
 
 enum class Screen {
-    Workspace, Terminal, WebPreview, Git, Agents, AgentSession, Search, Settings, Environments
+    Workspace, Terminal, WebPreview, Git, Agents, AgentSession, Settings, Environments
 }

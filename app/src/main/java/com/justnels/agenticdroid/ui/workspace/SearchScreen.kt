@@ -15,15 +15,22 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun SearchScreen(
-    onSearch: (String) -> List<SearchResult>,
+    onSearch: (String, Boolean) -> List<SearchResult>,
     onResultSelected: (SearchResult) -> Unit,
+    projectOnlyAvailable: Boolean,
+    searchProjectOnly: Boolean,
+    onSetSearchProjectOnly: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchResult>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
 
-    LaunchedEffect(query) {
+    // A project-only search with no project selected has nothing to scope to - fall back
+    // to the whole workspace rather than searching nothing.
+    val effectiveProjectOnly = searchProjectOnly && projectOnlyAvailable
+
+    LaunchedEffect(query, effectiveProjectOnly) {
         if (query.length < 3) {
             results = emptyList()
             isSearching = false
@@ -31,7 +38,7 @@ fun SearchScreen(
         }
         delay(300)
         isSearching = true
-        results = withContext(Dispatchers.IO) { onSearch(query) }
+        results = withContext(Dispatchers.IO) { onSearch(query, effectiveProjectOnly) }
         isSearching = false
     }
 
@@ -46,6 +53,26 @@ fun SearchScreen(
             label = { Text("Search in Files") },
             modifier = Modifier.fillMaxWidth()
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = effectiveProjectOnly,
+                onClick = { onSetSearchProjectOnly(true) },
+                enabled = projectOnlyAvailable,
+                shape = SegmentedButtonDefaults.itemShape(0, 2)
+            ) {
+                Text("This Project", style = MaterialTheme.typography.labelSmall)
+            }
+            SegmentedButton(
+                selected = !effectiveProjectOnly,
+                onClick = { onSetSearchProjectOnly(false) },
+                shape = SegmentedButtonDefaults.itemShape(1, 2)
+            ) {
+                Text("Entire Workspace", style = MaterialTheme.typography.labelSmall)
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
