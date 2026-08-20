@@ -21,10 +21,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * A foreground Service that runs agent CLIs unattended (`claude -p "..."`, `codex exec
@@ -42,6 +41,7 @@ class HeadlessAgentRunService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val activeSessions = ConcurrentHashMap<String, ProcessSession>()
+    private val killedFlags = ConcurrentHashMap<String, AtomicBoolean>()
     private lateinit var store: HeadlessRunStore
 
     inner class HeadlessRunBinder : Binder() {
@@ -100,35 +100,49 @@ class HeadlessAgentRunService : Service() {
             startedAt = System.currentTimeMillis()
         )
         store.save(run)
-        startForeground(SUMMARY_NOTIFICATION_ID, buildSummaryNotification())
-        updateSummaryNotification()
+        val killedFlag = AtomicBoolean(false)
+        killedFlags[id] = killedFlag
 
+        // Registered before startForeground/updateSummaryNotification (rather than after
+        // `launch{}` returns) so updateSummaryNotification never sees an empty activeJobs
+        // for a run that's actually starting - it would otherwise immediately
+        // stopForeground+stopSelf the service, undoing the promotion this whole feature
+        // depends on to survive the app being backgrounded.
         val job = serviceScope.launch {
-            var finalStatus = HeadlessRunStatus.FAILED
+            var timedOut = false
             var exitCode: Int? = null
             var truncated = false
             try {
                 val session = env.exec(argv, workingDirectory, agent.environmentVariables + environmentVariables)
                 activeSessions[id] = session
+                // Never written to - closed immediately so a CLI that checks/reads stdin
+                // (confirmed elsewhere in this app: `agy --version` hangs on an unclosed,
+                // never-fed stdin) doesn't block forever waiting for input that will never
+                // come, since the argv exec overload has no `</dev/null` equivalent.
+                runCatching { session.outputStream.close() }
                 val watchdog = launch {
                     delay(MAX_RUN_DURATION_MILLIS)
                     if (session.isRunning()) {
+                        timedOut = true
                         session.kill()
-                        finalStatus = HeadlessRunStatus.TIMED_OUT
                     }
                 }
-                val (code, wasTruncated) = drainToLog(session, store.logFile(id))
+                val result = DrainToLog.drain(
+                    session.inputStream, session.errorStream, session::waitFor, store.logFile(id), MAX_LOG_BYTES
+                )
                 watchdog.cancel()
-                exitCode = code
-                truncated = wasTruncated
-                if (finalStatus != HeadlessRunStatus.TIMED_OUT) {
-                    finalStatus = if (code == 0) HeadlessRunStatus.SUCCEEDED else HeadlessRunStatus.FAILED
-                }
+                exitCode = result.exitCode
+                truncated = result.truncated
             } catch (e: Exception) {
                 store.logFile(id).appendText("\n[agent run failed to start: ${e.message}]\n")
-                finalStatus = HeadlessRunStatus.FAILED
             } finally {
                 activeSessions.remove(id)
+                val finalStatus = when {
+                    killedFlag.get() -> HeadlessRunStatus.KILLED
+                    timedOut -> HeadlessRunStatus.TIMED_OUT
+                    exitCode == 0 -> HeadlessRunStatus.SUCCEEDED
+                    else -> HeadlessRunStatus.FAILED
+                }
                 val finished = run.copy(
                     finishedAt = System.currentTimeMillis(),
                     status = finalStatus,
@@ -137,55 +151,20 @@ class HeadlessAgentRunService : Service() {
                 )
                 store.save(finished)
                 activeJobs.remove(id)
+                killedFlags.remove(id)
                 notifyRunFinished(finished)
                 updateSummaryNotification()
             }
         }
         activeJobs[id] = job
+        startForeground(SUMMARY_NOTIFICATION_ID, buildSummaryNotification())
+        updateSummaryNotification()
         return id
     }
 
     private fun killRun(id: String) {
+        killedFlags[id]?.set(true)
         activeSessions[id]?.kill()
-    }
-
-    /** Drains stdout/stderr concurrently to one interleaved log file (bounded, like
-     * [com.justnels.agenticdroid.env.capture]) rather than buffering in memory, since a
-     * headless run can produce far more output than this app wants to hold in the process
-     * heap across a run that might last hours. */
-    private fun drainToLog(session: ProcessSession, logFile: java.io.File): Pair<Int, Boolean> {
-        val writeLock = Any()
-        var written = 0L
-        var truncated = false
-        FileOutputStream(logFile, true).use { out ->
-            fun drain(stream: InputStream) = Thread {
-                val buffer = ByteArray(8192)
-                while (true) {
-                    val read = try { stream.read(buffer) } catch (e: Exception) { -1 }
-                    if (read < 0) break
-                    synchronized(writeLock) {
-                        val remaining = MAX_LOG_BYTES - written
-                        if (remaining > 0) {
-                            val allowed = minOf(read.toLong(), remaining).toInt()
-                            out.write(buffer, 0, allowed)
-                            out.flush()
-                            written += allowed
-                            if (allowed < read) truncated = true
-                        } else {
-                            truncated = true
-                        }
-                    }
-                }
-            }.apply { isDaemon = true; start() }
-
-            val stdoutThread = drain(session.inputStream)
-            val stderrThread = drain(session.errorStream)
-            val exit = try { session.waitFor() } finally {
-                stdoutThread.join(5000)
-                stderrThread.join(5000)
-            }
-            return exit to truncated
-        }
     }
 
     private fun createNotificationChannels() {

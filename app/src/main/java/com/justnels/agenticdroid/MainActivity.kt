@@ -65,6 +65,18 @@ fun MainScreen(viewModel: MainViewModel) {
     val installApkLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.installApkFromUri(uri)
     }
+    // A headless run's entire user-facing payoff is its completion notification - without
+    // this, a denied/never-requested POST_NOTIFICATIONS permission (required at runtime on
+    // API 33+) would make the whole feature silently mute with no indication why.
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    fun ensureNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+            != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     LaunchedEffect(viewModel.resetRequested) {
         if (viewModel.resetRequested) activity?.finishAndRemoveTask()
     }
@@ -705,6 +717,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 viewModel.onAgentStopped()
                             },
                             onRunHeadless = { agent, prompt ->
+                                ensureNotificationPermission()
                                 viewModel.startHeadlessAgentRun(agent, prompt)
                                 viewModel.currentScreen = Screen.AgentRuns
                             },

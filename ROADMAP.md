@@ -8,10 +8,18 @@ See [NEXT_FEATURES.md](NEXT_FEATURES.md) for the analysis behind the items added
 
 ## 🚀 High Impact & Critical
 
-### 1. [x] Headless Agent Runs + Notifications
+### 1. [/] Headless Agent Runs + Notifications
 - **Impact**: Critical
-- **Status**: **Done** for Claude/Codex/Gemini (each has a non-interactive prompt mode);
-  Aider/Antigravity don't expose one, so they still only offer interactive Launch.
+- **Status**: **Code complete, unit-tested, not yet end-to-end verified.** Covers
+  Claude/Codex/Gemini (each has a non-interactive prompt mode); Aider/Antigravity don't
+  expose one, so they still only offer interactive Launch. `DrainToLog`/`HeadlessRunStore`
+  have JVM unit tests (including a real cross-platform bug the tests caught: `File.renameTo`
+  silently no-ops when the destination exists, which broke every save/delete after the
+  first); navigating to the new screens and starting the service was smoke-tested live on
+  device with no crash. What hasn't been run: an actual headless agent process to
+  completion (needs an installed agent CLI), so `env.exec` behavior under the argv path,
+  the stdin-close fix, and the completion notification are unverified against a real
+  process. Verify before checking this fully done.
 - **Description**: Run an agent CLI unattended on a single prompt (`claude -p`,
   `codex exec`, `gemini -p`), independent of the live interactive terminal PTY, backed by
   `HeadlessAgentRunService` - a foreground service that survives the app being

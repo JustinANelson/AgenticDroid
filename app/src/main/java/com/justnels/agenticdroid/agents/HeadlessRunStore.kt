@@ -2,6 +2,8 @@ package com.justnels.agenticdroid.agents
 
 import org.json.JSONArray
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Persists [HeadlessAgentRun] metadata (an index JSON file) and each run's captured
@@ -9,10 +11,14 @@ import java.io.File
  * run started while the app was open is still visible - status, exit code, and transcript
  * - after the process/app was killed and relaunched. Deliberately flat files rather than a
  * database: the access pattern is "list everything" and "read one log", both of which a
- * handful of small files serve without adding a Room dependency for one feature.
+ * handful of small files serve without adding a Room dependency for one feature. Takes a
+ * plain [File] rather than a `Context` so it's constructible in a JVM unit test (this
+ * project has no Robolectric dependency) via a temp directory.
  */
-class HeadlessRunStore(context: android.content.Context) {
-    private val dir = File(context.filesDir, "headless_runs").apply { mkdirs() }
+class HeadlessRunStore(baseDir: File) {
+    constructor(context: android.content.Context) : this(context.filesDir)
+
+    private val dir = File(baseDir, "headless_runs").apply { mkdirs() }
     private val indexFile = File(dir, "index.json")
     private val lock = Any()
 
@@ -64,6 +70,11 @@ class HeadlessRunStore(context: android.content.Context) {
         runs.forEach { array.put(it.toJson()) }
         val temp = File(dir, "index.json.tmp")
         temp.writeText(array.toString())
-        temp.renameTo(indexFile)
+        // `File.renameTo` can silently fail (returning false, which was previously
+        // ignored) when the destination already exists - true on Windows, and not
+        // guaranteed elsewhere either - which would leave every save/delete after the
+        // first one writing a temp file nobody reads. REPLACE_EXISTING makes the overwrite
+        // unconditional and the move atomic.
+        Files.move(temp.toPath(), indexFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 }

@@ -18,7 +18,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.justnels.agenticdroid.agents.HeadlessAgentRun
 import com.justnels.agenticdroid.agents.HeadlessRunStatus
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -54,7 +56,7 @@ fun AgentRunsScreen(
         AgentRunDetailView(
             run = selected,
             isRunning = isRunning(selected.id),
-            log = readLog(selected.id),
+            readLog = readLog,
             onBack = { selectedId = null },
             onKill = { onKill(selected.id) }
         )
@@ -150,10 +152,22 @@ private fun RunCard(
 private fun AgentRunDetailView(
     run: HeadlessAgentRun,
     isRunning: Boolean,
-    log: String,
+    readLog: (String) -> String,
     onBack: () -> Unit,
     onKill: () -> Unit
 ) {
+    // A run's log can be up to MAX_LOG_BYTES (4 MB) - reading it off the main thread, and
+    // only re-reading on a timer while the run is still active, keeps this screen from
+    // doing a large disk read on every 2-second parent recomposition (see
+    // AgentRunsScreen's polling LaunchedEffect) for a finished run whose log never changes.
+    var log by remember(run.id) { mutableStateOf("") }
+    LaunchedEffect(run.id, isRunning) {
+        do {
+            log = withContext(Dispatchers.IO) { readLog(run.id) }
+            if (isRunning) delay(2000)
+        } while (isRunning)
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
