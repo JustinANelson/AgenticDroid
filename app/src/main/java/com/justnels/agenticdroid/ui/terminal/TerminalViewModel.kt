@@ -69,31 +69,36 @@ class TerminalViewModel(
     private var hasNavigatedToWorkingDirectory = false
     private var hasShortenedPrompt = false
 
-    /**
-     * Whether the SSH remote's interactive shell is cmd.exe, shared by both the
-     * cd-injection and the prompt-shortening below since this class otherwise has no way
-     * to know the remote shell's dialect (see the non-interactive-exec equivalent problem
-     * in SSHExecutionEnvironment.ensurePosixShellDiscovered, which can't be reused here as
-     * that discovery needs a live network round-trip and this runs on the main thread).
-     *
-     * Two independent signals, either sufficient on its own:
-     * 1. [workingDirectory]'s shape (a raw "C:\Users\..." or "C:/Users/..." path - Windows
-     *    accepts forward slashes too). This alone is not reliable: it's blind whenever the
-     *    configured working directory is a *relative* path (e.g. "./Projects/Foo", which
-     *    carries no OS-identifying information at all) - confirmed the hard way, this
-     *    exact case sent the POSIX PS1 command to a Windows remote.
-     * 2. [session]'s own transcript so far, checked for cmd.exe's standard interactive
-     *    startup banner ("Microsoft Windows [Version ...") or its default drive-rooted
-     *    prompt shape ("C:\...>") - text the remote itself already sent, needing no extra
-     *    round-trip. This is what actually catches the relative-working-directory case
-     *    signal 1 misses, since it doesn't depend on the working directory at all.
-     */
-    private fun isWindowsRemote(session: TerminalSession): Boolean {
+    private enum class Dialect { UNKNOWN, WINDOWS, POSIX }
+
+    private fun resolveDialect(session: TerminalSession): Dialect {
+        val envOs = env.getEnvironmentInfo().os
+        if (envOs.contains("Windows", ignoreCase = true)) return Dialect.WINDOWS
+        if (envOs.contains("Linux", ignoreCase = true) || envOs.contains("POSIX", ignoreCase = true)) return Dialect.POSIX
+
         val pathLooksWindows =
             workingDirectory.contains("\\") || Regex("^/?[A-Za-z]:[/\\\\]").containsMatchIn(workingDirectory)
-        if (pathLooksWindows) return true
+        if (pathLooksWindows) return Dialect.WINDOWS
+
         val transcript = runCatching { session.emulator?.screen?.transcriptText }.getOrNull().orEmpty()
-        return transcript.contains("Microsoft Windows") || Regex("[A-Za-z]:\\\\[^>]*>").containsMatchIn(transcript)
+        if (transcript.contains("Microsoft Windows") || Regex("[A-Za-z]:\\\\[^>]*>").containsMatchIn(transcript)) {
+            return Dialect.WINDOWS
+        }
+
+        // Standard POSIX banners or prompts
+        if (transcript.contains("Welcome to") || transcript.contains("last login:", ignoreCase = true) ||
+            transcript.contains(":/$ ") || transcript.contains(":~$ ") || transcript.contains("] $ ")
+        ) {
+            return Dialect.POSIX
+        }
+
+        // If we have a decent amount of text and haven't seen Windows signals, it's likely POSIX
+        // (Windows SSH banners are usually short and recognizable).
+        if (transcript.length > 512 && !transcript.contains("Microsoft Windows")) {
+            return Dialect.POSIX
+        }
+
+        return Dialect.UNKNOWN
     }
 
     private fun flushPendingInput() {
@@ -257,23 +262,38 @@ class TerminalViewModel(
         flushPendingInput()
         onScreenUpdate?.invoke()
 
+        val dialect = resolveDialect(changedSession)
+        if (dialect == Dialect.UNKNOWN) return
+
+        val isWindows = dialect == Dialect.WINDOWS
+
         if (!hasNavigatedToWorkingDirectory && workingDirectory.isNotBlank() && workingDirectory != "." && workingDirectory != getApplication<Application>().filesDir.absolutePath) {
             hasNavigatedToWorkingDirectory = true
             if (env is SSHExecutionEnvironment) {
-                val isWindows = isWindowsRemote(changedSession)
+                val commands = StringBuilder()
                 // cmd.exe's own `cd /d` rejects a leading slash before the drive letter
                 // ("The syntax of the command is incorrect", confirmed directly against
                 // cmd.exe) even though it accepts both "C:/Users/..." and "C:\Users\...".
                 // Only stripped when isWindows, so a genuinely POSIX path (which
                 // legitimately starts with '/') is never touched.
-                val cdCmd = if (isWindows) "cd /d \"${workingDirectory.removePrefix("/")}\"\r\n" else "cd \"$workingDirectory\"\r\n"
-                changedSession.write(cdCmd)
+                val cdCmd = if (isWindows) {
+                    "cd /d \"${workingDirectory.removePrefix("/")}\"\r\n"
+                } else {
+                    "cd \"$workingDirectory\"\n"
+                }
+                commands.append(cdCmd)
+
+                if (shortenDirectoryNames && !hasShortenedPrompt) {
+                    hasShortenedPrompt = true
+                    commands.append(if (isWindows) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
+                }
+                changedSession.write(commands.toString())
             }
         }
 
         if (shortenDirectoryNames && !hasShortenedPrompt) {
             hasShortenedPrompt = true
-            changedSession.write(if (isWindowsRemote(changedSession)) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
+            changedSession.write(if (isWindows) SHORTEN_PROMPT_COMMAND_WINDOWS else SHORTEN_PROMPT_COMMAND_POSIX)
         }
 
         try {
@@ -358,12 +378,10 @@ class TerminalViewModel(
          * this works unmodified on every shell tested (sh, mksh, bash, dash); zsh is the one
          * common exception - it needs `setopt PROMPT_SUBST` for command substitution in
          * prompts, so this enables that first when $ZSH_VERSION is set, then falls through
-         * to the same PS1 assignment. Only sent when [isWindowsRemote] returns false for
-         * the session - a Windows remote's shell is cmd.exe, which can't parse any of this
+         * to the same PS1 assignment. Only sent when [resolveDialect] returns [Dialect.WINDOWS]
          * (confirmed the hard way: `2>/dev/null` alone made cmd.exe fail with "The system
          * cannot find the path specified", trying to redirect to a literal file named
-         * `/dev/null` since that's not a device path on Windows) - see
-         * [SHORTEN_PROMPT_COMMAND_WINDOWS] for that case.
+         * `/dev/null` since that's not a device path on Windows).
          *
          * Ends in `\r\n`, not a bare `\n`: confirmed the hard way that a bare LF doesn't
          * submit the line on at least one shell this reaches (matches sendCommand's own

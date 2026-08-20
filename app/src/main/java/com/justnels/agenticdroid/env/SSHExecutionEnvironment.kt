@@ -291,9 +291,15 @@ class SSHExecutionEnvironment(
     }
 
     override fun getEnvironmentInfo(): EnvironmentInfo {
+        val detectedOs = when {
+            posixShellPath?.contains(":\\", ignoreCase = true) == true -> "Windows"
+            posixShellPath?.contains(":/", ignoreCase = true) == true -> "Windows"
+            posixShellPath?.startsWith("/") == true -> "Linux/POSIX"
+            else -> null
+        }
         return EnvironmentInfo(
             name = "Remote SSH: ${config.host}",
-            os = "Linux (Remote)",
+            os = detectedOs ?: "Remote SSH",
             architecture = "unknown",
             installedTools = emptyList()
         )
