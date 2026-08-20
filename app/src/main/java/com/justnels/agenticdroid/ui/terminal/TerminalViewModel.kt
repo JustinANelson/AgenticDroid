@@ -35,7 +35,8 @@ class TerminalViewModel(
     application: Application,
     private val env: ExecutionEnvironment,
     private val workingDirectory: String,
-    private val onSessionEnded: () -> Unit = {}
+    private val onSessionEnded: () -> Unit = {},
+    private val shortenDirectoryNames: Boolean = false
 ) : AndroidViewModel(application), TerminalSessionClient {
 
     var session by mutableStateOf<TerminalSession?>(null)
@@ -66,6 +67,7 @@ class TerminalViewModel(
     // Launch tap reliable - see the known issue noted on sendCommand/onLaunchAgent.
     private val pendingInput = mutableListOf<String>()
     private var hasNavigatedToWorkingDirectory = false
+    private var hasShortenedPrompt = false
 
     private fun flushPendingInput() {
         if (pendingInput.isEmpty()) return
@@ -237,6 +239,11 @@ class TerminalViewModel(
             }
         }
 
+        if (shortenDirectoryNames && !hasShortenedPrompt) {
+            hasShortenedPrompt = true
+            changedSession.write(SHORTEN_PROMPT_COMMAND)
+        }
+
         try {
             val emulator = changedSession.emulator
             val screen = emulator.screen
@@ -306,6 +313,24 @@ class TerminalViewModel(
 
     companion object {
         private const val TAG = "TerminalViewModel"
+
+        /**
+         * Shortens the shell prompt to just the working directory's own name instead of its
+         * full path, mirroring the "shorten directory paths" display setting used elsewhere
+         * (RemoteBrowserScreen). Written once as the shell's very first input, before any
+         * command the user or an agent sends - a plain PS1 override rather than relying on
+         * bash/zsh-specific escapes (\W, %1~), since this session's actual shell varies by
+         * environment (Android's mksh-derived /system/bin/sh locally, bash from the bundled
+         * Node runtime, or whatever's configured as the remote user's login shell over SSH).
+         * `$(...)` inside PS1 is POSIX-mandated to be re-evaluated on every prompt draw, so
+         * this works unmodified on every shell tested (sh, mksh, bash, dash); zsh is the one
+         * common exception - it needs `setopt PROMPT_SUBST` for command substitution in
+         * prompts, so this enables that first when $ZSH_VERSION is set, then falls through
+         * to the same PS1 assignment.
+         */
+        private val SHORTEN_PROMPT_COMMAND =
+            "[ -n \"\$ZSH_VERSION\" ] && setopt PROMPT_SUBST 2>/dev/null; " +
+                "PS1='\$(basename \"\$PWD\")\$ '\n"
 
         private val ANSI_REGEX = Regex("\u001B\\[[0-9;?]*[a-zA-Z]|\u001B\\][^\u0007\u001B]*[\u0007\u001B]\\\\?")
         private val URL_START_REGEX = Regex("https?://[a-zA-Z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+", RegexOption.IGNORE_CASE)
