@@ -117,10 +117,72 @@ class LocalFileSystemAccess : FileSystemAccess {
         }
     }
 
-    override fun downloadFile(remotePath: String, localDest: File) {
+    override fun getFileSize(path: String): Long {
+        val f = File(path)
+        return if (f.exists()) f.length() else -1L
+    }
+
+    override fun downloadFile(
+        remotePath: String,
+        localDest: File,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
         val src = File(remotePath)
-        if (src.absolutePath != localDest.absolutePath) {
-            src.copyTo(localDest, overwrite = true)
+        if (src.absolutePath == localDest.absolutePath) return
+        localDest.parentFile?.mkdirs()
+        src.inputStream().use { input ->
+            localDest.outputStream().use { output ->
+                copyStreamWithProgress(input, output, src.length(), onProgress)
+            }
+        }
+    }
+
+    override fun downloadStream(
+        remotePath: String,
+        outputStream: OutputStream,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        val src = File(remotePath)
+        src.inputStream().use { input ->
+            copyStreamWithProgress(input, outputStream, src.length(), onProgress)
+        }
+    }
+
+    override fun uploadFile(
+        localSrc: File,
+        remotePath: String,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        val dest = File(remotePath)
+        if (localSrc.absolutePath == dest.absolutePath) return
+        dest.parentFile?.mkdirs()
+        localSrc.inputStream().use { input ->
+            dest.outputStream().use { output ->
+                copyStreamWithProgress(input, output, localSrc.length(), onProgress)
+            }
+        }
+    }
+
+    override fun uploadStream(
+        inputStream: InputStream,
+        remotePath: String,
+        totalBytes: Long,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        val dest = File(remotePath)
+        dest.parentFile?.mkdirs()
+        val temp = File(dest.parentFile ?: dest, ".agentic-up-${dest.name}-${System.nanoTime()}.tmp")
+        try {
+            temp.outputStream().use { output ->
+                copyStreamWithProgress(inputStream, output, totalBytes, onProgress)
+            }
+            if (dest.exists()) dest.delete()
+            if (!temp.renameTo(dest)) {
+                temp.copyTo(dest, overwrite = true)
+                temp.delete()
+            }
+        } finally {
+            if (temp.exists()) temp.delete()
         }
     }
 }

@@ -549,8 +549,87 @@ class SSHFileSystemAccess(
         }
     }
 
-    override fun downloadFile(remotePath: String, localDest: File) = useSftp { sftp ->
-        sftp.get(remotePath, net.schmizz.sshj.xfer.FileSystemFile(localDest))
+    override fun getFileSize(path: String): Long = useSftp { sftp ->
+        try {
+            sftp.stat(path).size
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    override fun downloadStream(
+        remotePath: String,
+        outputStream: OutputStream,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ): Unit = useSftp { sftp ->
+        val totalSize = runCatching { sftp.stat(remotePath).size }.getOrDefault(-1L)
+        sftp.open(remotePath, setOf(net.schmizz.sshj.sftp.OpenMode.READ)).use { remoteFile ->
+            remoteFile.RemoteFileInputStream().use { input ->
+                copyStreamWithProgress(input, outputStream, totalSize, onProgress)
+            }
+        }
+    }
+
+    override fun downloadFile(
+        remotePath: String,
+        localDest: File,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        localDest.parentFile?.mkdirs()
+        val temp = File(localDest.parentFile ?: localDest, ".agentic-dl-${localDest.name}-${System.nanoTime()}.tmp")
+        try {
+            temp.outputStream().use { out ->
+                downloadStream(remotePath, out, onProgress)
+            }
+            if (localDest.exists()) localDest.delete()
+            if (!temp.renameTo(localDest)) {
+                temp.copyTo(localDest, overwrite = true)
+                temp.delete()
+            }
+        } finally {
+            if (temp.exists()) temp.delete()
+        }
+    }
+
+    override fun uploadFile(
+        localSrc: File,
+        remotePath: String,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        localSrc.inputStream().use { input ->
+            uploadStream(input, remotePath, localSrc.length(), onProgress)
+        }
+    }
+
+    override fun uploadStream(
+        inputStream: InputStream,
+        remotePath: String,
+        totalBytes: Long,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ): Unit = useSftp { sftp ->
+        val temporaryPath = "$remotePath.agenticdroid-${System.nanoTime()}.tmp"
+        try {
+            sftp.open(
+                temporaryPath,
+                setOf(
+                    net.schmizz.sshj.sftp.OpenMode.WRITE,
+                    net.schmizz.sshj.sftp.OpenMode.CREAT,
+                    net.schmizz.sshj.sftp.OpenMode.TRUNC
+                )
+            ).use { remoteFile ->
+                remoteFile.RemoteFileOutputStream().use { output ->
+                    copyStreamWithProgress(inputStream, output, totalBytes, onProgress)
+                }
+            }
+            try {
+                sftp.rename(temporaryPath, remotePath)
+            } catch (first: Exception) {
+                runCatching { sftp.rm(remotePath) }
+                sftp.rename(temporaryPath, remotePath)
+            }
+        } finally {
+            runCatching { sftp.rm(temporaryPath) }
+        }
     }
 
     override fun <T> withBatch(block: (FileSystemAccess) -> T): T {

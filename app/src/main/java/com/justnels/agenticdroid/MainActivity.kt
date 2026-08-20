@@ -24,6 +24,7 @@ import com.justnels.agenticdroid.ui.workspace.FileTree
 import com.justnels.agenticdroid.ui.workspace.SearchScreen
 import com.justnels.agenticdroid.ui.workspace.RemoteBrowserScreen
 import com.justnels.agenticdroid.env.EnvironmentConfig
+import com.justnels.agenticdroid.ui.editor.EditorTabs
 import com.justnels.agenticdroid.ui.editor.CodeEditor
 import com.justnels.agenticdroid.ui.settings.SettingsScreen
 import com.justnels.agenticdroid.ui.env.EnvironmentScreen
@@ -181,24 +182,49 @@ fun MainScreen(viewModel: MainViewModel) {
                                 }
                             )
                         } else {
-                    if (viewModel.openedFile != null) {
+                    if (viewModel.activeSession != null) {
                         Column {
+                            EditorTabs(
+                                sessions = viewModel.editorSessions,
+                                activeIndex = viewModel.activeSessionIndex,
+                                onTabSelected = { viewModel.activeSessionIndex = it },
+                                onTabClosed = { viewModel.closeSession(it) }
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
-                                Text(viewModel.openedFile!!.name, style = MaterialTheme.typography.titleMedium)
-                                IconButton(onClick = { 
-                                    viewModel.saveOpenedFile()
-                                }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close")
+                                Text(viewModel.activeSession!!.file.name, style = MaterialTheme.typography.titleMedium)
+                                Row {
+                                    IconButton(onClick = { 
+                                        viewModel.saveActiveSession()
+                                    }) {
+                                        Icon(Icons.Default.Save, contentDescription = "Save")
+                                    }
+                                    IconButton(onClick = { 
+                                        viewModel.closeActiveSession()
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close")
+                                    }
                                 }
                             }
                             CodeEditor(
-                                content = viewModel.fileContent,
-                                onContentChange = { viewModel.fileContent = it },
-                                fileName = viewModel.openedFile!!.name
+                                content = viewModel.activeSession!!.content,
+                                onContentChange = { viewModel.updateActiveSessionContent(it) },
+                                fileName = viewModel.activeSession!!.file.name,
+                                fileId = viewModel.activeSession!!.file.path,
+                                diagnostics = viewModel.diagnostics["file://${viewModel.activeSession!!.file.absolutePath}"] ?: emptyList(),
+                                completionResults = viewModel.completionResults,
+                                onTriggerCompletion = { line, char -> viewModel.triggerCompletion(line, char) },
+                                onClearCompletion = { viewModel.clearCompletion() },
+                                pendingScrollToLine = viewModel.pendingScrollToLine,
+                                onLineScrolled = { viewModel.onLineScrolled() },
+                                onGoToDefinition = { line, char -> viewModel.goToDefinition(line, char) },
+                                onFindUsages = { line, char -> viewModel.findUsages(line, char) },
+                                usagesResults = viewModel.usagesResults,
+                                onClearUsages = { viewModel.clearUsages() },
+                                onOpenFile = { viewModel.openFile(it) }
                             )
                         }
                     } else if (environmentManager.activeEnvironment is EnvironmentConfig.SSH && viewModel.selectedProject == null) {
@@ -208,6 +234,14 @@ fun MainScreen(viewModel: MainViewModel) {
                             rootPath = ssh.config.workingDirectory,
                             onOpenFile = viewModel::openRemoteFile,
                             onOpenProject = viewModel::selectRemoteProject,
+                            onUploadFile = viewModel::uploadFileToRemote,
+                            onDownloadFile = viewModel::downloadRemoteFile,
+                            onDownloadDirectoryArchive = viewModel::downloadRemoteDirectoryArchive,
+                            onDeleteFile = viewModel::deleteFile,
+                            onRenameFile = viewModel::renameFile,
+                            transfers = viewModel.transfers,
+                            onCancelTransfer = viewModel::cancelTransfer,
+                            onDismissTransfer = viewModel::dismissTransfer,
                             shortenDirectoryNames = viewModel.shortenDirectoryNames
                         )
                     } else if (viewModel.selectedProject == null) {
@@ -543,6 +577,13 @@ fun MainScreen(viewModel: MainViewModel) {
                                 hintsShown = viewModel.hintsShown,
                                 onDismiss = { viewModel.markHintShown(it) }
                             )
+                            if (viewModel.transfers.isNotEmpty()) {
+                                com.justnels.agenticdroid.ui.components.TransferProgressBanner(
+                                    transfers = viewModel.transfers,
+                                    onCancel = viewModel::cancelTransfer,
+                                    onDismiss = viewModel::dismissTransfer
+                                )
+                            }
                             FileTree(
                                 nodes = nodes,
                                 onFileSelected = { path ->
@@ -550,7 +591,9 @@ fun MainScreen(viewModel: MainViewModel) {
                                 },
                                 onDelete = { viewModel.deleteFile(it) },
                                 onRename = { old, new -> viewModel.renameFile(old, new) },
-                                onCopy = { src, dest -> viewModel.copyFile(src, dest) }
+                                onCopy = { src, dest -> viewModel.copyFile(src, dest) },
+                                onDownload = if (currentProject.isRemote) { path, name -> viewModel.downloadRemoteFile(path, name) } else null,
+                                onDownloadArchive = if (currentProject.isRemote) { path -> viewModel.downloadRemoteDirectoryArchive(path) } else null
                             )
                             }
                         }

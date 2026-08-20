@@ -319,7 +319,7 @@ object NodeRuntime {
             }
         }.getOrElse { return }
         for (index in 0 until mappings.length()) {
-            val relativePath = java.nio.file.Path.of(
+            val relativePath = java.nio.file.Paths.get(
                 mappings.getJSONObject(index).getString("path")
             ).normalize()
             if (relativePath.isAbsolute || relativePath.startsWith("..")) continue
@@ -349,7 +349,7 @@ object NodeRuntime {
             val relative = item.getString("path")
             if (relative in excludedPaths) continue
             val targetName = item.getString("target")
-            val relativePath = java.nio.file.Path.of(relative).normalize()
+            val relativePath = java.nio.file.Paths.get(relative).normalize()
             if (relativePath.isAbsolute || relativePath.startsWith("..")) continue
             val link = File(usr, relativePath.toString())
             val target = File(context.applicationInfo.nativeLibraryDir, targetName)

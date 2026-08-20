@@ -118,6 +118,28 @@ fun ProcessSession.capture(
     }
 }
 
+/** Helper to copy streams with progress reporting without loading large files into memory. */
+fun copyStreamWithProgress(
+    input: InputStream,
+    output: OutputStream,
+    totalBytes: Long = -1L,
+    onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)? = null,
+    bufferSize: Int = 64 * 1024
+): Long {
+    val buffer = ByteArray(bufferSize)
+    var transferred = 0L
+    onProgress?.invoke(0L, totalBytes)
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        output.write(buffer, 0, read)
+        transferred += read
+        onProgress?.invoke(transferred, totalBytes)
+    }
+    output.flush()
+    return transferred
+}
+
 interface FileSystemAccess {
     fun listEntries(path: String): List<FileSystemEntry>
     fun listFiles(path: String): List<File> = listEntries(path).map { File(it.path) }
@@ -127,8 +149,63 @@ interface FileSystemAccess {
     fun exists(path: String): Boolean
     fun renameFile(oldPath: String, newPath: String): Boolean
     fun copyFile(srcPath: String, destPath: String): Boolean
-    /** Downloads a remote file to a local destination. */
-    fun downloadFile(remotePath: String, localDest: File)
+    fun getFileSize(path: String): Long = -1L
+
+    /** Downloads a remote file to a local destination with optional progress reporting. */
+    fun downloadFile(
+        remotePath: String,
+        localDest: File,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)? = null
+    ) {
+        localDest.parentFile?.mkdirs()
+        val temp = File(localDest.parentFile ?: localDest, ".agentic-dl-${localDest.name}-${System.nanoTime()}.tmp")
+        try {
+            temp.outputStream().use { out ->
+                downloadStream(remotePath, out, onProgress)
+            }
+            if (localDest.exists()) localDest.delete()
+            if (!temp.renameTo(localDest)) {
+                temp.copyTo(localDest, overwrite = true)
+                temp.delete()
+            }
+        } finally {
+            if (temp.exists()) temp.delete()
+        }
+    }
+
+    /** Downloads a remote file directly into an OutputStream with optional progress reporting. */
+    fun downloadStream(
+        remotePath: String,
+        outputStream: OutputStream,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)? = null
+    ) {
+        val temp = File.createTempFile("agentic-dl-stream-", ".tmp")
+        try {
+            downloadFile(remotePath, temp, onProgress)
+            temp.inputStream().use { input -> input.copyTo(outputStream) }
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** Uploads a local file to a remote destination with optional progress reporting. */
+    fun uploadFile(
+        localSrc: File,
+        remotePath: String,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)? = null
+    ) {
+        localSrc.inputStream().use { input ->
+            uploadStream(input, remotePath, localSrc.length(), onProgress)
+        }
+    }
+
+    /** Uploads an arbitrary stream to a remote destination with optional progress reporting. */
+    fun uploadStream(
+        inputStream: InputStream,
+        remotePath: String,
+        totalBytes: Long = -1L,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)? = null
+    )
 
     /**
      * Executes the given block within a shared batch session (e.g., reusing an open SFTP channel)

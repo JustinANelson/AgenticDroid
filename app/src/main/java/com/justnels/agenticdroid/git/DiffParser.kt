@@ -1,103 +1,177 @@
 package com.justnels.agenticdroid.git
 
-enum class DiffLineType { CONTEXT, ADD, REMOVE }
-
-data class DiffLine(
-    val type: DiffLineType,
-    val text: String,
-    val oldLineNo: Int?,
-    val newLineNo: Int?
-)
-
-data class DiffHunk(val header: String, val lines: List<DiffLine>)
-
-data class FileDiff(
+data class DiffFile(
     val oldPath: String,
     val newPath: String,
-    val isNew: Boolean,
-    val isDeleted: Boolean,
-    val isRenamed: Boolean,
-    val hunks: List<DiffHunk>
+    val hunks: List<DiffHunk>,
+    val isNew: Boolean = false,
+    val isDeleted: Boolean = false,
+    val isRenamed: Boolean = false
 ) {
+    val fileName: String get() = newPath.substringAfterLast('/').ifEmpty { newPath }
     val displayPath: String get() = if (isRenamed) "$oldPath -> $newPath" else newPath
-    val additions: Int get() = hunks.sumOf { hunk -> hunk.lines.count { it.type == DiffLineType.ADD } }
-    val deletions: Int get() = hunks.sumOf { hunk -> hunk.lines.count { it.type == DiffLineType.REMOVE } }
+    val additions: Int get() = hunks.sumOf { h -> h.lines.count { it.type == DiffLine.Type.ADDED } }
+    val deletions: Int get() = hunks.sumOf { h -> h.lines.count { it.type == DiffLine.Type.REMOVED } }
 }
 
-private val FILE_HEADER = Regex("^diff --git a/(.*) b/(.*)$")
-private val HUNK_HEADER = Regex("^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*$")
+data class DiffHunk(
+    val header: String,
+    val lines: List<DiffLine>
+)
 
-/** Parses `git diff`'s unified output into per-file, per-hunk structured lines for review UI. */
-fun parseUnifiedDiff(diffText: String): List<FileDiff> {
-    if (diffText.isBlank()) return emptyList()
-    val lines = diffText.lines()
-    val files = mutableListOf<FileDiff>()
+data class DiffLine(
+    val type: Type,
+    val content: String,
+    val oldLineNo: Int?,
+    val newLineNo: Int?
+) {
+    val text: String get() = content
 
-    var i = 0
-    while (i < lines.size) {
-        val headerMatch = FILE_HEADER.find(lines[i])
-        if (headerMatch == null) {
-            i++
-            continue
+    enum class Type { 
+        ADDED, REMOVED, NEUTRAL;
+
+        companion object {
+            val ADD = ADDED
+            val REMOVE = REMOVED
+            val CONTEXT = NEUTRAL
         }
-        var oldPath = headerMatch.groupValues[1]
-        var newPath = headerMatch.groupValues[2]
-        i++
-
-        var isNew = false
-        var isDeleted = false
-        var isRenamed = false
-        while (i < lines.size && !lines[i].startsWith("@@") && !lines[i].startsWith("diff --git")) {
-            val line = lines[i]
-            when {
-                line.startsWith("new file mode") -> isNew = true
-                line.startsWith("deleted file mode") -> isDeleted = true
-                line.startsWith("rename from ") -> { isRenamed = true; oldPath = line.removePrefix("rename from ") }
-                line.startsWith("rename to ") -> { isRenamed = true; newPath = line.removePrefix("rename to ") }
-                line.startsWith("--- ") || line.startsWith("+++ ") -> { /* redundant with a/ b/ header */ }
-            }
-            i++
-        }
-
-        val hunks = mutableListOf<DiffHunk>()
-        while (i < lines.size && lines[i].startsWith("@@")) {
-            val hunkMatch = HUNK_HEADER.find(lines[i]) ?: break
-            var oldLine = hunkMatch.groupValues[1].toInt()
-            var newLine = hunkMatch.groupValues[2].toInt()
-            val header = lines[i]
-            i++
-            val hunkLines = mutableListOf<DiffLine>()
-            while (i < lines.size && lines[i].startsWith("diff --git").not() && lines[i].startsWith("@@").not()) {
-                val raw = lines[i]
-                if (raw.isEmpty()) {
-                    // A blank line inside a hunk is a context line with empty content.
-                    hunkLines += DiffLine(DiffLineType.CONTEXT, "", oldLine, newLine)
-                    oldLine++; newLine++
-                    i++
-                    continue
-                }
-                when (raw[0]) {
-                    '+' -> {
-                        hunkLines += DiffLine(DiffLineType.ADD, raw.substring(1), null, newLine)
-                        newLine++
-                    }
-                    '-' -> {
-                        hunkLines += DiffLine(DiffLineType.REMOVE, raw.substring(1), oldLine, null)
-                        oldLine++
-                    }
-                    ' ' -> {
-                        hunkLines += DiffLine(DiffLineType.CONTEXT, raw.substring(1), oldLine, newLine)
-                        oldLine++; newLine++
-                    }
-                    else -> break
-                }
-                i++
-            }
-            hunks += DiffHunk(header, hunkLines)
-        }
-
-        files += FileDiff(oldPath, newPath, isNew, isDeleted, isRenamed, hunks)
     }
-
-    return files
 }
+
+typealias DiffLineType = DiffLine.Type
+
+fun parseUnifiedDiff(rawDiff: String): List<DiffFile> = DiffParser.parse(rawDiff)
+
+object DiffParser {
+    fun parse(rawDiff: String): List<DiffFile> {
+        if (rawDiff.isBlank()) return emptyList()
+        val files = mutableListOf<DiffFile>()
+        var currentOldPath: String? = null
+        var currentNewPath: String? = null
+        var isNewFile = false
+        var isDeletedFile = false
+        var isRenamedFile = false
+        var currentHunks = mutableListOf<DiffHunk>()
+        var currentHunkHeader: String? = null
+        var currentLines = mutableListOf<DiffLine>()
+        
+        var oldLineStart = 0
+        var newLineStart = 0
+        var oldLineCount = 0
+        var newLineCount = 0
+        
+        fun finalizeFile() {
+            if (currentOldPath != null || currentNewPath != null) {
+                if (currentHunkHeader != null) {
+                    currentHunks.add(DiffHunk(currentHunkHeader!!, currentLines.toList()))
+                }
+                val old = currentOldPath ?: currentNewPath ?: "unknown"
+                val new = currentNewPath ?: currentOldPath ?: "unknown"
+                files.add(
+                    DiffFile(
+                        oldPath = old,
+                        newPath = new,
+                        hunks = currentHunks.toList(),
+                        isNew = isNewFile,
+                        isDeleted = isDeletedFile,
+                        isRenamed = isRenamedFile || (old != new && !isNewFile && !isDeletedFile && old != "unknown")
+                    )
+                )
+            }
+        }
+
+        val lines = rawDiff.lines()
+        var i = 0
+        while (i < lines.size) {
+            val line = lines[i]
+            
+            when {
+                line.startsWith("diff --git") -> {
+                    finalizeFile()
+                    
+                    // Start new file
+                    currentHunks = mutableListOf()
+                    currentHunkHeader = null
+                    currentLines = mutableListOf()
+                    isNewFile = false
+                    isDeletedFile = false
+                    isRenamedFile = false
+                    
+                    // Parse paths from diff --git a/old b/new
+                    val parts = line.split(" ")
+                    val oldPath = parts.getOrNull(2)?.removePrefix("a/") ?: "unknown"
+                    val newPath = parts.getOrNull(3)?.removePrefix("b/") ?: oldPath
+                    currentOldPath = oldPath
+                    currentNewPath = newPath
+                }
+                line.startsWith("new file mode") -> {
+                    isNewFile = true
+                }
+                line.startsWith("deleted file mode") -> {
+                    isDeletedFile = true
+                }
+                line.startsWith("rename from ") -> {
+                    isRenamedFile = true
+                    currentOldPath = line.removePrefix("rename from ").trim()
+                }
+                line.startsWith("rename to ") -> {
+                    isRenamedFile = true
+                    currentNewPath = line.removePrefix("rename to ").trim()
+                }
+                line.startsWith("--- ") -> {
+                    val path = line.removePrefix("--- ").trim()
+                    if (path == "/dev/null") {
+                        isNewFile = true
+                    }
+                }
+                line.startsWith("+++ ") -> {
+                    val path = line.removePrefix("+++ ").trim()
+                    if (path == "/dev/null") {
+                        isDeletedFile = true
+                    }
+                }
+                line.startsWith("@@") -> {
+                    // Finalize previous hunk
+                    if (currentHunkHeader != null) {
+                        currentHunks.add(DiffHunk(currentHunkHeader, currentLines.toList()))
+                    }
+                    
+                    // Parse @@ -1,3 +1,4 @@
+                    currentHunkHeader = line
+                    currentLines = mutableListOf()
+                    
+                    val match = Regex("""@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@""").find(line)
+                    if (match != null) {
+                        oldLineStart = match.groupValues[1].toIntOrNull() ?: 1
+                        oldLineCount = 0
+                        newLineStart = match.groupValues[3].toIntOrNull() ?: 1
+                        newLineCount = 0
+                    }
+                }
+                currentHunkHeader != null -> {
+                    when {
+                        line.startsWith("+") && !line.startsWith("+++") -> {
+                            currentLines.add(DiffLine(DiffLine.Type.ADDED, line.substring(1), null, newLineStart + newLineCount))
+                            newLineCount++
+                        }
+                        line.startsWith("-") && !line.startsWith("---") -> {
+                            currentLines.add(DiffLine(DiffLine.Type.REMOVED, line.substring(1), oldLineStart + oldLineCount, null))
+                            oldLineCount++
+                        }
+                        line.startsWith(" ") || line.isEmpty() -> {
+                            currentLines.add(DiffLine(DiffLine.Type.NEUTRAL, if (line.isNotEmpty()) line.substring(1) else "", oldLineStart + oldLineCount, newLineStart + newLineCount))
+                            oldLineCount++
+                            newLineCount++
+                        }
+                        // Ignore other headers
+                    }
+                }
+            }
+            i++
+        }
+        
+        finalizeFile()
+        return files
+    }
+}
+

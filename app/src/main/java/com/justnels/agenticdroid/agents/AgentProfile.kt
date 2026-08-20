@@ -437,5 +437,24 @@ object DefaultAgents {
         defaultArgs = listOf("--sandbox=false")
     )
 
-    val All = listOf(Codex, Claude, Gemini, Antigravity)
+    /**
+     * Aider is a popular AI pair programming tool. It requires a Python environment
+     * with pip. This install command assumes `pip` is available (see PYTHON runner group).
+     */
+    private fun aiderInstallCommand(): String = """
+        if ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
+          echo "Aider requires Python and pip. Please install the Python toolchain in Settings -> Environments." >&2
+          exit 1
+        fi
+        pip install aider-chat
+    """.trimIndent()
+
+    val Aider = AgentProfile(
+        id = "aider",
+        name = "Aider",
+        command = "aider",
+        installCommand = aiderInstallCommand(),
+    )
+
+    val All = listOf(Codex, Claude, Gemini, Aider, Antigravity)
 }

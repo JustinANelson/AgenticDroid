@@ -76,7 +76,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             signingConfigs.findByName("release")?.let { signingConfig = it }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -120,6 +120,15 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/LICENSE.md"
             excludes += "META-INF/NOTICE.md"
+            // zstd-jni bundles native libs for every desktop platform (Windows/macOS/Linux
+            // x86 and ARM) so the same jar works unmodified on the JVM. None of those can
+            // ever load on Android - only lib/arm64-v8a/libzstd-jni-*.so (packaged via the
+            // jniLibs mechanism below, unaffected by these excludes) is actually used here.
+            excludes += "win/**"
+            excludes += "darwin/**"
+            excludes += "linux/**"
+            excludes += "freebsd/**"
+            excludes += "aix/**"
         }
     }
     lint {
@@ -152,6 +161,8 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.termux.terminal.emulator)
     implementation(libs.termux.terminal.view)
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:1.0.0")
+    implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:1.0.0")
 
     testImplementation(libs.junit)
     // Real org.json impl for JVM unit tests - the Android SDK's org.json classes on the

@@ -1,9 +1,6 @@
 package com.justnels.agenticdroid.ui.git
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -14,10 +11,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-
-private val addedColor = androidx.compose.ui.graphics.Color(0xFF2E7D32)
-private val removedColor = androidx.compose.ui.graphics.Color(0xFFC62828)
-private val hunkColor = androidx.compose.ui.graphics.Color(0xFF1565C0)
+import com.justnels.agenticdroid.git.DiffParser
 
 /** Full-screen review of the working tree's pending changes: a unified diff plus untracked files. */
 @Composable
@@ -57,61 +51,16 @@ fun DiffReviewDialog(
                         }
                     }
                     else -> {
-                        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-                            if (untrackedFiles.isNotEmpty()) {
-                                item {
-                                    Text(
-                                        text = "Untracked files",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
-                                    )
-                                }
-                                items(untrackedFiles) { path ->
-                                    Text(
-                                        text = path,
-                                        fontFamily = FontFamily.Monospace,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = addedColor,
-                                        modifier = Modifier.padding(vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            if (!rawDiff.isNullOrBlank()) {
-                                item {
-                                    Text(
-                                        text = "Diff",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
-                                    )
-                                }
-                                items(rawDiff.lines()) { line ->
-                                    DiffLine(line)
-                                }
-                            }
-                            item { Spacer(modifier = Modifier.height(16.dp)) }
+                        val parsedFiles = remember(rawDiff) {
+                            rawDiff?.let { DiffParser.parse(it) } ?: emptyList()
                         }
+                        VisualDiffView(
+                            files = parsedFiles,
+                            untrackedFiles = untrackedFiles
+                        )
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun DiffLine(line: String) {
-    val (color, background) = when {
-        line.startsWith("+++") || line.startsWith("---") -> MaterialTheme.colorScheme.onSurfaceVariant to androidx.compose.ui.graphics.Color.Transparent
-        line.startsWith("+") -> addedColor to addedColor.copy(alpha = 0.12f)
-        line.startsWith("-") -> removedColor to removedColor.copy(alpha = 0.12f)
-        line.startsWith("@@") -> hunkColor to hunkColor.copy(alpha = 0.12f)
-        line.startsWith("diff --git") || line.startsWith("index ") -> MaterialTheme.colorScheme.primary to androidx.compose.ui.graphics.Color.Transparent
-        else -> MaterialTheme.colorScheme.onSurface to androidx.compose.ui.graphics.Color.Transparent
-    }
-    Text(
-        text = line.ifEmpty { " " },
-        fontFamily = FontFamily.Monospace,
-        style = MaterialTheme.typography.bodySmall,
-        color = color,
-        modifier = Modifier.fillMaxWidth().background(background)
-    )
 }

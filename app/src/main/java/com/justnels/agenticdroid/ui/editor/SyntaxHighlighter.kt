@@ -24,9 +24,13 @@ object SyntaxHighlighter {
         "resources", "style", "item", "string", "color", "dimen", "drawable"
     )
 
-    fun highlight(code: String, fileName: String = "file.kt"): AnnotatedString {
+    fun highlight(
+        code: String,
+        fileName: String = "file.kt",
+        diagnostics: List<org.eclipse.lsp4j.Diagnostic> = emptyList()
+    ): AnnotatedString {
         val extension = fileName.substringAfterLast('.', "")
-        return buildAnnotatedString {
+        val base = buildAnnotatedString {
             when (extension) {
                 "kt", "java" -> highlightKotlin(code)
                 "xml", "html" -> highlightXml(code)
@@ -35,6 +39,36 @@ object SyntaxHighlighter {
                 else -> append(code)
             }
         }
+
+        if (diagnostics.isEmpty()) return base
+
+        return buildAnnotatedString {
+            append(base)
+            diagnostics.forEach { diag ->
+                val start = getOffset(code, diag.range.start.line, diag.range.start.character)
+                val end = getOffset(code, diag.range.end.line, diag.range.end.character)
+                if (start in code.indices && end <= code.length && start < end) {
+                    addStyle(
+                        SpanStyle(
+                            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                            color = if (diag.severity == org.eclipse.lsp4j.DiagnosticSeverity.Error) Color.Red else Color.Yellow
+                        ),
+                        start,
+                        end
+                    )
+                }
+            }
+        }
+    }
+
+    private fun getOffset(code: String, line: Int, character: Int): Int {
+        val lines = code.lines()
+        if (line !in lines.indices) return code.length
+        var offset = 0
+        for (i in 0 until line) {
+            offset += lines[i].length + 1 // +1 for \n
+        }
+        return offset + character
     }
 
     private fun AnnotatedString.Builder.highlightKotlin(code: String) {

@@ -60,6 +60,7 @@ fun TerminalScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .background(Color.Black)
     ) {
         HintBox(

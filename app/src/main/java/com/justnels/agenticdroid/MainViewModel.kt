@@ -25,12 +25,16 @@ import com.justnels.agenticdroid.util.ApkInstaller
 import com.justnels.agenticdroid.workspace.Project
 import com.justnels.agenticdroid.BuildConfig
 import com.justnels.agenticdroid.workspace.WorkspaceManager
+import com.justnels.agenticdroid.lsp.LspManager
+import com.justnels.agenticdroid.mcp.ContextBridgeServer
+import org.json.JSONArray
+import org.json.JSONObject
+import org.eclipse.lsp4j.PublishDiagnosticsParams
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.justnels.agenticdroid.util.NetworkUtil
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -89,19 +93,82 @@ data class GithubDeviceFlowState(
     val verificationUri: String
 )
 
+data class EditorSession(
+    val file: File,
+    val environment: com.justnels.agenticdroid.env.EnvironmentConfig?,
+    val initialContent: String,
+    var content: String,
+    var isDirty: Boolean = false
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     val workspaceRoot = migrateLegacyWorkspaces(application)
     
     val workspaceManager = WorkspaceManager(workspaceRoot)
     val agentManager = AgentManager()
     val environmentManager = EnvironmentManager(application)
+    val transferManager = com.justnels.agenticdroid.util.FileTransferManager(application)
+    val transfers get() = transferManager.transfers
+    val lspManager = LspManager { ext, params ->
+        viewModelScope.launch(Dispatchers.Main) {
+            updateDiagnostics(params)
+        }
+    }
 
-    // The Terminal screen backs every agent launch with one shared, persistent shell (see
-    // TerminalViewModel) - once an agent's TUI owns that shell's foreground, typing another
-    // agent's launch script into it would just be interpreted as chat input by the running
-    // agent (junk prompts, wasted turns/tokens) rather than executed as shell commands.
-    // Tracks which agent currently owns the shell so the launcher can block/guard against
-    // that instead of silently corrupting whatever is running.
+    private val bridgeServer = ContextBridgeServer(
+        port = 41337,
+        getActiveTab = {
+            activeSession?.let { session ->
+                JSONObject().apply {
+                    put("name", session.file.name)
+                    put("path", session.file.absolutePath)
+                    put("content", session.content)
+                    put("isDirty", session.isDirty)
+                }
+            }
+        },
+        getAllTabs = {
+            JSONArray().apply {
+                editorSessions.forEach { session ->
+                    put(JSONObject().apply {
+                        put("name", session.file.name)
+                        put("path", session.file.absolutePath)
+                    })
+                }
+            }
+        },
+        saveActiveTab = {
+            saveActiveSession()
+            true
+        }
+    )
+
+    var diagnostics by mutableStateOf<Map<String, List<org.eclipse.lsp4j.Diagnostic>>>(emptyMap())
+        private set
+
+    private fun updateDiagnostics(params: PublishDiagnosticsParams) {
+        diagnostics = diagnostics + (params.uri to params.diagnostics)
+    }
+
+    var completionResults by mutableStateOf<List<org.eclipse.lsp4j.CompletionItem>>(emptyList())
+        private set
+
+    fun triggerCompletion(line: Int, character: Int) {
+        val session = activeSession ?: return
+        val ext = session.file.extension
+        val uri = "file://${session.file.absolutePath}"
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            val future = lspManager.requestCompletion(ext, uri, line, character)
+            val result = runCatching { future?.get() }.getOrNull() ?: return@launch
+            
+            val items = if (result.isLeft) result.left else result.right.items
+            withContext(Dispatchers.Main) {
+                completionResults = items
+            }
+        }
+    }
+
     var activeAgent by mutableStateOf<com.justnels.agenticdroid.agents.AgentProfile?>(null)
         private set
 
@@ -109,9 +176,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         activeAgent = agent
     }
 
-    /** Best-effort: the caller is responsible for actually interrupting/exiting the running
-     * agent (e.g. sending Ctrl+C) before or after calling this - this only clears the
-     * tracked state so the launcher unblocks other agents again. */
     fun onAgentStopped() {
         activeAgent = null
     }
@@ -121,12 +185,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isCheckingInstalledAgents by mutableStateOf(false)
         private set
 
-    /** Probes `command -v <agent command>` for every known agent against the active
-     * environment, so the launcher can show install status up front instead of only
-     * discovering it (with a multi-minute npm/QEMU-wrap install as the consequence)
-     * after the user taps Launch. Best-effort: an environment that isn't reachable
-     * (e.g. Node toolchain not bootstrapped, SSH host unreachable) just reports
-     * everything as not-installed rather than failing loudly here. */
     fun refreshInstalledAgents() {
         if (environmentManager.activeEnvironment == com.justnels.agenticdroid.env.EnvironmentConfig.Node &&
             !environmentManager.bootstrapper.isInstalled()
@@ -160,8 +218,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var updatingAgentId by mutableStateOf<String?>(null)
         private set
 
-    /** Reads the installed `--version` banner and (for npm-distributed agents) the
-     * latest published version from the registry, without installing anything. */
     fun checkAgentVersion(agent: com.justnels.agenticdroid.agents.AgentProfile) {
         val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
             .getOrNull() ?: return
@@ -182,9 +238,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Forces a reinstall to whatever the agent's own install command currently resolves
-     * as newest (see AgentProfile.updateCommand) - there's no support for pinning to an
-     * arbitrary older version, since 3 of the 4 install scripts have no such concept. */
     fun updateAgent(agent: com.justnels.agenticdroid.agents.AgentProfile) {
         val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
             .getOrNull() ?: return
@@ -192,12 +245,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updatingAgentId = agent.id
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                // NodeExecutionEnvironment.exec() resolves only the *first word* of the
-                // command to an absolute binary path and passes the remainder through
-                // unexamined as literal shell text - fine for the single-line commands
-                // it's normally given, but agent.updateCommand() is a whole multi-line
-                // install script, which would get mangled the same way. Writing it to a
-                // real file and invoking that as one line ("sh <path>") sidesteps it.
                 val scriptFile = File(getApplication<Application>().cacheDir, "agent-update-${agent.id}.sh")
                 scriptFile.writeText(agent.updateCommand())
                 env.exec(
@@ -212,9 +259,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     var currentScreen by mutableStateOf(Screen.Workspace)
-    var openedFile by mutableStateOf<File?>(null)
-    private var openedFileEnvironment: com.justnels.agenticdroid.env.EnvironmentConfig? = null
-    var fileContent by mutableStateOf("")
+    var editorSessions = androidx.compose.runtime.mutableStateListOf<EditorSession>()
+    var activeSessionIndex by mutableStateOf(-1)
+    val activeSession: EditorSession? get() = editorSessions.getOrNull(activeSessionIndex)
+
     var fileError by mutableStateOf<String?>(null)
     var isCreatingFile by mutableStateOf(false)
     var resetRequested by mutableStateOf(false)
@@ -254,12 +302,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var githubRepos by mutableStateOf<List<GithubRepo>>(emptyList())
         private set
 
-    /**
-     * When true, remotes the app constructs automatically (auto-link, create-and-share,
-     * clone-from-list) use `git@github.com:` SSH URLs instead of HTTPS. This relies on the
-     * active execution environment already having its own SSH key/agent configured for
-     * GitHub - AgenticDroid never generates or stores a git-auth SSH key itself.
-     */
     var preferSshGitRemote by mutableStateOf(false)
         private set
 
@@ -268,9 +310,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putBoolean("prefer_ssh_git_remote", enabled) }
     }
 
-    /** When true, the remote file browser (RemoteBrowserScreen) shows only the current
-     * directory's own name instead of its full absolute path - useful once a project is
-     * nested several levels deep on the remote machine. */
     var shortenDirectoryNames by mutableStateOf(false)
         private set
 
@@ -279,9 +318,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putBoolean("shorten_directory_names", enabled) }
     }
 
-    /** When true, Force Push (and other one-tap destructive git actions) ask for
-     * confirmation first. Defaults on since Force Push otherwise fires immediately on a
-     * single tap with no undo. */
     var confirmDestructiveGitActions by mutableStateOf(true)
         private set
 
@@ -290,9 +326,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putBoolean("confirm_destructive_git_actions", enabled) }
     }
 
-    /** When true (the historical, hardcoded default), the screen stays awake while the
-     * Terminal tab is open - handy for a long-running agent, but a battery drain if left
-     * on unattended. */
     var keepScreenOnDuringTerminal by mutableStateOf(true)
         private set
 
@@ -304,7 +337,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var githubDeviceFlowState by mutableStateOf<GithubDeviceFlowState?>(null)
         private set
 
-    // GitHub OAuth device flow uses a public client ID and does not require a secret.
     private val CLIENT_ID = BuildConfig.GH_CLIENT_ID
 
     var hintsShown by mutableStateOf<Set<String>>(emptySet())
@@ -362,8 +394,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             getApplication<Application>().getSharedPreferences("environment", Context.MODE_PRIVATE).edit { clear() }
             credentialManager.clearAll()
             workspaceRoot.deleteRecursively()
-            // Wipe is an explicit destructive action, so remove the legacy recovery copy
-            // too; otherwise a future launch could restore data the user asked to erase.
             getApplication<Application>().getExternalFilesDir(null)?.let { externalFiles ->
                 File(externalFiles, "workspaces").deleteRecursively()
             }
@@ -390,14 +420,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshNodeInstalledStatus() {
         isNodeInstalled = if (environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
-            true // Assume remote has Node for UI enablement; launchCommand performs actual check.
+            true
         } else {
             environmentManager.bootstrapper.isInstalled()
         }
         installedRunnerGroups = environmentManager.installedRunnerGroups()
     }
 
-    /** Groups a project of this type needs but that aren't installed on-device yet. */
     fun missingRunnerGroups(type: com.justnels.agenticdroid.workspace.ProjectType): Set<com.justnels.agenticdroid.env.RunnerPackageGroup> =
         com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type) - installedRunnerGroups
 
@@ -406,10 +435,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isRunningDiagnostics by mutableStateOf(false)
         private set
 
-    /** Actually execs each installed group's key binaries (not just checking ready-marker
-     * files) against the Node environment specifically - the QEMU/musl/glibc toolchain
-     * this app bootstraps is empirically per-device-fragile (see NodeBootstrapper's
-     * comments), so a group can report "installed" and still be broken on a given phone. */
     fun runDiagnostics() {
         if (!environmentManager.bootstrapper.isInstalled()) {
             doctorResults = emptyList()
@@ -534,7 +559,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (action.command.isNotBlank() && terminalViewModel != null) {
                 val prelude = projectSecretsStore.exportPrelude(project)
                 terminalViewModel.sendCommand(prelude + action.command)
-                // Interactive/one-shot terminal actions should always reveal their output.
                 currentScreen = Screen.Terminal
             } else if (action.opensPreview) {
                 action.previewUrl?.let { webPreviewUrl = it }
@@ -546,9 +570,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var projectSecrets by mutableStateOf<Map<String, String>>(emptyMap())
         private set
 
-    /** Refreshes [projectSecrets] from encrypted storage for [project] - not itself
-     * Compose-observable (CredentialManager isn't backed by mutableStateOf), so callers
-     * showing a secrets UI must call this whenever the underlying store may have changed. */
     fun refreshProjectSecrets(project: Project) {
         projectSecrets = projectSecretsStore.getSecrets(project)
     }
@@ -563,18 +584,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshProjectSecrets(project)
     }
 
-    /** Prepends this project's secrets as `export` lines before sending [command] to the
-     * terminal - used for agent launches, which (unlike [buildAndInstall]) go through the
-     * persistent interactive PTY shell rather than a one-shot process with its own
-     * environment map. */
     fun withProjectSecretsPrelude(project: Project?, command: String): String =
         (project?.let { projectSecretsStore.exportPrelude(it) }.orEmpty()) + command
 
     var projectMcpServers by mutableStateOf<List<com.justnels.agenticdroid.workspace.McpServer>>(emptyList())
         private set
 
-    /** Refreshes [projectMcpServers] from .mcp.json - a plain project file (see
-     * McpConfigStore), so unlike [refreshProjectSecrets] this is just a disk read. */
     fun refreshProjectMcpServers(project: Project) {
         projectMcpServers = com.justnels.agenticdroid.workspace.McpConfigStore.read(project)
     }
@@ -644,14 +659,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         return fs.withBatch { batchFs ->
             var count = 0
-            val maxEntries = 1000 // Limit remote tree size for performance
+            val maxEntries = 1000
             val maxDepth = 5
 
             fun build(path: String, depth: Int, isRoot: Boolean = false): List<com.justnels.agenticdroid.workspace.FileNode> {
                 if (depth > maxDepth || count > maxEntries) return emptyList()
                 val entries = if (isRoot) {
-                    // A root-listing failure means the project could not be loaded; do not
-                    // misrepresent an SSH/authentication error as an empty project.
                     batchFs.listEntries(path)
                 } else {
                     try {
@@ -695,6 +708,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (project != null) {
             val meta = workspaceManager.getProjectMetadata(project)
             webPreviewUrl = meta.previewUrl ?: workspaceManager.getProjectType(project).defaultPreviewUrl
+            prefs.edit {
+                putString("last_project_path", project.path)
+                putString("last_project_name", project.name)
+                putBoolean("last_project_is_remote", project.isRemote)
+            }
+            
+            // Ensure MCP context bridge is registered
+            if (!project.isRemote) {
+                val serverFile = File(getApplication<Application>().filesDir, "tools/context-server.js")
+                if (serverFile.exists()) {
+                    com.justnels.agenticdroid.workspace.McpConfigStore.ensureContextServerRegistered(
+                        project,
+                        serverFile.absolutePath
+                    )
+                }
+            }
+        } else {
+            prefs.edit {
+                remove("last_project_path")
+                remove("last_project_name")
+                remove("last_project_is_remote")
+            }
         }
         refreshCurrentProject()
     }
@@ -716,7 +751,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteProject(project: Project) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Projects managed by WorkspaceManager are always local app workspace directories.
             if (workspaceManager.deleteProject(project)) {
                 withContext(Dispatchers.Main) {
                     if (selectedProject?.path == project.path) {
@@ -747,16 +781,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isCloning = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // A stalled/unreachable remote can sit here for up to
-                // ProcessSession.capture's own 10-minute default timeout before this
-                // returns at all - isCloning stays true (and the UI shows a spinner) the
-                // whole time rather than looking like nothing happened.
                 val result = gitManager.clone(url, destination)
                 if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
                     cloneError = result.message
                 } else {
                     refreshProjects()
-                    // Auto-select the cloned project
                     val newProject = projects.find { it.name == name }
                     if (newProject != null) {
                         withContext(Dispatchers.Main) {
@@ -870,8 +899,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun uploadFileToRemote(uri: Uri, remoteDirectory: String) {
+        val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+        val fs = env.filesystem()
+        transferManager.uploadUri(viewModelScope, uri, remoteDirectory, fs) { success, error ->
+            if (success) {
+                refreshCurrentProject()
+            } else if (error != null && error != "Upload cancelled") {
+                fileError = error
+            }
+        }
+    }
+
+    fun uploadLocalFileToRemote(localFile: File, remoteDirectory: String) {
+        val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+        val fs = env.filesystem()
+        transferManager.uploadLocalFile(viewModelScope, localFile, remoteDirectory, fs) { success, error ->
+            if (success) {
+                refreshCurrentProject()
+            } else if (error != null && error != "Upload cancelled") {
+                fileError = error
+            }
+        }
+    }
+
+    fun downloadRemoteFile(remotePath: String, fileName: String, targetDir: File? = null) {
+        val app = getApplication<Application>()
+        val destinationDir = targetDir ?: File(app.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
+        val localDest = File(destinationDir, fileName)
+        val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+        val fs = env.filesystem()
+        transferManager.downloadFile(viewModelScope, remotePath, localDest, fs) { success, error ->
+            if (!success && error != null && error != "Download cancelled") {
+                fileError = error
+            }
+        }
+    }
+
+    fun downloadRemoteDirectoryArchive(remoteDirPath: String, targetDir: File? = null) {
+        val app = getApplication<Application>()
+        val destinationDir = targetDir ?: File(app.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
+        val dirName = remoteDirPath.trimEnd('/').substringAfterLast('/').ifEmpty { "remote_archive" }
+        val localDest = File(destinationDir, "$dirName.tar.gz")
+        val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
+        transferManager.downloadDirectoryAsArchive(viewModelScope, remoteDirPath, localDest, env) { success, error ->
+            if (!success && error != null && error != "Download cancelled") {
+                fileError = error
+            }
+        }
+    }
+
+    fun cancelTransfer(id: String) = transferManager.cancelTransfer(id)
+    fun dismissTransfer(id: String) = transferManager.dismissTransfer(id)
+    fun clearCompletedTransfers() = transferManager.clearCompleted()
+
     fun openFile(path: String) {
         val project = selectedProject ?: return
+        val resolved = workspaceManager.resolveInsideProject(project, path) ?: return
+        val existingIndex = editorSessions.indexOfFirst { it.file.path == resolved.path && it.environment == null }
+        if (existingIndex != -1) {
+            activeSessionIndex = existingIndex
+            return
+        }
         if (project.isRemote) {
             openRemoteFile(path)
             return
@@ -879,10 +968,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { workspaceManager.readTextFile(project, path) }
                 .onSuccess { content -> withContext(Dispatchers.Main) {
-                    openedFile = workspaceManager.resolveInsideProject(project, path)
-                    openedFileEnvironment = null
-                    fileContent = content
+                    val session = EditorSession(resolved, null, content, content)
+                    editorSessions.add(session)
+                    activeSessionIndex = editorSessions.size - 1
                     fileError = null
+                    val ext = resolved.extension
+                    lspManager.startServer(ext, environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment), executionWorkingDirectory)
+                    lspManager.onFileOpen(ext, "file://${resolved.absolutePath}", content)
                 } }
                 .onFailure { error -> withContext(Dispatchers.Main) {
                     fileError = error.localizedMessage ?: "Could not open the file."
@@ -893,13 +985,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun openRemoteFile(path: String) {
         val config = environmentManager.activeEnvironment
         if (config !is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) return
+        val existingIndex = editorSessions.indexOfFirst { it.file.path == path && it.environment == config }
+        if (existingIndex != -1) {
+            activeSessionIndex = existingIndex
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { environmentManager.getExecutionEnvironment(config).filesystem().readFile(path) }
                 .onSuccess { content -> withContext(Dispatchers.Main) {
-                    openedFile = File(path)
-                    openedFileEnvironment = config
-                    fileContent = content
+                    val session = EditorSession(File(path), config, content, content)
+                    editorSessions.add(session)
+                    activeSessionIndex = editorSessions.size - 1
                     fileError = null
+                    val ext = File(path).extension
+                    lspManager.startServer(ext, environmentManager.getExecutionEnvironment(config), executionWorkingDirectory)
+                    lspManager.onFileOpen(ext, "file://$path", content)
                 } }
                 .onFailure { error -> withContext(Dispatchers.Main) {
                     fileError = error.localizedMessage ?: "Could not open the remote file."
@@ -907,22 +1007,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveOpenedFile() {
+    fun saveActiveSession() {
+        val session = activeSession ?: return
         val project = selectedProject
-        val file = openedFile ?: return
-        val content = fileContent
-        val fileEnvironment = openedFileEnvironment
+        val content = session.content
+        val fileEnvironment = session.environment
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
                 if (fileEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
-                    environmentManager.getExecutionEnvironment(fileEnvironment).filesystem().writeFile(file.path, content)
+                    environmentManager.getExecutionEnvironment(fileEnvironment).filesystem().writeFile(session.file.path, content)
                 } else {
-                    workspaceManager.writeTextFile(requireNotNull(project) { "No local project is selected" }, file.path, content)
+                    workspaceManager.writeTextFile(requireNotNull(project) { "No local project is selected" }, session.file.path, content)
                 }
             }
                 .onSuccess { withContext(Dispatchers.Main) {
-                    openedFile = null
-                    openedFileEnvironment = null
+                    session.isDirty = false
                     fileError = null
                 } }
                 .onFailure { error -> withContext(Dispatchers.Main) {
@@ -931,20 +1030,115 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun closeActiveSession() {
+        if (activeSessionIndex != -1) {
+            editorSessions.removeAt(activeSessionIndex)
+            activeSessionIndex = if (editorSessions.isEmpty()) -1 else (activeSessionIndex).coerceAtMost(editorSessions.size - 1)
+        }
+    }
+
+    fun closeSession(index: Int) {
+        if (index in editorSessions.indices) {
+            editorSessions.removeAt(index)
+            if (activeSessionIndex >= editorSessions.size) {
+                activeSessionIndex = editorSessions.size - 1
+            }
+        }
+    }
+
+    fun updateActiveSessionContent(newContent: String) {
+        activeSession?.let {
+            if (it.content != newContent) {
+                it.content = newContent
+                it.isDirty = true
+                val index = activeSessionIndex
+                editorSessions[index] = it.copy(content = newContent, isDirty = true)
+                lspManager.onFileChange(it.file.extension, "file://${it.file.absolutePath}", newContent)
+            }
+        }
+    }
+
+    fun clearCompletion() {
+        completionResults = emptyList()
+    }
+
+    var pendingScrollToLine by mutableStateOf<Int?>(null)
+        private set
+
+    fun onLineScrolled() {
+        pendingScrollToLine = null
+    }
+
+    fun goToDefinition(line: Int, character: Int) {
+        val session = activeSession ?: return
+        val ext = session.file.extension
+        val uri = "file://${session.file.absolutePath}"
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val future = lspManager.requestDefinition(ext, uri, line, character)
+            val result = runCatching { future?.get() }.getOrNull() ?: return@launch
+
+            val locations = if (result.isLeft) result.left else result.right.map { it.targetUri to it.targetRange }
+            val first = locations.firstOrNull() ?: return@launch
+
+            val targetUri: String
+            val targetRange: org.eclipse.lsp4j.Range
+            
+            if (first is org.eclipse.lsp4j.Location) {
+                targetUri = first.uri
+                targetRange = first.range
+            } else {
+                val pair = first as Pair<*, *>
+                targetUri = pair.first as String
+                targetRange = pair.second as org.eclipse.lsp4j.Range
+            }
+
+            val targetPath = targetUri.removePrefix("file://")
+            val targetLine = targetRange.start.line
+
+            withContext(Dispatchers.Main) {
+                if (targetPath == session.file.absolutePath) {
+                    pendingScrollToLine = targetLine
+                } else {
+                    openFile(targetPath)
+                    pendingScrollToLine = targetLine
+                }
+            }
+        }
+    }
+
+    var usagesResults by mutableStateOf<List<org.eclipse.lsp4j.Location>>(emptyList())
+        private set
+
+    fun findUsages(line: Int, character: Int) {
+        val session = activeSession ?: return
+        val ext = session.file.extension
+        val uri = "file://${session.file.absolutePath}"
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val future = lspManager.requestReferences(ext, uri, line, character)
+            val results = runCatching { future?.get() }.getOrNull() ?: emptyList()
+            
+            withContext(Dispatchers.Main) {
+                usagesResults = results
+            }
+        }
+    }
+
+    fun clearUsages() {
+        usagesResults = emptyList()
+    }
+
     fun refreshGitStatus() {
         viewModelScope.launch(Dispatchers.IO) {
             val manager = gitManager
-            
-            // Try to fetch remote state if connected
             if (githubToken.isNotBlank()) {
                 manager.fetch()
             }
-
             val branch = manager.getCurrentBranch()
             val status = manager.getStatus()
             val remotes = manager.getRemotes()
             val logResult = manager.getLog()
-            
             gitBranch = branch
             gitChanges = status
             gitRemotes = remotes
@@ -953,16 +1147,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 emptyList()
             }
-            
-            // If branch is unknown, it's definitely not a git repo
             if (branch == "unknown") {
                 gitError = "Not a git repository (or git not found)"
             } else if (gitError == "Not a git repository (or git not found)") {
-                // Clear the error if we are now in a repo
                 gitError = null
             }
-
-            // Check connectivity for each remote
             val statuses = mutableMapOf<String, Boolean>()
             remotes.forEach { line ->
                 val name = line.split("\t").firstOrNull()
@@ -1000,7 +1189,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun gitCommit(message: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            Log.i("MainViewModel", "Initiating commit: $message")
             val manager = gitManager
             val addResult = manager.addAll()
             if (addResult is com.justnels.agenticdroid.git.GitResult.Failure) {
@@ -1009,10 +1197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            
             val result = manager.commit(message)
-            Log.i("MainViewModel", "Commit result: $result")
-            
             withContext(Dispatchers.Main) {
                 if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
                     gitError = result.message
@@ -1026,32 +1211,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun gitPush(force: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
-            Log.i("MainViewModel", "Initiating push (force=$force)")
             val manager = gitManager
-            
-            // Ensure we have commits to push
             if (!manager.hasCommits()) {
                 withContext(Dispatchers.Main) {
                     gitError = "Nothing to push: repository has no commits yet."
                 }
                 return@launch
             }
-
             val currentBranch = manager.getCurrentBranch()
-            
-            // Always push explicitly: origin <currentBranch>
-            Log.i("MainViewModel", "Pushing explicitly: origin $currentBranch")
             var result = manager.push(remote = "origin", branch = currentBranch, force = force)
-            Log.i("MainViewModel", "Push result: $result")
-            
-            // Handle "no upstream branch" or ref reject automatically
             if (result is com.justnels.agenticdroid.git.GitResult.Failure && 
                 (result.message.contains("no upstream branch") || result.message.contains("has no upstream"))) {
-                Log.i("MainViewModel", "Attempting push with -u (set-upstream)")
                 result = manager.push(remote = "origin", branch = currentBranch, setUpstream = true, force = force)
-                Log.i("MainViewModel", "Upstream push result: $result")
             }
-
             withContext(Dispatchers.Main) {
                 if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
                     gitError = result.message
@@ -1073,9 +1245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun gitPull(rebase: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
-            Log.i("MainViewModel", "Initiating pull (rebase=$rebase)")
             val result = gitManager.pull(rebase = rebase)
-            Log.i("MainViewModel", "Pull result: $result")
             withContext(Dispatchers.Main) {
                 if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
                     gitError = result.message
@@ -1090,7 +1260,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun gitInit() {
         viewModelScope.launch(Dispatchers.IO) {
             val manager = gitManager
-            // Check if it's already a repo - if so, this acts as a "Full Status" request
             val branch = manager.getCurrentBranch()
             if (branch != "unknown") {
                 val statusResult = manager.getStatusRaw()
@@ -1100,12 +1269,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 refreshGitStatus()
                 return@launch
             }
-
             val result = manager.init()
             if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
                 gitError = result.message
             } else {
-                // Default new repos to 'main' immediately
                 manager.renameBranch("main")
                 refreshGitStatus()
             }
@@ -1162,23 +1329,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val cleanName = name.trim()
             val cleanUsername = githubUsername.trim()
-            
-            Log.i("MainViewModel", "Creating and sharing repo: $cleanName (private=$isPrivate)")
             if (githubToken.isBlank()) {
                 gitError = "GitHub Token required to create a repository."
                 return@launch
             }
-            
             if (cleanUsername.isBlank()) {
                 gitError = "GitHub username is unknown. Please login again or set it in settings."
                 return@launch
             }
-            
             val manager = gitManager
-            
-            // 0. Ensure we have something to push
             if (!manager.hasCommits()) {
-                Log.d("MainViewModel", "Repo has no commits. Performing initial commit.")
                 val addResult = manager.addAll()
                 if (addResult is com.justnels.agenticdroid.git.GitResult.Failure) {
                     withContext(Dispatchers.Main) { gitError = "Failed to stage initial files: ${addResult.message}" }
@@ -1190,27 +1350,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
             }
-            
-            // Ensure branch is named 'main' for GitHub compatibility
             val renameResult = manager.renameBranch("main")
             if (renameResult is com.justnels.agenticdroid.git.GitResult.Failure) {
                 withContext(Dispatchers.Main) { gitError = renameResult.message }
                 return@launch
             }
-            refreshGitStatus() // Update gitBranch state
+            refreshGitStatus()
             val currentBranch = manager.getCurrentBranch()
-
-            // 1. Create Repo on GitHub
-            Log.d("MainViewModel", "Step 1: Creating repo on GitHub via API")
             val result = manager.createGitHubRepo(githubToken, cleanName, isPrivate)
             if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
-                Log.e("MainViewModel", "Repo creation failed: ${result.message}")
                 gitError = result.message
                 return@launch
             }
-            
-            // 2. Add Remote
-            Log.d("MainViewModel", "Step 2: Adding remote 'origin'")
             val url = if (preferSshGitRemote) {
                 "git@github.com:$cleanUsername/$cleanName.git"
             } else {
@@ -1224,18 +1375,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            
-            // 3. Initial Push
-            Log.d("MainViewModel", "Step 3: Initial push to branch $currentBranch")
             val pushResult = manager.push(remote = "origin", branch = currentBranch, setUpstream = true)
-            Log.i("MainViewModel", "Initial push result: $pushResult")
-            
             if (pushResult is com.justnels.agenticdroid.git.GitResult.Failure) {
                 withContext(Dispatchers.Main) {
                     gitError = "Repo created, but initial push failed: ${pushResult.message}"
                 }
             }
-            
             refreshGitStatus()
         }
     }
@@ -1253,9 +1398,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             credentialManager.saveCredential(CredentialManager.GITHUB_TOKEN, githubToken)
         }
-        // Remove any value left by versions that used plaintext SharedPreferences.
         prefs.edit { remove("github_token") }
-        // Automatically fetch username when token is set
         fetchGithubUsername(githubToken)
         fetchGithubRepos()
     }
@@ -1275,7 +1418,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } finally {
                     connection.disconnect()
                 }
-                
                 withContext(Dispatchers.Main) {
                     updateGithubUsername(login)
                 }
@@ -1341,14 +1483,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (CLIENT_ID.isBlank()) {
                     throw IOException("GitHub OAuth client ID is not configured")
                 }
-                // 1. Request device code
                 val clientID = CLIENT_ID
-                // The correct endpoint for the initial code request
                 val url = "https://github.com/login/device/code"
-                
-                // Constructing the body manually to ensure no double-encoding issues
                 val body = "client_id=$clientID&scope=repo%20read:user"
-                
                 val connection = openHttp(url)
                 val response = try {
                     connection.requestMethod = "POST"
@@ -1366,17 +1503,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     connection.disconnect()
                 }
                 val json = JSONObject(response)
-                
                 val deviceCode = json.getString("device_code")
                 val userCode = json.getString("user_code")
                 val verificationUri = json.getString("verification_uri")
                 val interval = json.getLong("interval")
-                
                 withContext(Dispatchers.Main) {
                     githubDeviceFlowState = GithubDeviceFlowState(userCode, verificationUri)
                 }
-                
-                // 2. Poll for token
                 pollForGithubToken(clientID, deviceCode, interval)
             } catch (e: Exception) {
                 Log.e("MainViewModel", "Error starting GitHub Device Flow", e)
@@ -1390,7 +1523,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun pollForGithubToken(clientID: String, deviceCode: String, interval: Long) {
         val url = "https://github.com/login/oauth/access_token"
         val body = "client_id=$clientID&device_code=$deviceCode&grant_type=urn:ietf:params:oauth:grant-type:device_code"
-        
         while (githubDeviceFlowState != null) {
             delay(interval * 1000 + 1000)
             try {
@@ -1411,7 +1543,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     connection.disconnect()
                 }
                 val json = JSONObject(response)
-                
                 if (json.has("access_token")) {
                     val token = json.getString("access_token")
                     withContext(Dispatchers.Main) {
@@ -1423,12 +1554,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     val error = json.optString("error")
                     if (error == "authorization_pending") {
-                        // Keep polling
                     } else if (error == "slow_down") {
-                        // GitHub tells us to wait longer
                         delay(5000) 
                     } else {
-                        // Stop on other errors
                         withContext(Dispatchers.Main) {
                             githubDeviceFlowState = null
                             gitError = "GitHub login failed: $error"
@@ -1491,11 +1619,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val urlPattern = Regex("""https?://(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]):(\d+)""")
             val portPattern = Regex("""(?:listening on|running on|running at|available at|port)\s*(?:port\s*)?:?\s*(\d{2,5})""", RegexOption.IGNORE_CASE)
-
             fun updateProgressFrom(line: String) {
                 val matchedPort = urlPattern.find(line)?.groupValues?.get(1)?.toIntOrNull()
                     ?: portPattern.find(line)?.groupValues?.get(1)?.toIntOrNull()
-
                 val nextStatus = when {
                     line.contains("Installing project dependencies", ignoreCase = true) ->
                         "Installing project dependencies on device..."
@@ -1506,7 +1632,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Local web server is running."
                     else -> null
                 } ?: return
-
                 viewModelScope.launch(Dispatchers.Main) {
                     if (webDevGeneration == generation) {
                         if (matchedPort != null) {
@@ -1518,7 +1643,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-
             try {
                 val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
                 val session = env.exec(command, workingDirectory, secrets)
@@ -1592,14 +1716,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             isBuilding = true
             buildStatus = "Running build..."
-
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
             val path = executionWorkingDirectory
-            // Points AGP at the bundled native aapt2 rather than its own glibc one - see
-            // NodeRuntime.ensureGradleUserHomeProperties. Only meaningful for the Node
-            // environment (where a bundled aapt2 might exist); harmless no-op otherwise.
             runCatching { com.justnels.agenticdroid.env.NodeRuntime.ensureGradleUserHomeProperties(getApplication()) }
-
             try {
                 val session = env.exec(buildCommand, path, secrets)
                 activeBuildSession = session
@@ -1609,28 +1728,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     append(result.stderr)
                     if (result.truncated) append("\n[build output truncated]")
                 }.trim()
-
                 if (result.exitCode == 0) {
                     buildStatus = "Build successful. Searching for APK..."
-                    // Try to find the APK. Usually in app/build/outputs/apk/debug/app-debug.apk
-                    // We'll search for .apk files in the project
                     val fs = env.filesystem()
                     val apkFile = findApk(fs, path)
-                    
                     if (apkFile != null) {
                         buildStatus = "Downloading APK..."
                         val app = getApplication<Application>()
                         val localApk = File(app.getExternalFilesDir("downloads"), "latest_build.apk")
                         fs.downloadFile(apkFile.absolutePath, localApk)
-
                         val isSelfUpdate = ApkInstaller.getArchivePackageName(app, localApk) == app.packageName
-
                         if (!ApkInstaller.canInstallPackages(app)) {
                             buildStatus = "Enable \"Install unknown apps\" for AgenticDroid, then retry."
                             withContext(Dispatchers.Main) { ApkInstaller.requestInstallPermission(app) }
                         } else if (isSelfUpdate && ApkInstaller.signatureMatchesInstalled(app, localApk) == false) {
-                            buildStatus = "Error: this build is signed differently than the installed app. " +
-                                "Android will reject the install - check the release signing config."
+                            buildStatus = "Error: this build is signed differently than the installed app."
                         } else {
                             if (isSelfUpdate) ApkInstaller.backupCurrentApk(app)
                             buildStatus = "Installing..."
@@ -1669,7 +1781,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!restored) fileError = "No backed-up build found to restore."
     }
 
-    /** Installs an APK picked from device storage, applying the same self-update safety checks as [buildAndInstall]. */
     fun installApkFromUri(uri: Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             val app = getApplication<Application>()
@@ -1679,14 +1790,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     localApk.outputStream().use { output -> input.copyTo(output) }
                     true
                 } ?: false
-
                 if (!copied) {
                     withContext(Dispatchers.Main) { fileError = "Could not read the selected file." }
                     return@launch
                 }
-
                 val isSelfUpdate = ApkInstaller.getArchivePackageName(app, localApk) == app.packageName
-
                 when {
                     !ApkInstaller.canInstallPackages(app) -> withContext(Dispatchers.Main) {
                         fileError = "Enable \"Install unknown apps\" for AgenticDroid, then retry."
@@ -1694,7 +1802,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     isSelfUpdate && ApkInstaller.signatureMatchesInstalled(app, localApk) == false -> {
                         withContext(Dispatchers.Main) {
-                            fileError = "This APK is signed differently than the installed app - Android will reject the install."
+                            fileError = "This APK is signed differently than the installed app."
                         }
                     }
                     else -> {
@@ -1715,7 +1823,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "app/build/outputs/apk/release/app-release-unsigned.apk",
             "outputs/apk/debug/app-debug.apk"
         )
-        
         val found = fs.withBatch { batchFs ->
             commonLocations.firstNotNullOfOrNull { loc ->
                 val fullPath = if (path.endsWith("/")) "$path$loc" else "$path/$loc"
@@ -1723,7 +1830,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (found != null) return found
-
         if (fs is com.justnels.agenticdroid.env.LocalFileSystemAccess) {
             return File(path).walkTopDown()
                 .onEnter { directory -> directory.name !in setOf(".git", ".gradle", "node_modules") }
@@ -1749,13 +1855,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bootstrapWorkId.value = environmentManager.bootstrapWorkId
     }
 
-    /** Installs whatever [type] needs beyond what's already on-device. */
     fun installRunnersFor(type: com.justnels.agenticdroid.workspace.ProjectType) {
         startBootstrap(installedRunnerGroups + com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type))
     }
 
     val wifiOnlyDownloads: Boolean get() = environmentManager.wifiOnlyDownloads
-
     fun setWifiOnlyDownloads(enabled: Boolean) = environmentManager.updateWifiOnlyDownloads(enabled)
 
     fun runnerGroupSizeBytes(group: com.justnels.agenticdroid.env.RunnerPackageGroup): Long =
@@ -1773,26 +1877,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bootstrapWorkId.value = environmentManager.bootstrapWorkId
     }
 
-    /**
-     * Scans the local network for machines broadcasting SSH services via mDNS.
-     * Uses `mdns-scan` from the core toolchain.
-     */
     fun scanForSshServers(onResult: (List<String>) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(com.justnels.agenticdroid.env.EnvironmentConfig.Local)
-            // mdns-scan usually outputs " <host> <ip> <port> <service>"
             val session = env.exec("mdns-scan", ".", emptyMap())
             val results = mutableListOf<String>()
             val reader = session.inputStream.bufferedReader()
-
-            // Run for 3 seconds to gather results
             delay(3000)
             session.kill()
-
             reader.useLines { lines ->
                 lines.forEach { line ->
                     if (line.contains("_ssh._tcp")) {
-                        // Extract host. Example: "  my-mac.local. 192.168.1.5:22 _ssh._tcp.local."
                         val parts = line.trim().split(Regex("\\s+"))
                         if (parts.isNotEmpty()) {
                             results.add(parts[0].removeSuffix("."))
@@ -1815,19 +1910,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             adbConnectionStatus = "Could not find device IP address."
             return
         }
-
         val activeEnv = environmentManager.activeEnvironment
         if (activeEnv !is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
             adbConnectionStatus = "Please activate an SSH environment first."
             return
         }
-
         adbConnectionStatus = "Connecting to $ip:$port..."
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(activeEnv)
             val result = env.exec("adb connect $ip:$port", ".", emptyMap())
                 .capture(timeoutMillis = 10_000)
-            
             withContext(Dispatchers.Main) {
                 adbConnectionStatus = if (result.exitCode == 0 && result.stdout.contains("connected")) {
                     "Successfully connected to $ip:$port"
@@ -1838,28 +1930,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun dismissAdbStatus() {
-        adbConnectionStatus = null
-    }
-
-    fun dismissGitError() {
-        gitError = null
-    }
-
-    fun dismissGitOutput() {
-        lastGitOutput = null
-    }
-
+    fun dismissAdbStatus() { adbConnectionStatus = null }
+    fun dismissGitError() { gitError = null }
+    fun dismissGitOutput() { lastGitOutput = null }
     fun dismissBootstrap() {
         bootstrapWorkId.value = null
         environmentManager.dismissBootstrap()
     }
-
     fun retryBootstrap() {
         dismissBootstrap()
         startBootstrap()
     }
-
     fun clearBootstrap() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { environmentManager.cancelBootstrap().result.get() }
@@ -1871,15 +1952,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    override fun onCleared() {
-        activeBuildSession?.kill()
-        activeWebDevSession?.kill()
-        environmentManager.close()
-    }
-
-    fun dismissFileError() {
-        fileError = null
-    }
+    fun dismissFileError() { fileError = null }
 
     init {
         refreshNodeInstalledStatus()
@@ -1912,6 +1985,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (githubToken.isNotBlank()) fetchGithubRepos()
         if (!workspaceRoot.exists()) workspaceRoot.mkdirs()
         refreshProjects()
+        
+        setupMcpBridge(application)
+
         if (projects.isEmpty()) {
             val defaultProject = File(workspaceRoot, "DefaultProject")
             if (!defaultProject.exists()) {
@@ -1919,6 +1995,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 File(defaultProject, "README.md").writeText("# AgenticDroid Workspace\n\nWelcome to your mobile development environment.")
             }
             refreshProjects()
+        }
+        val lastPath = prefs.getString("last_project_path", null)
+        val lastName = prefs.getString("last_project_name", null)
+        val lastIsRemote = prefs.getBoolean("last_project_is_remote", false)
+        if (lastPath != null && lastName != null) {
+            val project = Project(lastName, lastPath, lastIsRemote)
+            if (lastIsRemote) {
+                if (environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
+                    selectProject(project)
+                }
+            } else if (File(lastPath).exists()) {
+                selectProject(project)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        activeBuildSession?.kill()
+        activeWebDevSession?.kill()
+        environmentManager.close()
+        bridgeServer.stop()
+    }
+
+    private fun setupMcpBridge(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val toolsDir = File(context.filesDir, "tools").also { it.mkdirs() }
+                val serverFile = File(toolsDir, "context-server.js")
+                context.assets.open("tools/context-server.js").use { input ->
+                    serverFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                bridgeServer.start()
+                
+                // Auto-register in current project if one is selected
+                selectedProject?.let { project ->
+                    com.justnels.agenticdroid.workspace.McpConfigStore.ensureContextServerRegistered(
+                        project,
+                        serverFile.absolutePath
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "Failed to setup MCP bridge", e)
+            }
         }
     }
 

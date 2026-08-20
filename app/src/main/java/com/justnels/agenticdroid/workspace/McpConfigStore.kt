@@ -49,6 +49,21 @@ object McpConfigStore {
         write(project, read(project).filterNot { it.name == name })
     }
 
+    /**
+     * Ensures the internal AgenticDroid Context MCP server is registered in the project.
+     * This allows agents to interact with the IDE's UI state (tabs, focus, etc.).
+     */
+    fun ensureContextServerRegistered(project: Project, serverScriptPath: String) {
+        val servers = read(project)
+        if (servers.none { it.name == "agenticdroid-context" }) {
+            addOrUpdate(project, McpServer(
+                name = "agenticdroid-context",
+                command = "node",
+                args = listOf(serverScriptPath)
+            ))
+        }
+    }
+
     internal fun parse(json: String): List<McpServer> {
         val root = JSONObject(json)
         val servers = root.optJSONObject(ROOT_KEY) ?: return emptyList()

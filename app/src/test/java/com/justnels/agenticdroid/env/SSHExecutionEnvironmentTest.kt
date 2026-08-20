@@ -166,7 +166,12 @@ class SSHExecutionEnvironmentTest {
             override fun exists(path: String) = true
             override fun renameFile(oldPath: String, newPath: String) = true
             override fun copyFile(srcPath: String, destPath: String) = true
-            override fun downloadFile(remotePath: String, localDest: java.io.File) {}
+            override fun uploadStream(
+                inputStream: java.io.InputStream,
+                remotePath: String,
+                totalBytes: Long,
+                onProgress: ((Long, Long) -> Unit)?
+            ) {}
         }
 
         val result = mockFs.withBatch { batchFs ->

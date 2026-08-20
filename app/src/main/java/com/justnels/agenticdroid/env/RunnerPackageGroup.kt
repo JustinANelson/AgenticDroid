@@ -51,7 +51,7 @@ enum class RunnerPackageGroup(
     ),
     PYTHON(
         "Python",
-        "Python 3 interpreter and pip",
+        "Python 3 interpreter, pip, and pyright (LSP)",
         listOf(
             "gdbm", "libandroid-posix-semaphore", "libcrypt", "ncurses", "ncurses-ui-libs",
             "readline", "python", "python-pip", "python-ensurepip-wheels"

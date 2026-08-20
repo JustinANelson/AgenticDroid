@@ -21,11 +21,13 @@ fun FileTree(
     onDelete: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onCopy: (String, String) -> Unit,
+    onDownload: ((String, String) -> Unit)? = null,
+    onDownloadArchive: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(modifier = modifier.fillMaxSize()) {
         items(nodes) { node ->
-            FileNodeItem(node, onFileSelected, onDelete, onRename, onCopy)
+            FileNodeItem(node, onFileSelected, onDelete, onRename, onCopy, onDownload, onDownloadArchive)
         }
     }
 }
@@ -38,6 +40,8 @@ fun FileNodeItem(
     onDelete: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onCopy: (String, String) -> Unit,
+    onDownload: ((String, String) -> Unit)? = null,
+    onDownloadArchive: ((String) -> Unit)? = null,
     depth: Int = 0
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -80,6 +84,26 @@ fun FileNodeItem(
             }
 
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                if (!node.isDirectory && onDownload != null) {
+                    DropdownMenuItem(
+                        text = { Text("Download to Phone") },
+                        onClick = {
+                            showMenu = false
+                            onDownload(node.path, node.name)
+                        },
+                        leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) }
+                    )
+                }
+                if (node.isDirectory && onDownloadArchive != null) {
+                    DropdownMenuItem(
+                        text = { Text("Download as .tar.gz") },
+                        onClick = {
+                            showMenu = false
+                            onDownloadArchive(node.path)
+                        },
+                        leadingIcon = { Icon(Icons.Default.Archive, contentDescription = null) }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Rename") },
                     onClick = {
@@ -109,7 +133,7 @@ fun FileNodeItem(
 
         if (expanded && node.isDirectory) {
             node.children.forEach { child ->
-                FileNodeItem(child, onFileSelected, onDelete, onRename, onCopy, depth + 1)
+                FileNodeItem(child, onFileSelected, onDelete, onRename, onCopy, onDownload, onDownloadArchive, depth + 1)
             }
         }
     }
