@@ -241,8 +241,19 @@ object DefaultAgents {
      * as a plain #!/system/bin/sh wrapper that execs node directly, matching how
      * NodeBootstrapper already handles npm/npx and how Codex's install command handles its
      * own JS entry point.
+     *
+     * That regeneration - and $NPM_CLI/$NPM_CONFIG_PREFIX, which only NodeRuntime's
+     * on-device env setup defines - is Android-only, so (matching Codex/Claude/Antigravity)
+     * this is skipped entirely on a real machine (e.g. reached over an SSH environment):
+     * plain `npm install -g` already produces a working `gemini` on PATH there, since
+     * there's no /usr/bin/env restriction or QEMU/musl indirection to work around.
      */
     private fun geminiInstallCommand(): String = """
+        if [ ! -d /system/bin ]; then
+          echo "Detecting non-Android environment, performing standard install..."
+          npm install -g @google/gemini-cli
+          exit $?
+        fi
         node "${'$'}NPM_CLI" install -g --ignore-scripts @google/gemini-cli >/dev/null 2>&1
         geminijs="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/@google/gemini-cli/bundle/gemini.js"
         globalbin="${'$'}NPM_CONFIG_PREFIX/bin"

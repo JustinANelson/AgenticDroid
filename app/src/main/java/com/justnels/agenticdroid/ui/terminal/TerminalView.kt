@@ -4,9 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Typeface
+import android.speech.RecognizerIntent
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +37,7 @@ import com.termux.view.TerminalView as TermuxTerminalView
 
 private const val ESC = ""
 private const val CTRL_C = ""
+private const val VOICE_INPUT_PREFIX = "VOICE-INPUT:"
 
 /**
  * Renders a real PTY-backed [TerminalSession] via Termux's terminal-emulator/terminal-view
@@ -44,7 +49,8 @@ fun TerminalScreen(
     modifier: Modifier = Modifier,
     viewModel: TerminalViewModel,
     hintsShown: Set<String> = emptySet(),
-    onDismissHint: (String) -> Unit = {}
+    onDismissHint: (String) -> Unit = {},
+    keepScreenOn: Boolean = true
 ) {
     val session = viewModel.session
     val textSizePx = with(LocalDensity.current) { 14.sp.toPx().toInt() }
@@ -90,7 +96,7 @@ fun TerminalScreen(
                     TermuxTerminalView(context, null).apply {
                         setTextSize(textSizePx)
                         setTypeface(Typeface.MONOSPACE)
-                        keepScreenOn = true
+                        this.keepScreenOn = keepScreenOn
                         isFocusable = true
                         isFocusableInTouchMode = true
                         setTerminalViewClient(defaultTerminalViewClient(context, this))
@@ -102,6 +108,7 @@ fun TerminalScreen(
                     }
                 },
                 update = { view ->
+                    view.keepScreenOn = keepScreenOn
                     viewModel.onScreenUpdate = { view.onScreenUpdated() }
                     view.attachSession(session)
                 }
@@ -157,7 +164,14 @@ fun TerminalScreen(
                     }
                     "Y" -> viewModel.sendRawInput(if (isShiftActive) "Y" else "y")
                     "N" -> viewModel.sendRawInput(if (isShiftActive) "N" else "n")
-                    else -> viewModel.sendRawInput(key)
+                    else -> when {
+                        // Dictated text arrives prefixed so it can never collide with a
+                        // named key above (e.g. a user dictating the literal word "enter").
+                        // Typed, not auto-submitted, so the user can review/edit before
+                        // sending it - matches paste behavior (onPasteTextFromClipboard).
+                        key.startsWith(VOICE_INPUT_PREFIX) -> viewModel.sendRawInput(key.removePrefix(VOICE_INPUT_PREFIX))
+                        else -> viewModel.sendRawInput(key)
+                    }
                 }
             }
         )
@@ -237,10 +251,26 @@ fun TerminalAccessoryRow(
     isShiftActive: Boolean = false,
     onKeyClick: (String) -> Unit
 ) {
-    val keys = mutableListOf("ENTER", "Y", "N", "ESC", "CTRL-C", "TAB", "SHIFT", "↑", "↓", "←", "→", "DIAG", "CLOSE")
-    
+    // Ordered by expected usage: ENTER (submit) and CTRL-C (interrupt) come first as the
+    // two most frequent actions, then ESC and history/completion (agent TUIs lean on ESC
+    // to back out of input modes), then cursor movement, then the least-frequent
+    // confirm/modifier/utility keys.
+    val keys = mutableListOf("ENTER", "CTRL-C", "ESC", "↑", "↓", "TAB", "←", "→", "Y", "N", "SHIFT", "DIAG", "CLOSE")
+
     val displayUrl = remember(lastUrl) {
         lastUrl?.substringAfter("://")?.take(10)?.let { "$it.." }
+    }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val voiceLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val text = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (!text.isNullOrBlank()) {
+            onKeyClick("$VOICE_INPUT_PREFIX$text")
+        }
     }
 
     Row(
@@ -253,6 +283,30 @@ fun TerminalAccessoryRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        Surface(
+            onClick = {
+                val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to send to the terminal")
+                }
+                try {
+                    voiceLauncher.launch(intent)
+                } catch (e: android.content.ActivityNotFoundException) {
+                    android.widget.Toast.makeText(context, "No speech recognizer available on this device", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            },
+            color = MaterialTheme.colorScheme.primary,
+            shape = MaterialTheme.shapes.small,
+            modifier = Modifier.padding(start = 4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = "Voice input",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp).size(16.dp),
+                tint = Color.White
+            )
+        }
+
         if (lastUrl != null) {
             Surface(
                 onClick = { onKeyClick("OPEN-LINK") },

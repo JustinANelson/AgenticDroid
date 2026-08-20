@@ -26,6 +26,7 @@ fun RemoteBrowserScreen(
     rootPath: String,
     onOpenFile: (String) -> Unit,
     onOpenProject: (String) -> Unit,
+    shortenDirectoryNames: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var currentPath by remember(rootPath) { mutableStateOf(rootPath) }
@@ -60,8 +61,14 @@ fun RemoteBrowserScreen(
                 }
             }
             Text(
-                text = currentPath,
+                text = if (shortenDirectoryNames) {
+                    currentPath.trimEnd('/').substringAfterLast('/').ifEmpty { currentPath }
+                } else {
+                    currentPath
+                },
                 style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
             )
             IconButton(onClick = { onOpenProject(currentPath) }) {

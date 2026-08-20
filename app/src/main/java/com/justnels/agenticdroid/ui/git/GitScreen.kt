@@ -29,6 +29,7 @@ fun GitScreen(
     githubDeviceFlow: com.justnels.agenticdroid.GithubDeviceFlowState?,
     hintsShown: Set<String>,
     preferSshGitRemote: Boolean = false,
+    confirmDestructiveGitActions: Boolean = true,
     modifier: Modifier = Modifier,
     lastOutput: String? = null,
     error: String? = null,
@@ -55,6 +56,7 @@ fun GitScreen(
     var showRemoteDialog by remember { mutableStateOf(false) }
     var showConfigDialog by remember { mutableStateOf(false) }
     var showCreateRepoDialog by remember { mutableStateOf(false) }
+    var showForcePushConfirm by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(true) }
     
     LazyColumn(
@@ -308,7 +310,12 @@ fun GitScreen(
                 TextButton(onClick = { onPull(true) }, modifier = Modifier.weight(1f)) {
                     Text("Pull (Rebase)", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
-                TextButton(onClick = { onPush(true) }, modifier = Modifier.weight(1f)) {
+                TextButton(
+                    onClick = {
+                        if (confirmDestructiveGitActions) showForcePushConfirm = true else onPush(true)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
                     Text("Force Push", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, maxLines = 1)
                 }
             }
@@ -501,6 +508,36 @@ fun GitScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateRepoDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showForcePushConfirm) {
+        AlertDialog(
+            onDismissRequest = { showForcePushConfirm = false },
+            title = { Text("Force Push?") },
+            text = {
+                Text(
+                    "This overwrites the remote branch's history with your local branch. " +
+                        "Anything on the remote that isn't in your local history will be lost " +
+                        "and cannot be undone from here."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showForcePushConfirm = false
+                        onPush(true)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Force Push")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForcePushConfirm = false }) {
                     Text("Cancel")
                 }
             }

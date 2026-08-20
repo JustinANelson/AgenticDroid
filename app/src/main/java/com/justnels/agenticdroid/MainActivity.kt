@@ -69,7 +69,13 @@ fun MainScreen(viewModel: MainViewModel) {
     }
     val terminalViewModel = remember(activeEnv, viewModel.selectedProject, viewModel.isCoreToolchainInstalled) {
         val path = viewModel.executionWorkingDirectory
-        TerminalViewModel(application, activeEnv, path, onSessionEnded = viewModel::onAgentStopped)
+        TerminalViewModel(
+            application,
+            activeEnv,
+            path,
+            onSessionEnded = viewModel::onAgentStopped,
+            shortenDirectoryNames = viewModel.shortenDirectoryNames
+        )
     }
     // TerminalViewModel is manually `remember`'d (not lifecycle-scoped via viewModel()), so
     // switching environments or projects would otherwise leak the previous one's forked shell process.
@@ -173,7 +179,8 @@ fun MainScreen(viewModel: MainViewModel) {
                             filesystem = activeEnv.filesystem(),
                             rootPath = ssh.config.workingDirectory,
                             onOpenFile = viewModel::openRemoteFile,
-                            onOpenProject = viewModel::selectRemoteProject
+                            onOpenProject = viewModel::selectRemoteProject,
+                            shortenDirectoryNames = viewModel.shortenDirectoryNames
                         )
                     } else if (viewModel.selectedProject == null) {
                         ProjectList(
@@ -525,7 +532,8 @@ fun MainScreen(viewModel: MainViewModel) {
                     TerminalScreen(
                         viewModel = terminalViewModel,
                         hintsShown = viewModel.hintsShown,
-                        onDismissHint = { viewModel.markHintShown(it) }
+                        onDismissHint = { viewModel.markHintShown(it) },
+                        keepScreenOn = viewModel.keepScreenOnDuringTerminal
                     )
                 }
                 Screen.Git -> {
@@ -544,6 +552,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         githubDeviceFlow = viewModel.githubDeviceFlowState,
                         hintsShown = viewModel.hintsShown,
                         preferSshGitRemote = viewModel.preferSshGitRemote,
+                        confirmDestructiveGitActions = viewModel.confirmDestructiveGitActions,
                         lastOutput = viewModel.lastGitOutput,
                         error = viewModel.gitError,
                         onCommit = { viewModel.gitCommit(it) },
@@ -630,7 +639,8 @@ fun MainScreen(viewModel: MainViewModel) {
                     IntegratedAgentScreen(
                         terminalViewModel = terminalViewModel,
                         hintsShown = viewModel.hintsShown,
-                        onDismissHint = { viewModel.markHintShown(it) }
+                        onDismissHint = { viewModel.markHintShown(it) },
+                        keepScreenOn = viewModel.keepScreenOnDuringTerminal
                     )
                 }
                 Screen.Search -> {
@@ -650,7 +660,13 @@ fun MainScreen(viewModel: MainViewModel) {
                             installApkLauncher.launch(arrayOf("application/vnd.android.package-archive"))
                         },
                         onRestoreLastKnownGood = { viewModel.restoreLastKnownGoodApk() },
-                        hasLastKnownGoodBackup = viewModel.hasLastKnownGoodApk()
+                        hasLastKnownGoodBackup = viewModel.hasLastKnownGoodApk(),
+                        shortenDirectoryNames = viewModel.shortenDirectoryNames,
+                        onSetShortenDirectoryNames = { viewModel.updateShortenDirectoryNames(it) },
+                        confirmDestructiveGitActions = viewModel.confirmDestructiveGitActions,
+                        onSetConfirmDestructiveGitActions = { viewModel.updateConfirmDestructiveGitActions(it) },
+                        keepScreenOnDuringTerminal = viewModel.keepScreenOnDuringTerminal,
+                        onSetKeepScreenOnDuringTerminal = { viewModel.updateKeepScreenOnDuringTerminal(it) }
                     )
                 }
                 Screen.WebPreview -> {

@@ -268,6 +268,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putBoolean("prefer_ssh_git_remote", enabled) }
     }
 
+    /** When true, the remote file browser (RemoteBrowserScreen) shows only the current
+     * directory's own name instead of its full absolute path - useful once a project is
+     * nested several levels deep on the remote machine. */
+    var shortenDirectoryNames by mutableStateOf(false)
+        private set
+
+    fun updateShortenDirectoryNames(enabled: Boolean) {
+        shortenDirectoryNames = enabled
+        prefs.edit { putBoolean("shorten_directory_names", enabled) }
+    }
+
+    /** When true, Force Push (and other one-tap destructive git actions) ask for
+     * confirmation first. Defaults on since Force Push otherwise fires immediately on a
+     * single tap with no undo. */
+    var confirmDestructiveGitActions by mutableStateOf(true)
+        private set
+
+    fun updateConfirmDestructiveGitActions(enabled: Boolean) {
+        confirmDestructiveGitActions = enabled
+        prefs.edit { putBoolean("confirm_destructive_git_actions", enabled) }
+    }
+
+    /** When true (the historical, hardcoded default), the screen stays awake while the
+     * Terminal tab is open - handy for a long-running agent, but a battery drain if left
+     * on unattended. */
+    var keepScreenOnDuringTerminal by mutableStateOf(true)
+        private set
+
+    fun updateKeepScreenOnDuringTerminal(enabled: Boolean) {
+        keepScreenOnDuringTerminal = enabled
+        prefs.edit { putBoolean("keep_screen_on_terminal", enabled) }
+    }
+
     var githubDeviceFlowState by mutableStateOf<GithubDeviceFlowState?>(null)
         private set
 
@@ -1863,6 +1896,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         preferSshGitRemote = prefs.getBoolean("prefer_ssh_git_remote", false)
+        shortenDirectoryNames = prefs.getBoolean("shorten_directory_names", false)
+        confirmDestructiveGitActions = prefs.getBoolean("confirm_destructive_git_actions", true)
+        keepScreenOnDuringTerminal = prefs.getBoolean("keep_screen_on_terminal", true)
         githubUsername = prefs.getString("github_username", "") ?: ""
         val legacyToken = prefs.getString("github_token", null)
         githubToken = credentialManager.getCredential(CredentialManager.GITHUB_TOKEN)
