@@ -272,6 +272,33 @@ class SSHExecutionEnvironmentTest {
     }
 
     @Test
+    fun quoteForEitherShellDialectOnlyEscapesEmbeddedQuotes() {
+        assertEquals("\"bash\"", SSHExecutionEnvironment.quoteForEitherShellDialect("bash"))
+        assertEquals(
+            "\"C:\\Program Files\\Git\\bin\\bash.exe\"",
+            SSHExecutionEnvironment.quoteForEitherShellDialect("C:\\Program Files\\Git\\bin\\bash.exe")
+        )
+        // Backslashes pass through untouched; only literal " becomes \" - see the doc on
+        // quoteForEitherShellDialect for why that single rule is safe under both dialects.
+        assertEquals(
+            "\"say \\\"hi\\\"\"",
+            SSHExecutionEnvironment.quoteForEitherShellDialect("say \"hi\"")
+        )
+    }
+
+    @Test
+    fun probeCommandForWrapsCandidateAndEchoInDialectAgnosticQuoting() {
+        val probe = SSHExecutionEnvironment.probeCommandFor("bash")
+        assertEquals("\"bash\" -lc \"echo AGENTICDROID_POSIX_SHELL_OK\"", probe)
+
+        val windowsProbe = SSHExecutionEnvironment.probeCommandFor("C:\\Program Files\\Git\\bin\\bash.exe")
+        assertEquals(
+            "\"C:\\Program Files\\Git\\bin\\bash.exe\" -lc \"echo AGENTICDROID_POSIX_SHELL_OK\"",
+            windowsProbe
+        )
+    }
+
+    @Test
     fun projectTypeDetectFromPathsCorrectlyIdentifiesProjectTypes() {
         val webPaths = listOf("package.json", "index.html", "src/main.ts", "vite.config.ts")
         assertEquals(com.justnels.agenticdroid.workspace.ProjectType.WEB, com.justnels.agenticdroid.workspace.ProjectType.detectFromPaths(webPaths))
