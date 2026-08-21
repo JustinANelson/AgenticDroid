@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.justnels.agenticdroid.agents.AgentProfile
 import com.justnels.agenticdroid.agents.AgentVersionInfo
 import com.justnels.agenticdroid.ui.components.HintBox
+import java.util.UUID
 
 @Composable
 fun AgentLauncherScreen(
@@ -36,10 +39,14 @@ fun AgentLauncherScreen(
     onStopAgent: () -> Unit,
     onRunHeadless: (AgentProfile, String) -> Unit = { _, _ -> },
     onOpenRuns: () -> Unit = {},
+    onAddAgent: (AgentProfile) -> Unit = {},
+    onDeleteAgent: (String) -> Unit = {},
+    isCustomAgent: (String) -> Boolean = { false },
     onDismissHint: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var promptDialogAgent by remember { mutableStateOf<AgentProfile?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -55,10 +62,15 @@ fun AgentLauncherScreen(
                 text = "AI Agents",
                 style = MaterialTheme.typography.headlineMedium
             )
-            TextButton(onClick = onOpenRuns) {
-                Icon(Icons.Default.History, contentDescription = null)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Runs")
+            Row {
+                IconButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Custom Agent")
+                }
+                TextButton(onClick = onOpenRuns) {
+                    Icon(Icons.Default.History, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Runs")
+                }
             }
         }
 
@@ -100,16 +112,28 @@ fun AgentLauncherScreen(
                     isBlocked = activeAgent != null && activeAgent.id != agent.id,
                     isInstalled = agent.id in installedAgentIds,
                     isCheckingInstalled = isCheckingInstalled,
+                    isCustom = isCustomAgent(agent.id),
                     versionInfo = agentVersions[agent.id],
                     isCheckingVersion = checkingVersionForAgentId == agent.id,
                     isUpdating = updatingAgentId == agent.id,
                     onLaunch = { onLaunchAgent(agent) },
                     onRun = { promptDialogAgent = agent },
                     onCheckVersion = { onCheckVersion(agent) },
-                    onUpdate = { onUpdateAgent(agent) }
+                    onUpdate = { onUpdateAgent(agent) },
+                    onDelete = { onDeleteAgent(agent.id) }
                 )
             }
         }
+    }
+
+    if (showAddDialog) {
+        AddCustomAgentDialog(
+            onDismiss = { showAddDialog = false },
+            onConfirm = { agent ->
+                onAddAgent(agent)
+                showAddDialog = false
+            }
+        )
     }
 
     promptDialogAgent?.let { agent ->
@@ -163,19 +187,102 @@ private fun HeadlessPromptDialog(
 }
 
 @Composable
+private fun AddCustomAgentDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (AgentProfile) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var command by remember { mutableStateOf("") }
+    var installCommand by remember { mutableStateOf("") }
+    var prepareCommand by remember { mutableStateOf("") }
+    var headlessPromptArgs by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Custom Agent") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = command,
+                    onValueChange = { command = it },
+                    label = { Text("Binary Command (e.g. 'echo')") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = installCommand,
+                    onValueChange = { installCommand = it },
+                    label = { Text("Install Command (e.g. 'npm install -g ...')") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                OutlinedTextField(
+                    value = prepareCommand,
+                    onValueChange = { prepareCommand = it },
+                    label = { Text("Prepare Command (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                OutlinedTextField(
+                    value = headlessPromptArgs,
+                    onValueChange = { headlessPromptArgs = it },
+                    label = { Text("Headless Run Flag (e.g. '-p', optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(
+                        AgentProfile(
+                            id = UUID.randomUUID().toString(),
+                            name = name,
+                            command = command,
+                            installCommand = installCommand,
+                            prepareCommand = prepareCommand.takeIf { it.isNotBlank() },
+                            headlessPromptArgs = headlessPromptArgs.takeIf { it.isNotBlank() }?.split(" ")
+                        )
+                    )
+                },
+                enabled = name.isNotBlank() && command.isNotBlank() && installCommand.isNotBlank()
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
 fun AgentCard(
     agent: AgentProfile,
     isActive: Boolean,
     isBlocked: Boolean,
     isInstalled: Boolean,
     isCheckingInstalled: Boolean,
+    isCustom: Boolean = false,
     versionInfo: AgentVersionInfo? = null,
     isCheckingVersion: Boolean = false,
     isUpdating: Boolean = false,
     onLaunch: () -> Unit,
     onRun: () -> Unit = {},
     onCheckVersion: () -> Unit = {},
-    onUpdate: () -> Unit = {}
+    onUpdate: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -189,7 +296,18 @@ fun AgentCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = agent.name, style = MaterialTheme.typography.titleLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = agent.name, style = MaterialTheme.typography.titleLarge)
+                        if (isCustom) {
+                            IconButton(onClick = onDelete) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete Agent",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = "Command: ${agent.command}",
                         style = MaterialTheme.typography.bodySmall,

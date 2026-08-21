@@ -105,7 +105,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val workspaceRoot = migrateLegacyWorkspaces(application)
     
     val workspaceManager = WorkspaceManager(workspaceRoot)
-    val agentManager = AgentManager()
+    val agentManager = AgentManager(application)
     val headlessRunController = com.justnels.agenticdroid.agents.HeadlessRunController(application)
     val environmentManager = EnvironmentManager(application)
     val transferManager = com.justnels.agenticdroid.util.FileTransferManager(application)
@@ -179,6 +179,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onAgentStopped() {
         activeAgent = null
+    }
+
+    fun addCustomAgent(profile: com.justnels.agenticdroid.agents.AgentProfile) {
+        agentManager.addAgent(profile)
+    }
+
+    fun removeCustomAgent(agentId: String) {
+        agentManager.removeAgent(agentId)
+    }
+
+    fun isCustomAgent(agentId: String): Boolean {
+        return com.justnels.agenticdroid.agents.DefaultAgents.All.none { it.id == agentId }
     }
 
     /** Starts [agent] unattended (see [HeadlessAgentRunService]) against the currently

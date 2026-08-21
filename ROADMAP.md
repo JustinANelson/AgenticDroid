@@ -108,44 +108,7 @@ See [NEXT_FEATURES.md](NEXT_FEATURES.md) for the analysis behind the items added
 
 ## ✨ Productivity & UX
 
-### 6. [/] Custom Agent Profiles UI
-- **Impact**: Medium
-- **Status**: **Partial** (Manager logic implemented; UI form pending)
-- **Description**: Allow users to add their own CLI agents via a simple form.
-- **Details**: `AgentManager.addAgent` is ready; needs a "Custom Agent" button and form in
-  the Agents screen. Removes the per-CLI maintenance burden for any future agent that's
-  pure-JS/pure-Python (no native binary to smuggle past Zygote's seccomp filter).
-
-### 7. [ ] Headless Run Tool-Approval UX
-- **Impact**: Medium
-- **Description**: A notification action (approve/deny) or a pre-authorized permission
-  profile (e.g. "auto-approve file edits in the project, always ask before network/shell")
-  for agent tool-use prompts that occur during a headless run.
-- **Details**: Depends on item 1. Today this only works because the agent is attached to
-  a live PTY the user is looking at; a backgrounded run has no surface for it yet.
-
-### 8. [ ] Active Sessions Panel
-- **Impact**: Medium
-- **Description**: A panel listing live agent runs, terminal sessions, and any forwarded
-  ports, each with a stop/reattach action.
-- **Details**: Successor to the existing single-session "active-agent tracking with a
-  Stop command" once runs can outlive the screen that started them (items 1–2).
-
-### 9. [ ] Terminal Extra-Keys Expansion
-- **Impact**: Medium
-- **Description**: Add Esc / Tab / arrow-keys / Ctrl-modifier-for-next-keypress to the
-  terminal's extra-keys row, and confirm/expose the quick-command chip as user-saveable.
-- **Details**: The scrollable extra-keys row already exists (mic/voice input, a
-  quick-command chip, copy, ENTER, CTRL-C) but is missing the keys that matter most for
-  `vim`/`less`/REPL use inside an agent's shell tool on a soft keyboard with no physical
-  Ctrl/Esc.
-
-### 10. [ ] Markdown Preview
-- **Impact**: Medium
-- **Description**: A "Live Preview" mode for `.md` files.
-- **Details**: Use a library like `commonmark` to render READMEs and documentation nicely.
-
-## ✅ Completed Features
+- [x] **Custom Agent Profiles UI**: Support for adding and managing user-defined CLI agents via a simple form, with persistence and deletion support.
 - [x] **Remote File Transfer**: Upload/download and directory-archive-download over SSH,
   with progress, cancel, speed/ETA, and share-out (`FileTransferManager`,
   `TransferProgressBanner`, `FileShare`).

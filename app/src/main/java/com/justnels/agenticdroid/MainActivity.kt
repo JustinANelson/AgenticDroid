@@ -722,6 +722,9 @@ fun MainScreen(viewModel: MainViewModel) {
                                 viewModel.currentScreen = Screen.AgentRuns
                             },
                             onOpenRuns = { viewModel.currentScreen = Screen.AgentRuns },
+                            onAddAgent = { viewModel.addCustomAgent(it) },
+                            onDeleteAgent = { viewModel.removeCustomAgent(it) },
+                            isCustomAgent = { viewModel.isCustomAgent(it) },
                             onDismissHint = { viewModel.markHintShown(it) }
                         )
                     }
