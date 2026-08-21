@@ -336,7 +336,15 @@ class SSHExecutionEnvironment(
             else -> null
         }
         return EnvironmentInfo(
-            name = "Remote SSH: ${config.host}",
+            // Includes port/username, not just host: TerminalViewModel derives its PTY
+            // session cache key from this name, and two profiles pointed at the same host
+            // on different ports/users (e.g. this device's own sshd on 22 plus a second
+            // profile added for a WSL/container sshd on a different port) previously
+            // collided on an identical key, silently reattaching to whichever one
+            // connected first instead of opening the profile actually selected - confirmed
+            // live: switching between two such profiles and reopening Terminal kept
+            // showing the other profile's already-running remote shell.
+            name = "Remote SSH: ${config.username}@${config.host}:${config.port}",
             os = detectedOs ?: "Remote SSH",
             architecture = "unknown",
             installedTools = emptyList()
@@ -365,7 +373,15 @@ class SSHExecutionEnvironment(
             "-p", config.port.toString(),
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "UserKnownHostsFile=${knownHosts.absolutePath}",
-            "-t"
+            // A single -t *requests* a pty and lets the client silently skip it if its own
+            // isatty() check is ambiguous; that's fine for a plain login shell (any pty is
+            // fine), but fatal for tmux/screen, which refuse to start ("Must be connected
+            // to a terminal") without one - confirmed directly: the exact remote command
+            // this method sends when usePersistentSession is on ran clean interactively but
+            // failed silently (client exits 0, zero output) the moment stdin wasn't
+            // unambiguously a terminal. -tt forces allocation unconditionally instead of
+            // requesting it, which is the standard fix for "ssh host tmux ..." specifically.
+            if (config.usePersistentSession) "-tt" else "-t"
         )
 
         val forwardedPorts = listOf(5173, 5174, 3000, 3001, 3002, 8000, 8080, 5000, 4173, 1313)

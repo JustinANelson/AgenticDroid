@@ -34,17 +34,34 @@ See [NEXT_FEATURES.md](NEXT_FEATURES.md) for the analysis behind the items added
   server (they go through the same `ExecutionEnvironment.exec()` local runs do, so they
   should work, but see `READINESS_REVIEW.md` R7 for why that's unverified in general).
 
-### 2. [/] Persistent Remote Sessions (tmux/screen over SSH)
+### 2. [x] Persistent Remote Sessions (tmux/screen over SSH)
 - **Impact**: Critical
-- **Status**: **Code complete, unit-tested, not yet verified against a real POSIX
-  remote.** Opt-in per SSH profile (`SSHConfig.usePersistentSession`, default off),
-  toggleable both when adding a profile and inline on an existing profile's card. This
-  device's only configured SSH profile is a Windows/cmd.exe host, which the feature
-  explicitly does not support (see below) and which the toggle was deliberately left off
-  for during smoke testing, since enabling it there would break that terminal rather than
-  demonstrate anything. No WSL/Linux/macOS remote was available in this environment to
-  actually exercise a create, a detach+reconnect reattach, or the no-tmux-or-screen
-  fallback. Verify all three against a real POSIX host before treating this as done.
+- **Status**: **Verified end-to-end against a real POSIX remote** (a WSL Ubuntu instance
+  with `openssh-server`/`tmux`/`screen`, set up specifically to close this gap - see
+  below). Opt-in per SSH profile (`SSHConfig.usePersistentSession`, default off),
+  toggleable both when adding a profile and inline on an existing profile's card.
+  Real test performed: connected with persistence on, ran a marker command inside the
+  session, force-stopped the app (killing the local `ssh` process - a harder failure than
+  a network drop, and the actual failure mode a killed/backgrounded app hits), relaunched,
+  reopened Terminal, and confirmed it reattached to the *same* tmux session with the
+  marker still in scrollback and no interruption to the remote shell. Also confirmed no
+  stray `cd`/prompt-shortening keystrokes were injected into the reattached session (see
+  `skipsShellCustomization` below).
+  Two real bugs were caught and fixed only because this was actually run against a live
+  target, not just unit-tested:
+  - `TerminalViewModel`'s session-cache key (`env.getEnvironmentInfo().name`) was derived
+    from host only, so two SSH profiles pointed at the same host on different
+    ports/usernames collided and silently reattached to whichever one connected first,
+    regardless of which was actually active. Fixed by including username/port in the
+    environment name (`SSHExecutionEnvironment.getEnvironmentInfo()`); the Environments
+    screen's profile-card label had the identical bug and was fixed the same way.
+  - A single `-t` lets the local ssh client silently skip pty allocation if its own
+    `isatty()` check is ambiguous - harmless for a plain login shell, fatal for
+    tmux/screen (`Must be connected to a terminal`, exiting clean with zero output).
+    `ptyShellSpec()` now sends `-tt` (force, don't just request) specifically when
+    `usePersistentSession` is on.
+  Still not exercised: the no-tmux-or-screen fallback path (would need a POSIX remote
+  with neither installed) and Cloudflare Tunnel combined with persistence.
 - **Description**: Auto-launch or attach to a `tmux`/`screen` session on the remote host
   for SSH-backed terminal/agent sessions, so a dropped mobile connection doesn't kill an
   in-flight remote process.

@@ -288,7 +288,14 @@ fun EnvironmentCard(
                         is EnvironmentConfig.SSH -> {
                             val tunnelSuffix = if (config.config.useCloudflareTunnel) " (Tunnel)" else ""
                             val persistentSuffix = if (config.config.usePersistentSession) " (Persistent)" else ""
-                            "Remote SSH: ${config.config.host}$tunnelSuffix$persistentSuffix"
+                            // Includes username/port, not just host - two profiles can
+                            // legitimately point at the same host (e.g. this device's own
+                            // sshd on 22 plus a second sshd on a different port), and a
+                            // host-only label made them visually indistinguishable, which
+                            // caused real confusion verifying this feature: toggling/testing
+                            // "the" card for a host when two existed for it, with no way to
+                            // tell from the list which one was actually active.
+                            "Remote SSH: ${config.config.username}@${config.config.host}:${config.config.port}$tunnelSuffix$persistentSuffix"
                         }
                         is EnvironmentConfig.Node -> "Core Toolchain"
                     },
