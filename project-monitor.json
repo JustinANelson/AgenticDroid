@@ -1,0 +1,16 @@
+{
+  "services": [
+    {
+      "name": "AgenticDroid Remote Server",
+      "command": "node",
+      "args": [
+        "remote-agent-server.js"
+      ],
+      "cwd": "tools",
+      "env": {
+        "PORT": "$PORT",
+        "WORKSPACE_ROOT": "C:/Users/justnels/Projects"
+      }
+    }
+  ]
+}

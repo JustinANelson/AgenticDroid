@@ -130,14 +130,25 @@ class EnvironmentManager(private val context: Context) {
         _environments.add(EnvironmentConfig.Local)
         _environments.add(EnvironmentConfig.Node)
         restoreSSHProfiles().forEach(_environments::add)
+        restoreLANProfiles().forEach(_environments::add)
 
         val savedEnvironment = prefs.getString("active", null)
         activeEnvironment = when (savedEnvironment) {
             "local" -> EnvironmentConfig.Local
             "node" -> if (bootstrapper.isInstalled()) EnvironmentConfig.Node else EnvironmentConfig.Local
-            else -> _environments.filterIsInstance<EnvironmentConfig.SSH>()
-                .firstOrNull { profileId(it.config) == savedEnvironment?.removePrefix("ssh:") }
-                ?: EnvironmentConfig.Local
+            else -> {
+                if (savedEnvironment?.startsWith("ssh:") == true) {
+                    _environments.filterIsInstance<EnvironmentConfig.SSH>()
+                        .firstOrNull { profileId(it.config) == savedEnvironment.removePrefix("ssh:") }
+                        ?: EnvironmentConfig.Local
+                } else if (savedEnvironment?.startsWith("lan:") == true) {
+                    _environments.filterIsInstance<EnvironmentConfig.LAN>()
+                        .firstOrNull { "lan:${it.host}:${it.port}" == savedEnvironment }
+                        ?: EnvironmentConfig.Local
+                } else {
+                    EnvironmentConfig.Local
+                }
+            }
         }
     }
 
@@ -151,6 +162,7 @@ class EnvironmentManager(private val context: Context) {
             EnvironmentConfig.Local -> "local"
             EnvironmentConfig.Node -> "node"
             is EnvironmentConfig.SSH -> "ssh:${profileId(config.config)}"
+            is EnvironmentConfig.LAN -> "lan:${config.host}:${config.port}"
         }
         prefs.edit { putString("active", value) }
     }
@@ -160,6 +172,7 @@ class EnvironmentManager(private val context: Context) {
             when (config) {
             is EnvironmentConfig.Local -> LocalExecutionEnvironment()
             is EnvironmentConfig.SSH -> SSHExecutionEnvironment(context, config.config)
+            is EnvironmentConfig.LAN -> LANExecutionEnvironment(context, config.host, config.port)
             is EnvironmentConfig.Node -> {
                 if (bootstrapper.isInstalled()) {
                     NodeExecutionEnvironment(context)
@@ -183,6 +196,18 @@ class EnvironmentManager(private val context: Context) {
         saveSSHProfiles()
     }
 
+    fun addLANEnvironment(host: String, port: Int, name: String) {
+        val environment = EnvironmentConfig.LAN(host, port, name)
+        _environments.filterIsInstance<EnvironmentConfig.LAN>()
+            .filter { it.host == host && it.port == port }
+            .forEach { existing ->
+                _environments.remove(existing)
+                instances.remove(existing)?.close()
+            }
+        _environments.add(environment)
+        saveLANProfiles()
+    }
+
     fun removeEnvironment(config: EnvironmentConfig) {
         if (config != EnvironmentConfig.Local) {
             _environments.remove(config)
@@ -193,6 +218,9 @@ class EnvironmentManager(private val context: Context) {
                 credentials.clearCredential("ssh_passphrase_${profileId(config.config)}")
                 credentials.clearCredential("ssh_private_key_${profileId(config.config)}")
                 saveSSHProfiles()
+            }
+            if (config is EnvironmentConfig.LAN) {
+                saveLANProfiles()
             }
         }
     }
@@ -247,6 +275,18 @@ class EnvironmentManager(private val context: Context) {
         prefs.edit { putString("ssh_profiles", profiles.toString()) }
     }
 
+    private fun saveLANProfiles() {
+        val profiles = JSONArray()
+        _environments.filterIsInstance<EnvironmentConfig.LAN>().forEach { environment ->
+            profiles.put(JSONObject().apply {
+                put("host", environment.host)
+                put("port", environment.port)
+                put("name", environment.name)
+            })
+        }
+        prefs.edit { putString("lan_profiles", profiles.toString()) }
+    }
+
     private fun restoreSSHProfiles(): List<EnvironmentConfig.SSH> = runCatching {
         val profiles = JSONArray(prefs.getString("ssh_profiles", "[]"))
         (0 until profiles.length()).map { index ->
@@ -271,10 +311,24 @@ class EnvironmentManager(private val context: Context) {
             ))
         }
     }.getOrElse { emptyList() }
+
+    private fun restoreLANProfiles(): List<EnvironmentConfig.LAN> = runCatching {
+        val json = prefs.getString("lan_profiles", "[]")
+        val profiles = JSONArray(json)
+        (0 until profiles.length()).map { index ->
+            val item = profiles.getJSONObject(index)
+            EnvironmentConfig.LAN(
+                host = item.getString("host"),
+                port = item.getInt("port"),
+                name = item.getString("name")
+            )
+        }
+    }.getOrElse { emptyList() }
 }
 
 sealed class EnvironmentConfig {
     object Local : EnvironmentConfig()
     data class SSH(val config: SSHConfig) : EnvironmentConfig()
     object Node : EnvironmentConfig()
+    data class LAN(val host: String, val port: Int, val name: String) : EnvironmentConfig()
 }

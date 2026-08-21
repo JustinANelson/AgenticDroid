@@ -40,7 +40,7 @@ enum class RunnerPackageGroup(
             // of project type - most notably ripgrep, which Claude Code/Codex/Gemini CLI
             // all shell out to for fast codebase search; without it a search tool call
             // either fails or silently falls back to a much slower plain grep.
-            "ripgrep", "fd", "jq", "oniguruma", "tree", "unzip", "patch", "diffutils",
+            "ripgrep", "fd", "jq", "oniguruma", "tree", "unzip", "patch", "diffutils", "socat",
             // sqlite3 CLI binary - libsqlite above is only the shared library it (and
             // node's built-in sqlite module) link against. Verified against Termux's live
             // package index (Depends: readline, zlib; readline itself Depends:

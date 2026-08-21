@@ -239,11 +239,14 @@ fun MainScreen(viewModel: MainViewModel) {
                                 onOpenFile = { viewModel.openFile(it) }
                             )
                         }
-                    } else if (environmentManager.activeEnvironment is EnvironmentConfig.SSH && viewModel.selectedProject == null) {
-                        val ssh = environmentManager.activeEnvironment as EnvironmentConfig.SSH
+                    } else if ((environmentManager.activeEnvironment is EnvironmentConfig.SSH || environmentManager.activeEnvironment is EnvironmentConfig.LAN) && viewModel.selectedProject == null) {
+                        val rootPath = when (val active = environmentManager.activeEnvironment) {
+                            is EnvironmentConfig.SSH -> active.config.workingDirectory
+                            else -> "."
+                        }
                         RemoteBrowserScreen(
                             filesystem = activeEnv.filesystem(),
-                            rootPath = ssh.config.workingDirectory,
+                            rootPath = rootPath,
                             onOpenFile = viewModel::openRemoteFile,
                             onOpenProject = viewModel::selectRemoteProject,
                             onUploadFile = viewModel::uploadFileToRemote,

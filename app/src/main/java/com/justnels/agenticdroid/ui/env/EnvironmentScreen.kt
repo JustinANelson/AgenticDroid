@@ -23,6 +23,8 @@ import com.justnels.agenticdroid.env.SSHAuthType
 import com.justnels.agenticdroid.util.NetworkUtil
 import androidx.compose.runtime.livedata.observeAsState
 import com.justnels.agenticdroid.MainViewModel
+import com.justnels.agenticdroid.DiscoveredServer
+import com.justnels.agenticdroid.ServerType
 import com.justnels.agenticdroid.ui.components.HintBox
 
 @Composable
@@ -62,7 +64,7 @@ fun EnvironmentScreen(
                 style = MaterialTheme.typography.headlineMedium
             )
             IconButton(onClick = { showAddSSHDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add SSH")
+                Icon(Icons.Default.Add, contentDescription = "Add SSH or LAN Agent")
             }
         }
 
@@ -171,12 +173,6 @@ fun EnvironmentScreen(
                             val wasActive = manager.activeEnvironment == config
                             val updated = config.config.copy(usePersistentSession = enabled)
                             manager.addSSHEnvironment(updated)
-                            // addSSHEnvironment replaces the profile with a new
-                            // EnvironmentConfig.SSH value (data class equality means it's a
-                            // different key than the old one) - if this was the active
-                            // profile, re-activate the new value so activeEnvironment and
-                            // the terminal/agent screens don't keep pointing at the
-                            // now-removed old one.
                             if (wasActive) manager.activateEnvironment(EnvironmentConfig.SSH(updated))
                         }
                     }
@@ -237,13 +233,17 @@ fun EnvironmentScreen(
     }
 
     if (showAddSSHDialog) {
-        AddSSHDialog(
+        AddRemoteDialog(
             onDismiss = { showAddSSHDialog = false },
-            onConfirm = { config ->
+            onConfirmSSH = { config ->
                 manager.addSSHEnvironment(config)
                 showAddSSHDialog = false
             },
-            onScan = { onResult -> viewModel.scanForSshServers(onResult) }
+            onConfirmLAN = { host, port, name ->
+                manager.addLANEnvironment(host, port, name)
+                showAddSSHDialog = false
+            },
+            onScan = { onResult -> viewModel.scanForRemoteServers(onResult) }
         )
     }
 }
@@ -277,6 +277,7 @@ fun EnvironmentCard(
                     is EnvironmentConfig.Local -> Icons.Default.PhoneAndroid
                     is EnvironmentConfig.SSH -> Icons.Default.Computer
                     is EnvironmentConfig.Node -> Icons.Default.Terminal
+                    is EnvironmentConfig.LAN -> Icons.Default.Router
                 },
                 contentDescription = null
             )
@@ -288,16 +289,10 @@ fun EnvironmentCard(
                         is EnvironmentConfig.SSH -> {
                             val tunnelSuffix = if (config.config.useCloudflareTunnel) " (Tunnel)" else ""
                             val persistentSuffix = if (config.config.usePersistentSession) " (Persistent)" else ""
-                            // Includes username/port, not just host - two profiles can
-                            // legitimately point at the same host (e.g. this device's own
-                            // sshd on 22 plus a second sshd on a different port), and a
-                            // host-only label made them visually indistinguishable, which
-                            // caused real confusion verifying this feature: toggling/testing
-                            // "the" card for a host when two existed for it, with no way to
-                            // tell from the list which one was actually active.
                             "Remote SSH: ${config.config.username}@${config.config.host}:${config.config.port}$tunnelSuffix$persistentSuffix"
                         }
                         is EnvironmentConfig.Node -> "Core Toolchain"
+                        is EnvironmentConfig.LAN -> "LAN Agent: ${config.name}"
                     },
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -307,6 +302,8 @@ fun EnvironmentCard(
                     Text(text = "Tap to Download & Setup (~100MB)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                 } else if (config is EnvironmentConfig.Node) {
                     Text(text = "Installed (Node, Git, NPM, curl, gh, ripgrep, jq, fd)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                } else if (config is EnvironmentConfig.LAN) {
+                    Text(text = "Remote via Agent Server (${config.host}:${config.port})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (isActive) {
@@ -318,9 +315,9 @@ fun EnvironmentCard(
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                 }
             }
-            if (config is EnvironmentConfig.SSH) {
+            if (config is EnvironmentConfig.SSH || config is EnvironmentConfig.LAN) {
                 IconButton(onClick = onRemove) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove SSH profile", tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Default.Delete, contentDescription = "Remove profile", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -529,10 +526,11 @@ private fun formatBytes(bytes: Long): String? {
 }
 
 @Composable
-fun AddSSHDialog(
+fun AddRemoteDialog(
     onDismiss: () -> Unit,
-    onConfirm: (SSHConfig) -> Unit,
-    onScan: ((List<String>) -> Unit) -> Unit
+    onConfirmSSH: (SSHConfig) -> Unit,
+    onConfirmLAN: (String, Int, String) -> Unit,
+    onScan: ((List<DiscoveredServer>) -> Unit) -> Unit
 ) {
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("22") }
@@ -547,14 +545,14 @@ fun AddSSHDialog(
     var useCloudflareTunnel by remember { mutableStateOf(false) }
     var usePersistentSession by remember { mutableStateOf(false) }
     var isScanning by remember { mutableStateOf(false) }
-    var scannedHosts by remember { mutableStateOf(emptyList<String>()) }
+    var scannedServers by remember { mutableStateOf(emptyList<DiscoveredServer>()) }
     var showScanResults by remember { mutableStateOf(false) }
 
     val validFingerprint = hostKeyFingerprint.matches(Regex("^SHA256:[A-Za-z0-9+/]{43}=?$"))
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add SSH Environment") },
+        title = { Text("Add Remote Environment") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -568,7 +566,7 @@ fun AddSSHDialog(
                         onClick = {
                             isScanning = true
                             onScan {
-                                scannedHosts = it
+                                scannedServers = it
                                 isScanning = false
                                 showScanResults = true
                             }
@@ -583,21 +581,33 @@ fun AddSSHDialog(
                     }
                 }
 
-                if (showScanResults && scannedHosts.isNotEmpty()) {
+                if (showScanResults && scannedServers.isNotEmpty()) {
                     Text(
-                        "Discovered local hosts:",
+                        "Discovered servers:",
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(top = 8.dp)
                     )
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                        scannedHosts.forEach { scannedHost ->
+                        scannedServers.forEach { server ->
                             AssistChip(
                                 onClick = {
-                                    host = scannedHost
-                                    showScanResults = false
+                                    if (server.type == ServerType.LAN) {
+                                        onConfirmLAN(server.host, server.port, server.name)
+                                    } else {
+                                        host = server.host
+                                        port = server.port.toString()
+                                        showScanResults = false
+                                    }
                                 },
-                                label = { Text(scannedHost) },
-                                modifier = Modifier.padding(bottom = 4.dp)
+                                label = { Text("${server.name} (${server.type})") },
+                                modifier = Modifier.padding(bottom = 4.dp),
+                                leadingIcon = {
+                                    Icon(
+                                        if (server.type == ServerType.LAN) Icons.Default.Router else Icons.Default.Computer,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             )
                         }
                     }
@@ -699,7 +709,7 @@ fun AddSSHDialog(
                     ((authType == SSHAuthType.PASSWORD && password.isNotBlank()) ||
                         (authType == SSHAuthType.PRIVATE_KEY && (privateKeyPath.isNotBlank() || privateKeyContent.isNotBlank()))),
                 onClick = {
-                    onConfirm(
+                    onConfirmSSH(
                         SSHConfig(
                             host = host.trim(),
                             port = if (useCloudflareTunnel) 22 else port.toInt(),
@@ -717,7 +727,7 @@ fun AddSSHDialog(
                     )
                 }
             ) {
-                Text("Add")
+                Text("Add SSH")
             }
         },
         dismissButton = {

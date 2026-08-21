@@ -161,6 +161,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.termux.terminal.emulator)
     implementation(libs.termux.terminal.view)
+    implementation(libs.okhttp)
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j:1.0.0")
     implementation("org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:1.0.0")
 

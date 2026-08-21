@@ -101,6 +101,9 @@ data class EditorSession(
     var isDirty: Boolean = false
 )
 
+data class DiscoveredServer(val name: String, val host: String, val port: Int, val type: ServerType)
+enum class ServerType { SSH, LAN }
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     val workspaceRoot = migrateLegacyWorkspaces(application)
     
@@ -205,6 +208,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val secrets = project?.let { projectSecretsStore.getSecrets(it) } ?: emptyMap()
         val label = when (val active = environmentManager.activeEnvironment) {
             is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> "${active.config.username}@${active.config.host}"
+            is com.justnels.agenticdroid.env.EnvironmentConfig.LAN -> "LAN Agent: ${active.name}"
             com.justnels.agenticdroid.env.EnvironmentConfig.Node -> "On-device toolchain"
             com.justnels.agenticdroid.env.EnvironmentConfig.Local -> "Local"
         }
@@ -447,18 +451,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val isNodeEnvironment: Boolean
         get() = environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.Node ||
-                environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH
+                environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH ||
+                environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.LAN
 
     val executionWorkingDirectory: String
         get() = when (val active = environmentManager.activeEnvironment) {
             is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> {
                 selectedProject?.path?.takeIf { it.isNotBlank() } ?: active.config.workingDirectory
             }
+            is com.justnels.agenticdroid.env.EnvironmentConfig.LAN -> {
+                selectedProject?.path?.takeIf { it.isNotBlank() } ?: "."
+            }
             else -> selectedProject?.path ?: workspaceRoot.absolutePath
         }
 
     fun refreshNodeInstalledStatus() {
-        isNodeInstalled = if (environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
+        isNodeInstalled = if (environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH ||
+            environmentManager.activeEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.LAN
+        ) {
             true
         } else {
             environmentManager.bootstrapper.isInstalled()
@@ -1023,7 +1033,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openRemoteFile(path: String) {
         val config = environmentManager.activeEnvironment
-        if (config !is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) return
+        if (config !is com.justnels.agenticdroid.env.EnvironmentConfig.SSH &&
+            config !is com.justnels.agenticdroid.env.EnvironmentConfig.LAN) return
         val existingIndex = editorSessions.indexOfFirst { it.file.path == path && it.environment == config }
         if (existingIndex != -1) {
             activeSessionIndex = existingIndex
@@ -1053,7 +1064,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val fileEnvironment = session.environment
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                if (fileEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH) {
+                if (fileEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.SSH ||
+                    fileEnvironment is com.justnels.agenticdroid.env.EnvironmentConfig.LAN
+                ) {
                     environmentManager.getExecutionEnvironment(fileEnvironment).filesystem().writeFile(session.file.path, content)
                 } else {
                     workspaceManager.writeTextFile(requireNotNull(project) { "No local project is selected" }, session.file.path, content)
@@ -1916,11 +1929,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         bootstrapWorkId.value = environmentManager.bootstrapWorkId
     }
 
-    fun scanForSshServers(onResult: (List<String>) -> Unit) {
+    fun scanForRemoteServers(onResult: (List<DiscoveredServer>) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val env = environmentManager.getExecutionEnvironment(com.justnels.agenticdroid.env.EnvironmentConfig.Local)
             val session = env.exec("mdns-scan", ".", emptyMap())
-            val results = mutableListOf<String>()
+            val results = mutableListOf<DiscoveredServer>()
             val reader = session.inputStream.bufferedReader()
             delay(3000)
             session.kill()
@@ -1929,13 +1942,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (line.contains("_ssh._tcp")) {
                         val parts = line.trim().split(Regex("\\s+"))
                         if (parts.isNotEmpty()) {
-                            results.add(parts[0].removeSuffix("."))
+                            val host = parts[0].removeSuffix(".")
+                            results.add(DiscoveredServer(host, host, 22, ServerType.SSH))
+                        }
+                    } else if (line.contains("_agenticdroid._tcp")) {
+                        val parts = line.trim().split(Regex("\\s+"))
+                        if (parts.isNotEmpty()) {
+                            val host = parts[0].removeSuffix(".")
+                            // For LAN Agents, we assume default port 41338 for now if not in TXT (mdns-scan doesn't show TXT well)
+                            results.add(DiscoveredServer("LAN: $host", host, 41338, ServerType.LAN))
                         }
                     }
                 }
             }
             withContext(Dispatchers.Main) {
-                onResult(results.distinct())
+                onResult(results.distinctBy { it.host + it.type })
             }
         }
     }
