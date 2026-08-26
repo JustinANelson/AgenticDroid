@@ -17,13 +17,21 @@ import okio.ByteString.Companion.toByteString
 class LANExecutionEnvironment(
     private val context: Context,
     private val host: String,
-    private val port: Int
+    private val port: Int,
+    private val token: String? = null
 ) : ExecutionEnvironment {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .apply {
+            if (!token.isNullOrBlank()) {
+                addInterceptor { chain ->
+                    chain.proceed(chain.request().newBuilder().header("Authorization", "Bearer $token").build())
+                }
+            }
+        }
         .build()
 
     private val baseUrl = "http://$host:$port"
@@ -68,7 +76,7 @@ class LANExecutionEnvironment(
         val node = NodeRuntime.binDir(context).resolve("node")
         if (!node.exists()) return null
 
-        val localBridge = LANTerminalBridge(terminalWebSocketUrl(workingDirectory))
+        val localBridge = LANTerminalBridge(terminalWebSocketUrl(workingDirectory), token)
         val bridgePort = localBridge.start()
 
         val envMap = mutableMapOf<String, String>()
@@ -87,7 +95,7 @@ class LANExecutionEnvironment(
     }
 }
 
-private class LANTerminalBridge(val wsUrl: String) {
+private class LANTerminalBridge(val wsUrl: String, val token: String? = null) {
     private var serverSocket: ServerSocket? = null
     private val client = OkHttpClient()
 
@@ -98,8 +106,10 @@ private class LANTerminalBridge(val wsUrl: String) {
             try {
                 val localSocket = ss.accept()
                 ss.close()
-                
-                val request = Request.Builder().url(wsUrl).build()
+
+                val request = Request.Builder().url(wsUrl).apply {
+                    if (!token.isNullOrBlank()) header("Authorization", "Bearer $token")
+                }.build()
                 val ws = client.newWebSocket(request, object : WebSocketListener() {
                     override fun onMessage(webSocket: WebSocket, text: String) {
                         localSocket.outputStream.write(text.toByteArray())

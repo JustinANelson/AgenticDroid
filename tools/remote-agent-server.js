@@ -25,6 +25,28 @@ app.use(express.json());
 const PORT = process.env.PORT || 41338;
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || os.homedir();
 
+// This server exposes unrestricted filesystem read/write and arbitrary command execution
+// to anyone who can reach it - by default that's the whole LAN. Require a shared-secret
+// bearer token on every request unless the operator explicitly opts out.
+const crypto = require('crypto');
+const REQUIRE_AUTH = process.env.AGENTICDROID_NO_AUTH !== '1';
+const AUTH_TOKEN = process.env.AGENTICDROID_TOKEN || crypto.randomBytes(24).toString('base64url');
+
+function isValidToken(provided) {
+    if (!provided || provided.length !== AUTH_TOKEN.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(AUTH_TOKEN));
+}
+
+function checkAuth(req, res, next) {
+    if (!REQUIRE_AUTH) return next();
+    const header = req.headers['authorization'] || '';
+    const provided = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (isValidToken(provided)) return next();
+    res.status(401).json({ error: 'Unauthorized: missing or invalid pairing token' });
+}
+
+app.use('/api', checkAuth);
+
 // --- Filesystem API ---
 
 app.get('/api/files/list', (req, res) => {
@@ -88,7 +110,16 @@ app.post('/api/exec', (req, res) => {
 // --- WebSocket PTY Terminal ---
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/terminal' });
+const wss = new WebSocketServer({
+    server,
+    path: '/terminal',
+    verifyClient: (info, callback) => {
+        if (!REQUIRE_AUTH) return callback(true);
+        const provided = (info.req.headers['authorization'] || '').replace(/^Bearer /, '');
+        if (isValidToken(provided)) return callback(true);
+        callback(false, 401, 'Unauthorized');
+    }
+});
 
 wss.on('connection', (ws, req) => {
     const params = new URLSearchParams(req.url.split('?')[1]);
@@ -116,6 +147,11 @@ wss.on('connection', (ws, req) => {
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`AgenticDroid Remote Server running on port ${PORT}`);
     console.log(`Workspace root: ${WORKSPACE_ROOT}`);
+    if (REQUIRE_AUTH) {
+        console.log(`Pairing token (enter this in AgenticDroid when adding this server): ${AUTH_TOKEN}`);
+    } else {
+        console.log('WARNING: AGENTICDROID_NO_AUTH=1 - this server accepts unauthenticated requests from anyone on the network.');
+    }
 
     const bonjour = new Bonjour();
     bonjour.publish({

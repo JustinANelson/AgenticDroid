@@ -162,7 +162,7 @@ class SSHExecutionEnvironment(
             "access", "tcp",
             "--hostname", config.host,
             "--listener", "127.0.0.1:$port"
-        ).apply {
+        ).redirectErrorStream(true).apply {
             val env = environment()
             NodeRuntime.configureEnvironment(context, env)
         }
@@ -170,6 +170,21 @@ class SSHExecutionEnvironment(
         val process = pb.start()
         tunnelProcess = process
         tunnelLocalPort = port
+
+        // cloudflared's own diagnostics (missing/expired cert, DNS failure, etc.) are the
+        // actual reason a tunnel refuses to come up; a bare exit code leaves the user
+        // guessing, so keep a rolling tail of its combined stdout/stderr to surface on failure.
+        val outputTail = java.util.Collections.synchronizedList(ArrayDeque<String>())
+        val outputReader = Thread {
+            runCatching {
+                process.inputStream.bufferedReader().forEachLine { line ->
+                    synchronized(outputTail) {
+                        outputTail.addLast(line)
+                        if (outputTail.size > 20) outputTail.removeFirst()
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
 
         val ready = probePortReady(
             port = port,
@@ -180,10 +195,13 @@ class SSHExecutionEnvironment(
             val exitCode = if (!process.isAlive) runCatching { process.exitValue() }.getOrNull() else null
             process.destroy()
             tunnelProcess = null
+            outputReader.interrupt()
+            val tail = synchronized(outputTail) { outputTail.joinToString("\n") }.takeIf(String::isNotBlank)
+            val diagnostics = tail?.let { "\n$it" } ?: ""
             if (exitCode != null) {
-                throw java.io.IOException("Cloudflare tunnel process exited unexpectedly with code $exitCode")
+                throw java.io.IOException("Cloudflare tunnel process exited unexpectedly with code $exitCode$diagnostics")
             } else {
-                throw java.io.IOException("Timed out waiting for Cloudflare tunnel to listen on port $port")
+                throw java.io.IOException("Timed out waiting for Cloudflare tunnel to listen on port $port$diagnostics")
             }
         }
         return port

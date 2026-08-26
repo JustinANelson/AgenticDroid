@@ -239,8 +239,8 @@ fun EnvironmentScreen(
                 manager.addSSHEnvironment(config)
                 showAddSSHDialog = false
             },
-            onConfirmLAN = { host, port, name ->
-                manager.addLANEnvironment(host, port, name)
+            onConfirmLAN = { host, port, name, token ->
+                manager.addLANEnvironment(host, port, name, token)
                 showAddSSHDialog = false
             },
             onScan = { onResult -> viewModel.scanForRemoteServers(onResult) }
@@ -529,7 +529,7 @@ private fun formatBytes(bytes: Long): String? {
 fun AddRemoteDialog(
     onDismiss: () -> Unit,
     onConfirmSSH: (SSHConfig) -> Unit,
-    onConfirmLAN: (String, Int, String) -> Unit,
+    onConfirmLAN: (String, Int, String, String?) -> Unit,
     onScan: ((List<DiscoveredServer>) -> Unit) -> Unit
 ) {
     var host by remember { mutableStateOf("") }
@@ -547,6 +547,7 @@ fun AddRemoteDialog(
     var isScanning by remember { mutableStateOf(false) }
     var scannedServers by remember { mutableStateOf(emptyList<DiscoveredServer>()) }
     var showScanResults by remember { mutableStateOf(false) }
+    var lanToken by remember { mutableStateOf("") }
 
     val validFingerprint = hostKeyFingerprint.matches(Regex("^SHA256:[A-Za-z0-9+/]{43}=?$"))
 
@@ -587,12 +588,22 @@ fun AddRemoteDialog(
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(top = 8.dp)
                     )
+                    if (scannedServers.any { it.type == ServerType.LAN }) {
+                        OutlinedTextField(
+                            value = lanToken,
+                            onValueChange = { lanToken = it },
+                            label = { Text("Pairing token (LAN)") },
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            supportingText = { Text("Printed in the companion server's console output on startup") },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        )
+                    }
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         scannedServers.forEach { server ->
                             AssistChip(
                                 onClick = {
                                     if (server.type == ServerType.LAN) {
-                                        onConfirmLAN(server.host, server.port, server.name)
+                                        onConfirmLAN(server.host, server.port, server.name, lanToken.trim().takeIf(String::isNotBlank))
                                     } else {
                                         host = server.host
                                         port = server.port.toString()

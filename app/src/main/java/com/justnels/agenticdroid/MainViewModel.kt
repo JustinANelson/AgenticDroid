@@ -515,8 +515,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         get() {
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
             val path = executionWorkingDirectory
-            val sslPath = com.justnels.agenticdroid.env.NodeRuntime.usrDir(getApplication()).let { usr ->
-                File(usr, "etc/tls/cert.pem").absolutePath
+            // The bundled cert.pem only exists on-device; passing its path to a remote git
+            // process (SSH/LAN) makes http.sslCAInfo point at a nonexistent file there, so
+            // only wire it up for environments that actually execute locally.
+            val isLocalEnvironment = environmentManager.activeEnvironment == com.justnels.agenticdroid.env.EnvironmentConfig.Local ||
+                environmentManager.activeEnvironment == com.justnels.agenticdroid.env.EnvironmentConfig.Node
+            val sslPath = if (isLocalEnvironment) {
+                com.justnels.agenticdroid.env.NodeRuntime.usrDir(getApplication()).let { usr ->
+                    File(usr, "etc/tls/cert.pem").absolutePath
+                }
+            } else {
+                null
             }
             return GitManager(env, path, sslPath, githubToken.takeIf(String::isNotBlank))
         }

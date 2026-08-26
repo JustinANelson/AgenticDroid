@@ -172,7 +172,7 @@ class EnvironmentManager(private val context: Context) {
             when (config) {
             is EnvironmentConfig.Local -> LocalExecutionEnvironment()
             is EnvironmentConfig.SSH -> SSHExecutionEnvironment(context, config.config)
-            is EnvironmentConfig.LAN -> LANExecutionEnvironment(context, config.host, config.port)
+            is EnvironmentConfig.LAN -> LANExecutionEnvironment(context, config.host, config.port, config.token)
             is EnvironmentConfig.Node -> {
                 if (bootstrapper.isInstalled()) {
                     NodeExecutionEnvironment(context)
@@ -196,8 +196,8 @@ class EnvironmentManager(private val context: Context) {
         saveSSHProfiles()
     }
 
-    fun addLANEnvironment(host: String, port: Int, name: String) {
-        val environment = EnvironmentConfig.LAN(host, port, name)
+    fun addLANEnvironment(host: String, port: Int, name: String, token: String? = null) {
+        val environment = EnvironmentConfig.LAN(host, port, name, token)
         _environments.filterIsInstance<EnvironmentConfig.LAN>()
             .filter { it.host == host && it.port == port }
             .forEach { existing ->
@@ -205,6 +205,7 @@ class EnvironmentManager(private val context: Context) {
                 instances.remove(existing)?.close()
             }
         _environments.add(environment)
+        token?.let { credentials.saveCredential("lan_token_$host:$port", it) }
         saveLANProfiles()
     }
 
@@ -220,6 +221,7 @@ class EnvironmentManager(private val context: Context) {
                 saveSSHProfiles()
             }
             if (config is EnvironmentConfig.LAN) {
+                credentials.clearCredential("lan_token_${config.host}:${config.port}")
                 saveLANProfiles()
             }
         }
@@ -317,10 +319,13 @@ class EnvironmentManager(private val context: Context) {
         val profiles = JSONArray(json)
         (0 until profiles.length()).map { index ->
             val item = profiles.getJSONObject(index)
+            val host = item.getString("host")
+            val port = item.getInt("port")
             EnvironmentConfig.LAN(
-                host = item.getString("host"),
-                port = item.getInt("port"),
-                name = item.getString("name")
+                host = host,
+                port = port,
+                name = item.getString("name"),
+                token = credentials.getCredential("lan_token_$host:$port")
             )
         }
     }.getOrElse { emptyList() }
@@ -330,5 +335,5 @@ sealed class EnvironmentConfig {
     object Local : EnvironmentConfig()
     data class SSH(val config: SSHConfig) : EnvironmentConfig()
     object Node : EnvironmentConfig()
-    data class LAN(val host: String, val port: Int, val name: String) : EnvironmentConfig()
+    data class LAN(val host: String, val port: Int, val name: String, val token: String? = null) : EnvironmentConfig()
 }

@@ -93,5 +93,4 @@ as a recovery backup. The app's wipe action removes preferences, credentials, ac
 workspaces, legacy workspace backups, and the bootstrapped toolchain. Back up source repositories
 through a trusted Git remote before wiping or uninstalling the app.
 
-See [READINESS_REVIEW.md](READINESS_REVIEW.md) for the latest readiness status and remaining
-production work.
+See [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) for the latest architectural review, self-hosting readiness, and development roadmap.
