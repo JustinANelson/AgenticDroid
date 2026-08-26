@@ -113,6 +113,14 @@ object DefaultAgents {
      * otherwise. Once a CLI publishes a real "<package>-linux-<arch>-android" build
      * (Bionic-native, no loader, no QEMU needed), this install flow just needs the
      * package-name suffix swapped.
+     *
+     * The generated wrapper deliberately does not set its own `LD_LIBRARY_PATH`: at
+     * install time this script runs through [NodeExecutionEnvironment.exec], which
+     * already sets a correct one via [NodeRuntime.configureEnvironment] (W^X-exempt
+     * native-lib dirs first, the writable sysroot only as a fallback) - and the wrapper
+     * inherits that same value when it's actually launched later, for the same reason.
+     * Baking in `$QEMU_SYSROOT/lib` here would permanently override that with the
+     * writable-only path, which fails once `targetSdk` moves past 28.
      */
     private fun npmMuslAgentInstallCommand(npmPackage: String, binaryName: String): String = """
         if [ ! -d /system/bin ]; then
@@ -132,8 +140,8 @@ object DefaultAgents {
         globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
         mkdir -p "${'$'}globalbin"
         rm -f "${'$'}globalbin/$binaryName"
-        printf '#!/system/bin/sh\nexport LD_LIBRARY_PATH="%s/lib"\nexec "%s" -L "%s" "%s/$binaryName" "${'$'}@"\n' \
-          "${'$'}QEMU_SYSROOT" "${'$'}QEMU_BIN" "${'$'}QEMU_SYSROOT" "${'$'}natdir" > "${'$'}globalbin/$binaryName"
+        printf '#!/system/bin/sh\nexec "%s" -L "%s" "%s/$binaryName" "${'$'}@"\n' \
+          "${'$'}QEMU_BIN" "${'$'}QEMU_SYSROOT" "${'$'}natdir" > "${'$'}globalbin/$binaryName"
         chmod 755 "${'$'}globalbin/$binaryName"
         if ! "${'$'}globalbin/$binaryName" --version </dev/null >/dev/null 2>&1; then
           rm -f "${'$'}globalbin/$binaryName"
@@ -202,8 +210,8 @@ object DefaultAgents {
         for f in codex codex-code-mode-host; do
           if [ -f "${'$'}natdir/${'$'}f" ] && [ ! -f "${'$'}natdir/${'$'}f.real" ]; then
             mv "${'$'}natdir/${'$'}f" "${'$'}natdir/${'$'}f.real"
-            printf '#!/system/bin/sh\nexport LD_LIBRARY_PATH="%s/lib"\nexec "%s" -L "%s" "%s/'"${'$'}f"'.real" "${'$'}@"\n' \
-              "${'$'}QEMU_SYSROOT" "${'$'}QEMU_BIN" "${'$'}QEMU_SYSROOT" "${'$'}natdir" > "${'$'}natdir/${'$'}f"
+            printf '#!/system/bin/sh\nexec "%s" -L "%s" "%s/'"${'$'}f"'.real" "${'$'}@"\n' \
+              "${'$'}QEMU_BIN" "${'$'}QEMU_SYSROOT" "${'$'}natdir" > "${'$'}natdir/${'$'}f"
             chmod 755 "${'$'}natdir/${'$'}f"
           fi
         done
@@ -437,8 +445,8 @@ object DefaultAgents {
         globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
         mkdir -p "${'$'}globalbin"
         rm -f "${'$'}globalbin/agy"
-        printf '#!/system/bin/sh\nexport LD_LIBRARY_PATH="%s/lib"\nexec "%s" -L "%s" "%s/antigravity.real" "${'$'}@"\n' \
-          "${'$'}QEMU_SYSROOT" "${'$'}QEMU_BIN" "${'$'}GLIBC_SYSROOT" "${'$'}vendordir" > "${'$'}globalbin/agy"
+        printf '#!/system/bin/sh\nexec "%s" -L "%s" "%s/antigravity.real" "${'$'}@"\n' \
+          "${'$'}QEMU_BIN" "${'$'}GLIBC_SYSROOT" "${'$'}vendordir" > "${'$'}globalbin/agy"
         chmod 755 "${'$'}globalbin/agy"
         if ! "${'$'}globalbin/agy" --version </dev/null >/dev/null 2>&1; then
           rm -f "${'$'}globalbin/agy"

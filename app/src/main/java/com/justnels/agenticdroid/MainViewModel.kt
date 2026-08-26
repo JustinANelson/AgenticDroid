@@ -476,8 +476,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         installedRunnerGroups = environmentManager.installedRunnerGroups()
     }
 
+    // Filters out groups RunnerPackageGroup.gatedOff lists: installing one would just
+    // download a toolchain that then crashes on first use (execve() from app-private
+    // storage is blocked once targetSdk moves past 28 - see AGENT_RUNTIME_RESEARCH.md).
     fun missingRunnerGroups(type: com.justnels.agenticdroid.workspace.ProjectType): Set<com.justnels.agenticdroid.env.RunnerPackageGroup> =
-        com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type) - installedRunnerGroups
+        (com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type) - installedRunnerGroups)
+            .filter { it.nativeLibPackaged }
+            .toSet()
 
     var doctorResults by mutableStateOf<List<com.justnels.agenticdroid.env.DoctorResult>>(emptyList())
         private set
@@ -1917,7 +1922,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun installRunnersFor(type: com.justnels.agenticdroid.workspace.ProjectType) {
-        startBootstrap(installedRunnerGroups + com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type))
+        val installable = com.justnels.agenticdroid.env.RunnerPackageGroup.requiredFor(type)
+            .filter { it.nativeLibPackaged }
+        startBootstrap(installedRunnerGroups + installable)
     }
 
     val wifiOnlyDownloads: Boolean get() = environmentManager.wifiOnlyDownloads

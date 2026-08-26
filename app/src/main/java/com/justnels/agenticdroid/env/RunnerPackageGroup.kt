@@ -12,7 +12,16 @@ import com.justnels.agenticdroid.workspace.ProjectType
 enum class RunnerPackageGroup(
     val displayName: String,
     val description: String,
-    val termuxPackages: List<String>
+    val termuxPackages: List<String>,
+    // Whether every directly-execve()'d binary this group installs has been routed
+    // through NodeRuntime.nativeLibBinary() (see AGENT_RUNTIME_RESEARCH.md) so it runs
+    // from the W^X-exempt nativeLibraryDir instead of app-private storage. RUST/GOLANG/
+    // CPP/SSG install Termux Bionic-native binaries (rustc, go, clang, hugo, ...) that
+    // still execve() directly from the writable download - these crash once targetSdk
+    // moves past 28, so they're gated out of new installs until the same closure work
+    // CORE/PYTHON/JVM already went through (see AGENT_RUNTIME_RESEARCH.md Sections 12,
+    // 14, 18, 19, 21) is done for them too.
+    val nativeLibPackaged: Boolean = true
 ) {
     CORE(
         "Core Toolchain",
@@ -71,15 +80,17 @@ enum class RunnerPackageGroup(
         "Rust compiler and Cargo",
         // rustc needs a real linker to produce a binary (cargo build/run fails with
         // "linker `cc` not found" otherwise) - clang provides it, and binutils backs it.
-        listOf("rust", "clang", "binutils")
+        listOf("rust", "clang", "binutils"),
+        nativeLibPackaged = false
     ),
-    GOLANG("Go", "Go compiler toolchain", listOf("golang")),
+    GOLANG("Go", "Go compiler toolchain", listOf("golang"), nativeLibPackaged = false),
     CPP(
         "C / C++",
         "Clang, make, binutils, and pkg-config",
-        listOf("clang", "make", "binutils", "pkg-config")
+        listOf("clang", "make", "binutils", "pkg-config"),
+        nativeLibPackaged = false
     ),
-    SSG("Static Site Generators", "Hugo", listOf("hugo"));
+    SSG("Static Site Generators", "Hugo", listOf("hugo"), nativeLibPackaged = false);
 
     companion object {
         /** The set of groups a project of the given type needs, [CORE] always included. */
@@ -95,8 +106,16 @@ enum class RunnerPackageGroup(
             ProjectType.CUSTOM -> setOf(CORE)
         }
 
-        /** Groups a user can opt into installing beyond the always-present [CORE]. */
-        val optional: List<RunnerPackageGroup> = entries.filter { it != CORE }
+        /** Groups a user can opt into installing beyond the always-present [CORE]. Excludes
+         * groups not yet W^X-safe at this app's `targetSdk` - see [gatedOff]. */
+        val optional: List<RunnerPackageGroup> = entries.filter { it != CORE && it.nativeLibPackaged }
+
+        /** Groups that install binaries this app can no longer safely execve() at the
+         * current `targetSdk` (see [nativeLibPackaged]). Not offered for new installs,
+         * but surfaced separately so a user who installed one under an older, lower-
+         * targetSdk build of this app can be told why it stopped working and uninstall
+         * it, rather than hitting a silent crash. */
+        val gatedOff: List<RunnerPackageGroup> = entries.filter { it != CORE && !it.nativeLibPackaged }
 
         /**
          * Termux package names still required if [group] were removed from

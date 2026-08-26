@@ -200,6 +200,17 @@ fun EnvironmentScreen(
                         onRefresh = { viewModel.refreshRunnerGroup(group) }
                     )
                 }
+                items(RunnerPackageGroup.gatedOff.filter { it in viewModel.installedRunnerGroups }) { group ->
+                    RunnerGroupCard(
+                        group = group,
+                        isInstalled = true,
+                        sizeBytes = viewModel.runnerGroupSizeBytes(group),
+                        onInstall = {},
+                        onUninstall = { viewModel.uninstallRunnerGroup(group) },
+                        onRefresh = {},
+                        unsupported = true
+                    )
+                }
 
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -427,7 +438,8 @@ fun RunnerGroupCard(
     sizeBytes: Long,
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    unsupported: Boolean = false
 ) {
     var showRemoveConfirm by remember { mutableStateOf(false) }
 
@@ -435,27 +447,40 @@ fun RunnerGroupCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(enabled = !isInstalled) { onInstall() }
+            .clickable(enabled = !isInstalled && !unsupported) { onInstall() },
+        colors = if (unsupported) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer) else CardDefaults.cardColors()
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = if (isInstalled) Icons.Default.Check else Icons.Default.Download,
+                imageVector = if (unsupported) Icons.Default.Warning else if (isInstalled) Icons.Default.Check else Icons.Default.Download,
                 contentDescription = null,
-                tint = if (isInstalled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (unsupported) MaterialTheme.colorScheme.error
+                    else if (isInstalled) MaterialTheme.colorScheme.secondary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = group.displayName, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    text = if (isInstalled) "Installed" + (formatBytes(sizeBytes)?.let { " ($it)" } ?: "") else group.description,
+                    text = when {
+                        unsupported -> "No longer supported on this Android version - remove it to free up space"
+                        isInstalled -> "Installed" + (formatBytes(sizeBytes)?.let { " ($it)" } ?: "")
+                        else -> group.description
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isInstalled) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (unsupported) MaterialTheme.colorScheme.error
+                        else if (isInstalled) MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            if (!isInstalled) {
+            if (unsupported) {
+                IconButton(onClick = { showRemoveConfirm = true }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Remove ${group.displayName}", tint = MaterialTheme.colorScheme.error)
+                }
+            } else if (!isInstalled) {
                 TextButton(onClick = onInstall) {
                     Text("Install")
                 }

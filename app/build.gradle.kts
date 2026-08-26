@@ -38,24 +38,26 @@ android {
     defaultConfig {
         applicationId = "com.justnels.agenticdroid"
         minSdk = 26
-        // The bundled Node/git/qemu-user toolchain is downloaded into app-private
-        // storage at runtime and executed directly from there. Android 10's target-29
-        // W^X policy forbids execve() from app data, so this app must stay on the
-        // API 28 compatibility policy when sideloaded. See AGENT_RUNTIME_RESEARCH.md
-        // for a verified-on-device prototype (NodeRuntime.nativeLibBinary and the
-        // combined DT_NEEDED dependency closure for qemu-user-aarch64, node, git, and
-        // aapt2 - including running real installed agent CLIs, Claude Code and Codex, as
-        // qemu's guest) showing the major arm64 lanes at raised targetSdk values. Python,
-        // npm/npx, git HTTPS, the native helpers, and the patched OpenJDK launcher have
-        // also passed at API 36. Not yet adopted app-wide - see
-        // AGENT_RUNTIME_RESEARCH.md Sections 18-21 for the remaining gates.
-        targetSdk = 28
+        // Every binary this app directly execve()'s (node, git, aapt2, npm/npx, qemu-user,
+        // python/pip, the JDK tools, kotlinc) is routed through NodeRuntime.nativeLibBinary()
+        // to the W^X-exempt nativeLibraryDir - see AGENT_RUNTIME_RESEARCH.md for the
+        // per-binary verification history. Only arm64-v8a is bundled (see the ndk.abiFilters
+        // below); RUST/GOLANG/CPP/SSG runner groups still execve() directly from app-private
+        // storage and are gated out of new installs (RunnerPackageGroup.nativeLibPackaged)
+        // until they go through the same closure work.
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+        // The native-lib closure (jniLibs/) has only ever been built and verified for
+        // arm64-v8a - see AGENT_RUNTIME_RESEARCH.md Section 10. Restrict the shipped build
+        // to that ABI rather than let a device install with an incomplete/missing closure.
+        ndk {
+            abiFilters += "arm64-v8a"
         }
 
         // OAuth device flow is designed for public clients. A client secret must never
@@ -107,6 +109,12 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // The termux-terminal-emulator AAR (see the `termux` version ref in
+            // libs.versions.toml) still bundles its own 4 KB-page-aligned libtermux.so at
+            // this same path. tools/build_libtermux.py rebuilds a 16 KB-aligned replacement
+            // into this module's own jniLibs/ - app-module sourceSets are merged before
+            // library/AAR dependencies, so pickFirsts keeps ours and drops the AAR's.
+            pickFirsts += "**/libtermux.so"
             keepDebugSymbols += setOf(
                 "**/libnpm_wrapper.so",
                 "**/libnpx_wrapper.so",
@@ -131,11 +139,44 @@ android {
             excludes += "aix/**"
         }
     }
-    lint {
-        // AgenticDroid currently executes its sideloaded toolchain from app-private
-        // storage, which requires the API 28 compatibility policy. Keep this explicit
-        // and narrowly scoped; this build is not eligible for Play distribution.
-        disable += "ExpiredTargetSdkVersion"
+}
+
+// jniLibs/ is gitignored (the fetched/built binaries are too large to commit - see
+// tools/fetch_native_libs.py, fetch_python_native_libs.py, fetch_jvm_native_libs.py,
+// build_openjdk_launcher.py, and build_libtermux.py). Without these files,
+// NodeRuntime.nativeLibBinary() silently returns null everywhere and every execve() falls
+// back to app-private storage - which W^X blocks at targetSdk 36, so the resulting APK
+// would crash on first agent/build/terminal use instead of failing to build. A release
+// build must catch that at build time, not ship it.
+tasks.register("checkNativeLibClosure") {
+    val dir = layout.projectDirectory.dir("src/main/jniLibs/arm64-v8a").asFile
+    val required = listOf(
+        "libqemu_user_aarch64.so",
+        "libnode_native_aarch64.so",
+        "libgit_native_aarch64.so",
+        "libaapt2_native_aarch64.so",
+        // Overrides the termux-terminal-emulator AAR's own 4 KB-page-aligned copy at
+        // the same path (see packaging.jniLibs.pickFirsts) - without this file present,
+        // the AAR's copy wins instead and fails Play's 16 KB native-library requirement.
+        "libtermux.so"
+    )
+    doLast {
+        val missing = required.filter { !File(dir, it).exists() }
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Missing native-lib closure file(s) required for targetSdk 36 W^X compliance: " +
+                    "$missing (looked in ${dir.absolutePath}). Run tools/fetch_native_libs.py, " +
+                    "fetch_python_native_libs.py, fetch_jvm_native_libs.py, and " +
+                    "build_libtermux.py (build_openjdk_launcher.py runs automatically as part " +
+                    "of fetch_jvm_native_libs.py) before a release build."
+            )
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+        dependsOn("checkNativeLibClosure")
     }
 }
 
