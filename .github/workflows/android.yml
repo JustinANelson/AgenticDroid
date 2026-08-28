@@ -1,0 +1,53 @@
+name: Android checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Install Android NDK
+        # build_openjdk_launcher.py (invoked by fetch_jvm_native_libs.py) compiles a
+        # patched libjli.so and needs a real NDK toolchain, not just the SDK.
+        run: sdkmanager --install "ndk;27.2.12479018"
+      - name: Cache native-lib closure
+        id: native-lib-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a
+          # Keyed on the pinned manifests and the OpenJDK launcher patch, not just a
+          # script hash - anything that would change the fetched/built output.
+          key: native-libs-${{ hashFiles('tools/*.json', 'tools/openjdk_launcher/*.patch', 'tools/fetch_native_libs.py', 'tools/fetch_python_native_libs.py', 'tools/fetch_jvm_native_libs.py', 'tools/build_openjdk_launcher.py', 'tools/build_libtermux.py') }}
+      - name: Fetch/build the native-lib closure
+        # jniLibs/ is gitignored (too large to commit) - see build.gradle.kts's
+        # checkNativeLibClosure task, which fails assembleRelease/bundleRelease loudly
+        # if this step is skipped and the cache is empty.
+        if: steps.native-lib-cache.outputs.cache-hit != 'true'
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          python3 tools/fetch_native_libs.py
+          python3 tools/fetch_python_native_libs.py
+          python3 tools/fetch_jvm_native_libs.py
+          python3 tools/build_libtermux.py
+      - uses: gradle/actions/wrapper-validation@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - name: Unit tests, lint, and release APK
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease --stacktrace

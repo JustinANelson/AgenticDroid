@@ -1,0 +1,69 @@
+--- a/src/java.base/share/native/libjli/java.c
++++ b/src/java.base/share/native/libjli/java.c
+@@ -56,6 +56,34 @@
+ #include "java.h"
+ #include "jni.h"
+ 
++#ifdef __ANDROID__
++#include <stdbool.h>
++#include <dlfcn.h>
++static void android_disable_tags(void) {
++    void *lib_handle = dlopen("libc.so", RTLD_LAZY);
++    if (lib_handle != NULL) {
++        if (android_get_device_api_level() >= 31) {
++            int (*mallopt_func)(int, int) = dlsym(lib_handle, "mallopt");
++            if (mallopt_func != NULL) {
++                mallopt_func(M_BIONIC_SET_HEAP_TAGGING_LEVEL, 0);
++            }
++            dlclose(lib_handle);
++            return;
++        }
++        bool (*android_mallopt)(int, void *, size_t) =
++                dlsym(lib_handle, "android_mallopt");
++        if (android_mallopt != NULL) {
++            int android_malloc_tag_level = 0;
++            android_mallopt(8, &android_malloc_tag_level,
++                    sizeof(android_malloc_tag_level));
++        }
++        dlclose(lib_handle);
++    }
++}
++#else
++static void android_disable_tags(void) {}
++#endif
++
+ /*
+  * A NOTE TO DEVELOPERS: For performance reasons it is important that
+  * the program image remain relatively small until after SelectVersion
+@@ -253,6 +281,8 @@ JLI_Launch(int argc, char ** argv,              /* main argc, argv */
+     _is_java_args = javaargs;
+     _wc_enabled = cpwildcard;
+ 
++    android_disable_tags();
++
+     InitLauncher(javaw);
+     DumpState();
+     if (JLI_IsTraceLauncher()) {
+--- a/src/java.base/unix/native/libjli/java_md_common.c
++++ b/src/java.base/unix/native/libjli/java_md_common.c
+@@ -79,6 +79,19 @@
+  */
+ jboolean
+ GetApplicationHome(char *buf, jint bufsize)
+ {
++#if defined(__ANDROID__)
++    /*
++     * Android's PackageManager installs executable native libraries in a flat,
++     * read-only directory, so /proc/self/exe cannot retain JAVA_HOME/bin/java's
++     * path. AgenticDroid supplies the downloaded JDK root explicitly instead.
++     */
++    const char *java_home = getenv("JAVA_HOME");
++    if (java_home != NULL && java_home[0] == '/' &&
++            JLI_StrLen(java_home) < (size_t) bufsize) {
++        JLI_Snprintf(buf, bufsize, "%s", java_home);
++        return JNI_TRUE;
++    }
++#endif
+     const char *execname = GetExecName();
+     if (execname != NULL) {
+         JLI_Snprintf(buf, bufsize, "%s", execname);

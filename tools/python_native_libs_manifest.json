@@ -1,0 +1,1052 @@
+{
+  "$schema_note": "Pinned Python launcher, libpython, extension modules, and runner-package libraries. Regenerate with tools/fetch_python_native_libs.py --discover only when intentionally updating Termux packages; normal runs verify these pins.",
+  "source_index": "https://packages-cf.termux.dev/apt/termux-main",
+  "target_abi": "aarch64 (arm64-v8a)",
+  "libraries": [
+    {
+      "bundled_filename": "libandroid-posix-semaphore.so",
+      "termux_package": "libandroid-posix-semaphore",
+      "version": "0.1-4",
+      "source_deb_sha256": "0efa8677a0166315ba4e685863712eba0ca0a1732827492f38226e2723730c7a",
+      "source_path": "data/data/com.termux/files/usr/lib/libandroid-posix-semaphore.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libcrypt.so",
+      "termux_package": "libcrypt",
+      "version": "0.2-6",
+      "source_deb_sha256": "6c283eed576b98cc3568f99638156f8588f77d979579d03bef8683d6eb8601e1",
+      "source_path": "data/data/com.termux/files/usr/lib/libcrypt.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libcurses.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "source_path": "data/data/com.termux/files/usr/lib/libcurses.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libform.so",
+      "termux_package": "ncurses-ui-libs",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37",
+      "source_path": "data/data/com.termux/files/usr/lib/libform.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libformw.so",
+      "termux_package": "ncurses-ui-libs",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37",
+      "source_path": "data/data/com.termux/files/usr/lib/libformw.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libgdbm.so",
+      "termux_package": "gdbm",
+      "version": "1.26-1",
+      "source_deb_sha256": "c378de833aae3cf41f3028491ea11836479d9833ab653edc27d0c0e0e691d5c5",
+      "source_path": "data/data/com.termux/files/usr/lib/libgdbm.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libgdbm_compat.so",
+      "termux_package": "gdbm",
+      "version": "1.26-1",
+      "source_deb_sha256": "c378de833aae3cf41f3028491ea11836479d9833ab653edc27d0c0e0e691d5c5",
+      "source_path": "data/data/com.termux/files/usr/lib/libgdbm_compat.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libhistory.so",
+      "termux_package": "readline",
+      "version": "8.3.3",
+      "source_deb_sha256": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1",
+      "source_path": "data/data/com.termux/files/usr/lib/libhistory.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libmenu.so",
+      "termux_package": "ncurses-ui-libs",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37",
+      "source_path": "data/data/com.termux/files/usr/lib/libmenu.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libmenuw.so",
+      "termux_package": "ncurses-ui-libs",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37",
+      "source_path": "data/data/com.termux/files/usr/lib/libmenuw.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libncurses.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "source_path": "data/data/com.termux/files/usr/lib/libncurses.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libncursesw.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "source_path": "data/data/com.termux/files/usr/lib/libncursesw.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libpanel.so",
+      "termux_package": "ncurses-ui-libs",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37",
+      "source_path": "data/data/com.termux/files/usr/lib/libpanel.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libpanelw.so",
+      "termux_package": "ncurses-ui-libs",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "7393f369009be189b3d4ec1f9b16ebd57621d6a1b22949ae07685573950d1f37",
+      "source_path": "data/data/com.termux/files/usr/lib/libpanelw.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libpyext_array_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/array.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_asyncio_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_asyncio.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_binascii_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/binascii.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_bisect_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_bisect.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_blake2_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_blake2.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_bz2_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_bz2.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_cmath_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/cmath.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_codecs_cn_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_codecs_cn.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_codecs_hk_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_codecs_hk.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_codecs_iso2022_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_codecs_iso2022.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_codecs_jp_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_codecs_jp.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_codecs_kr_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_codecs_kr.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_codecs_tw_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_codecs_tw.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_csv_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_csv.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_ctypes_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_ctypes.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_ctypes_test_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_ctypes_test.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_curses_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_curses.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_curses_panel_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_curses_panel.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_dbm_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_dbm.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_decimal_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_decimal.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_elementtree_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_elementtree.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_fcntl_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/fcntl.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_gdbm_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_gdbm.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_grp_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/grp.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_hashlib_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_hashlib.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_heapq_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_heapq.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_hmac_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_hmac.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_interpchannels_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_interpchannels.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_interpqueues_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_interpqueues.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_interpreters_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_interpreters.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_json_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_json.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_lsprof_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_lsprof.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_lzma_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_lzma.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_math_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/math.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_md5_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_md5.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_mmap_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/mmap.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_multibytecodec_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_multibytecodec.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_multiprocessing_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_multiprocessing.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_pickle_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_pickle.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_posixshmem_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_posixshmem.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_posixsubprocess_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_posixsubprocess.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_pyexpat_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/pyexpat.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_queue_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_queue.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_random_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_random.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_readline_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/readline.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_remote_debugging_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_remote_debugging.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_resource_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/resource.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_select_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/select.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_sha1_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_sha1.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_sha2_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_sha2.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_sha3_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_sha3.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_socket_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_socket.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_sqlite3_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_sqlite3.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_ssl_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_ssl.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_statistics_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_statistics.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_struct_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_struct.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_syslog_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/syslog.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_termios_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/termios.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testbuffer_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testbuffer.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testcapi_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testcapi.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testclinic_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testclinic.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testclinic_limited_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testclinic_limited.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testimportmultiple_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testimportmultiple.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testinternalcapi_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testinternalcapi.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testlimitedcapi_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testlimitedcapi.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testmultiphase_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testmultiphase.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_testsinglephase_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_testsinglephase.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_unicodedata_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/unicodedata.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_xxlimited_35_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/xxlimited_35.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_xxlimited_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/xxlimited.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_xxsubtype_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/xxsubtype.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_xxtestfuzz_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_xxtestfuzz.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_zlib_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/zlib.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_zoneinfo_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_zoneinfo.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpyext_zstd_cpython_314_aarch64_linux_android.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/python3.14/lib-dynload/_zstd.cpython-314-aarch64-linux-android.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "extension"
+    },
+    {
+      "bundled_filename": "libpython3_14.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/lib/libpython3.14.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libpython_native_aarch64.so",
+      "termux_package": "python",
+      "version": "3.14.6-1",
+      "source_deb_sha256": "3166e56c2b6c03fff41191fbb9d736302978e7c484702814d9f6dc99dd6006bd",
+      "source_path": "data/data/com.termux/files/usr/bin/python3.14",
+      "used_by": [
+        "python"
+      ],
+      "role": "main"
+    },
+    {
+      "bundled_filename": "libreadline.so",
+      "termux_package": "readline",
+      "version": "8.3.3",
+      "source_deb_sha256": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1",
+      "source_path": "data/data/com.termux/files/usr/lib/libreadline.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libtermcap.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "source_path": "data/data/com.termux/files/usr/lib/libtermcap.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libtic.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "source_path": "data/data/com.termux/files/usr/lib/libtic.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    },
+    {
+      "bundled_filename": "libtinfo.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "source_path": "data/data/com.termux/files/usr/lib/libtinfo.so",
+      "used_by": [
+        "python"
+      ],
+      "role": "library"
+    }
+  ]
+}

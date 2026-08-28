@@ -1,0 +1,771 @@
+package com.justnels.agenticdroid.env
+
+import net.schmizz.sshj.SSHClient
+import android.content.Context
+import net.schmizz.sshj.connection.channel.direct.Session
+import net.schmizz.sshj.transport.verification.FingerprintVerifier
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.nio.charset.StandardCharsets
+import java.io.ByteArrayOutputStream
+import java.net.ServerSocket
+import java.util.concurrent.TimeUnit
+
+class SSHExecutionEnvironment(
+    private val context: Context,
+    private val config: SSHConfig,
+    private val timeoutMs: Int = DEFAULT_TIMEOUT_MS,
+    private val tunnelTimeoutMs: Long = DEFAULT_TUNNEL_TIMEOUT_MS
+) : ExecutionEnvironment {
+    private var client: SSHClient? = null
+    private var tunnelProcess: Process? = null
+    private var tunnelLocalPort: Int = 0
+
+    /** Whether the interactive PTY (see [ptyShellSpec]) reattaches into tmux/screen -
+     * exposed so [com.justnels.agenticdroid.ui.terminal.TerminalViewModel] can tell a
+     * freshly-created shell from one that might be a reattach into a session where an
+     * agent CLI is already mid-run, and skip writing speculative setup commands (cd,
+     * prompt-shortening) into it - those would land as literal keystrokes inside
+     * whatever's running there instead of a shell prompt. */
+    val usePersistentSession: Boolean get() = config.usePersistentSession
+
+    // Lazily discovered once per connection and reused for every exec() call - see
+    // ensurePosixShellDiscovered(). posixShellPath stays null both before probing and if
+    // probing found nothing; posixShellProbed distinguishes "not yet tried" from "tried,
+    // no POSIX shell found" so a failed probe isn't repeated on every command.
+    @Volatile private var posixShellPath: String? = null
+    @Volatile private var posixShellProbed = false
+
+    companion object {
+        const val DEFAULT_TIMEOUT_MS = 10_000
+        const val DEFAULT_TUNNEL_TIMEOUT_MS = 10_000L
+
+        // Tried in order against every new SSH connection (once, lazily - see
+        // ensurePosixShellDiscovered) to find something that can run the POSIX command
+        // lines GitManager/exec() build (cd/&&/env-prefix/single-quoted args), regardless
+        // of what the remote sshd's own configured default shell is. Bare "sh"/"bash"
+        // cover any already-POSIX remote (Linux, macOS, WSL with bash on PATH) in one
+        // cheap round-trip; the two absolute paths cover a stock Windows remote whose
+        // sshd defaults to cmd.exe (its out-of-the-box behavior unless DefaultShell was
+        // manually reconfigured) but that has Git for Windows installed - the single most
+        // common source of a real POSIX shell on Windows, at its two standard install
+        // locations. A remote with neither leaves posixShellPath null and exec() falls
+        // back to sending the POSIX command line directly, unchanged from before this.
+        private val POSIX_SHELL_CANDIDATES = listOf(
+            "sh",
+            "bash",
+            "/bin/sh",
+            "/bin/bash",
+            "/usr/bin/bash",
+            "C:\\Program Files\\Git\\bin\\bash.exe",
+            "C:\\Program Files (x86)\\Git\\bin\\bash.exe"
+        )
+
+        private const val POSIX_PROBE_TOKEN = "AGENTICDROID_POSIX_SHELL_OK"
+
+        /** Fixed name so reconnecting (same profile, same remote) reattaches to the same
+         * tmux/screen session rather than accumulating a new one per connection attempt -
+         * see [SSHConfig.usePersistentSession]. */
+        private const val PERSISTENT_SESSION_NAME = "agenticdroid"
+
+        /** The remote command line [ptyShellSpec] sends when
+         * [SSHConfig.usePersistentSession] is on: reattaches an existing tmux/screen
+         * session by name if one is still alive (e.g. from before a dropped connection)
+         * rather than always creating a new one, and falls through to the plain login
+         * shell - with a visible message, so a silent `||` fallback doesn't leave the user
+         * thinking they're in a persistent session when they aren't - if neither tool is
+         * present on the remote. [workingDirectory] is passed to tmux's own `-c`, which
+         * only applies when *creating* a new session (`-A` makes it a no-op on an actual
+         * reattach) - deliberately not a separate `cd` command sent after the fact, since
+         * that would land as literal keystrokes inside whatever's already running in a
+         * reattached session (e.g. an agent CLI's TUI) instead of a shell prompt. A plain
+         * top-level function (not inlined into [ptyShellSpec]) so its content is
+         * unit-testable without needing a real Android `Context`/toolchain, which the rest
+         * of [ptyShellSpec] requires. */
+        internal fun persistentSessionCommand(workingDirectory: String): String {
+            val dirArg = if (workingDirectory.isNotBlank() && workingDirectory != ".") {
+                " -c ${quoteForEitherShellDialect(workingDirectory)}"
+            } else {
+                ""
+            }
+            return "tmux new-session -A -s $PERSISTENT_SESSION_NAME$dirArg 2>/dev/null || " +
+                "screen -xR $PERSISTENT_SESSION_NAME || " +
+                "(echo '[agenticdroid] tmux/screen not found on this host - persistent session unavailable, using a plain shell instead'; exec \"\$SHELL\" -l)"
+        }
+
+        /**
+         * Wraps [arg] in double quotes, escaping only embedded double quotes. This one
+         * escaping rule reads correctly both as a Windows/MSVCRT-style argv token (used by
+         * cmd.exe, PowerShell, and bash.exe's own argv parsing when launched by either) and
+         * as a POSIX double-quoted shell word - the two conventions differ on backslash
+         * handling, but every string this is used on (candidate shell paths, and the
+         * fully-built POSIX command line) is generated by this file and never contains a
+         * backslash immediately before a quote, which is the only case they'd disagree on.
+         */
+        internal fun quoteForEitherShellDialect(arg: String): String =
+            "\"" + arg.replace("\"", "\\\"") + "\""
+
+        /** The dialect-agnostic probe line for one [shellCandidate] - see
+         * [POSIX_SHELL_CANDIDATES]. Parses identically as "run this program with these two
+         * arguments" whether the interpreter turns out to be cmd.exe, PowerShell, or an
+         * already-POSIX shell, which is what makes it safe to send before the dialect is
+         * known. */
+        internal fun probeCommandFor(shellCandidate: String): String =
+            "${quoteForEitherShellDialect(shellCandidate)} -lc ${quoteForEitherShellDialect("echo $POSIX_PROBE_TOKEN")}"
+
+        /**
+         * Probes the given local port for readiness by attempting TCP socket connections.
+         * Returns true if a connection succeeds before [timeoutMs], or false if the timeout
+         * expires or [isAlive] returns false.
+         */
+        internal fun probePortReady(
+            port: Int,
+            host: String = "127.0.0.1",
+            timeoutMs: Long = DEFAULT_TUNNEL_TIMEOUT_MS,
+            pollIntervalMs: Long = 50L,
+            isAlive: () -> Boolean = { true }
+        ): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                if (!isAlive()) {
+                    return false
+                }
+                try {
+                    java.net.Socket().use { socket ->
+                        socket.connect(java.net.InetSocketAddress(host, port), 200)
+                        return true
+                    }
+                } catch (e: Exception) {
+                    // Port not ready yet
+                }
+                try {
+                    Thread.sleep(pollIntervalMs)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+            return false
+        }
+    }
+
+    private fun startTunnel(): Int {
+        val port = ServerSocket(0).use { it.localPort }
+        val cloudflared = NodeRuntime.binDir(context).resolve("cloudflared")
+        if (!cloudflared.exists()) {
+            throw IllegalStateException("cloudflared not found. Please install the Core Toolchain in Environments.")
+        }
+
+        val pb = ProcessBuilder(
+            cloudflared.absolutePath,
+            "access", "tcp",
+            "--hostname", config.host,
+            "--listener", "127.0.0.1:$port"
+        ).redirectErrorStream(true).apply {
+            val env = environment()
+            NodeRuntime.configureEnvironment(context, env)
+        }
+
+        val process = pb.start()
+        tunnelProcess = process
+        tunnelLocalPort = port
+
+        // cloudflared's own diagnostics (missing/expired cert, DNS failure, etc.) are the
+        // actual reason a tunnel refuses to come up; a bare exit code leaves the user
+        // guessing, so keep a rolling tail of its combined stdout/stderr to surface on failure.
+        val outputTail = java.util.Collections.synchronizedList(ArrayDeque<String>())
+        val outputReader = Thread {
+            runCatching {
+                process.inputStream.bufferedReader().forEachLine { line ->
+                    synchronized(outputTail) {
+                        // Avoid java.util.List SequencedCollection methods introduced in API 35;
+                        // this app supports API 26 and only needs ordinary indexed list calls.
+                        outputTail.add(line)
+                        if (outputTail.size > 20) outputTail.removeAt(0)
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
+
+        val ready = probePortReady(
+            port = port,
+            timeoutMs = tunnelTimeoutMs,
+            isAlive = { process.isAlive }
+        )
+        if (!ready) {
+            val exitCode = if (!process.isAlive) runCatching { process.exitValue() }.getOrNull() else null
+            process.destroy()
+            tunnelProcess = null
+            outputReader.interrupt()
+            val tail = synchronized(outputTail) { outputTail.joinToString("\n") }.takeIf(String::isNotBlank)
+            val diagnostics = tail?.let { "\n$it" } ?: ""
+            if (exitCode != null) {
+                throw java.io.IOException("Cloudflare tunnel process exited unexpectedly with code $exitCode$diagnostics")
+            } else {
+                throw java.io.IOException("Timed out waiting for Cloudflare tunnel to listen on port $port$diagnostics")
+            }
+        }
+        return port
+    }
+
+    @Synchronized
+    private fun getClient(): SSHClient {
+        if (client == null || !client!!.isConnected) {
+            val host = if (config.useCloudflareTunnel) {
+                if (tunnelProcess == null || tunnelProcess?.isAlive == false) {
+                    startTunnel()
+                }
+                "127.0.0.1"
+            } else {
+                config.host
+            }
+            val port = if (config.useCloudflareTunnel) tunnelLocalPort else config.port
+
+            val newClient = SSHClient().apply {
+                connectTimeout = timeoutMs
+                timeout = timeoutMs
+                addHostKeyVerifier(FingerprintVerifier.getInstance(config.hostKeyFingerprint))
+                try {
+                    connect(host, port)
+                    when (config.authType) {
+                        SSHAuthType.PASSWORD -> authPassword(
+                            config.username,
+                            requireNotNull(config.password) { "SSH password is missing" }
+                        )
+                        SSHAuthType.PRIVATE_KEY -> {
+                            val temporaryKey = config.privateKeyContent?.let { content ->
+                                File.createTempFile("ssh-key-", ".key", context.cacheDir).apply {
+                                    writeText(content)
+                                    setReadable(false, false)
+                                    setReadable(true, true)
+                                    setWritable(false, false)
+                                    setWritable(true, true)
+                                }
+                            }
+                            val path = config.privateKeyPath ?: temporaryKey?.absolutePath
+                                ?: error("SSH private key is missing")
+                            val provider = try {
+                                config.privateKeyPassphrase?.takeIf(String::isNotEmpty)?.let {
+                                    loadKeys(path, it)
+                                } ?: loadKeys(path)
+                            } finally {
+                                temporaryKey?.delete()
+                            }
+                            authPublickey(config.username, provider)
+                        }
+                    }
+                } catch (e: Exception) {
+                    runCatching { disconnect() }
+                    runCatching { close() }
+                    throw e
+                }
+            }
+            client = newClient
+        }
+        return client!!
+    }
+
+    override fun exec(
+        command: String,
+        workingDirectory: String,
+        environment: Map<String, String>
+    ): ProcessSession {
+        // getClient() is called first and only once here - the same single connection
+        // attempt/failure behavior as before this file added shell discovery. Discovery
+        // below reuses this already-connected client for its own probe sessions rather
+        // than calling getClient() itself, so a remote that's unreachable still fails
+        // exactly as fast as it did previously instead of retrying per candidate.
+        val client = getClient()
+        val environmentPrefix = environment.entries.joinToString(" ") { (key, value) ->
+            require(key.matches(Regex("[A-Za-z_][A-Za-z0-9_]*"))) { "Invalid environment variable name" }
+            "$key=\"${value.replace("\"", "\\\"")}\""
+        }
+        val remoteCommand = if (environmentPrefix.isBlank()) command else "env $environmentPrefix $command"
+        val posixCommand = if (workingDirectory.isNotBlank() && workingDirectory != ".") {
+            "cd \"$workingDirectory\" && $remoteCommand"
+        } else {
+            remoteCommand
+        }
+        val fullCommand = wrapForRemoteShell(client, posixCommand)
+        val session = client.startSession()
+        val cmd = session.exec(fullCommand)
+        return SSHProcessSession(session, cmd)
+    }
+
+    /**
+     * If a POSIX shell was found on the remote (see [ensurePosixShellDiscovered]), routes
+     * [posixCommand] through it explicitly - `"<shell>" -lc "<posixCommand>"` - instead of
+     * relying on whatever the SSH server's own default exec-channel shell happens to be.
+     * That default is outside this app's control and, on a stock Windows remote, is
+     * cmd.exe, which cannot parse a POSIX command line (single-quoted args, `&&`, the
+     * `env VAR=val` prefix) at all - this is what let a Windows remote's Git screen fail
+     * with cmd.exe errors like "'.env' is not recognized as an internal or external
+     * command" even though `posixCommand` itself was correct POSIX shell syntax. When no
+     * POSIX shell is found, falls back to sending [posixCommand] as-is (pre-existing
+     * behavior, unchanged) - the remote genuinely doesn't have one, so nothing else to do.
+     */
+    private fun wrapForRemoteShell(client: SSHClient, posixCommand: String): String {
+        val shell = ensurePosixShellDiscovered(client) ?: return posixCommand
+        return "${quoteForEitherShellDialect(shell)} -lc ${quoteForEitherShellDialect(posixCommand)}"
+    }
+
+    /**
+     * Tries [POSIX_SHELL_CANDIDATES] in order against [client] - already connected, per
+     * [exec]'s contract - once, caching whichever first responds to [probeCommandFor] with
+     * [POSIX_PROBE_TOKEN] on stdout and exit code 0. Each probe runs on its own
+     * session/channel (SSHJ sessions are single-use) with a short timeout so a candidate
+     * that hangs (unlikely, but a stale PATH entry pointing at something unresponsive
+     * isn't impossible) can't block startup for long. Synchronized since GitManager and
+     * the Agents screen can both trigger the first exec() around the same time (e.g.
+     * refreshGitStatus's several near-simultaneous calls), and this must only run once.
+     */
+    @Synchronized
+    private fun ensurePosixShellDiscovered(client: SSHClient): String? {
+        if (posixShellProbed) return posixShellPath
+        posixShellProbed = true
+        for (candidate in POSIX_SHELL_CANDIDATES) {
+            val found = runCatching {
+                val session = client.startSession()
+                try {
+                    val cmd = session.exec(probeCommandFor(candidate))
+                    val output = cmd.inputStream.bufferedReader().readText()
+                    runCatching { cmd.join(5, TimeUnit.SECONDS) }
+                    cmd.exitStatus == 0 && POSIX_PROBE_TOKEN in output
+                } finally {
+                    runCatching { session.close() }
+                }
+            }.getOrDefault(false)
+            if (found) {
+                posixShellPath = candidate
+                break
+            }
+        }
+        return posixShellPath
+    }
+
+    override fun filesystem(): FileSystemAccess {
+        return SSHFileSystemAccess(::getClient)
+    }
+
+    override fun getEnvironmentInfo(): EnvironmentInfo {
+        val detectedOs = when {
+            posixShellPath?.contains(":\\", ignoreCase = true) == true -> "Windows"
+            posixShellPath?.contains(":/", ignoreCase = true) == true -> "Windows"
+            posixShellPath?.startsWith("/") == true -> "Linux/POSIX"
+            else -> null
+        }
+        return EnvironmentInfo(
+            // Includes port/username, not just host: TerminalViewModel derives its PTY
+            // session cache key from this name, and two profiles pointed at the same host
+            // on different ports/users (e.g. this device's own sshd on 22 plus a second
+            // profile added for a WSL/container sshd on a different port) previously
+            // collided on an identical key, silently reattaching to whichever one
+            // connected first instead of opening the profile actually selected - confirmed
+            // live: switching between two such profiles and reopening Terminal kept
+            // showing the other profile's already-running remote shell.
+            name = "Remote SSH: ${config.username}@${config.host}:${config.port}",
+            os = detectedOs ?: "Remote SSH",
+            architecture = "unknown",
+            installedTools = emptyList()
+        )
+    }
+
+    override fun ptyShellSpec(workingDirectory: String): PtyShellSpec? {
+        // SSHJ-backed file/command access does not need the local Termux runtime, but the
+        // interactive PTY launches its OpenSSH client from that runtime. Never touch or
+        // execute a stale/partially-provisioned tree while BootstrapWorker is replacing it.
+        if (!NodeBootstrapper(context).isInstalled()) return null
+        val sshBin = NodeRuntime.binDir(context).resolve("ssh")
+        if (!sshBin.exists()) return null
+
+        val envMap = mutableMapOf<String, String>()
+        NodeRuntime.configureEnvironment(context, envMap)
+        envMap["TERM"] = "xterm-256color"
+        envMap["COLORTERM"] = "truecolor"
+
+        val userHome = NodeRuntime.homeDir(context).also { it.mkdirs() }
+        val sshDir = File(userHome, ".ssh").also { it.mkdirs() }
+        val knownHosts = File(sshDir, "known_hosts")
+
+        val args = mutableListOf(
+            "ssh",
+            "-p", config.port.toString(),
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "UserKnownHostsFile=${knownHosts.absolutePath}",
+            // A single -t *requests* a pty and lets the client silently skip it if its own
+            // isatty() check is ambiguous; that's fine for a plain login shell (any pty is
+            // fine), but fatal for tmux/screen, which refuse to start ("Must be connected
+            // to a terminal") without one - confirmed directly: the exact remote command
+            // this method sends when usePersistentSession is on ran clean interactively but
+            // failed silently (client exits 0, zero output) the moment stdin wasn't
+            // unambiguously a terminal. -tt forces allocation unconditionally instead of
+            // requesting it, which is the standard fix for "ssh host tmux ..." specifically.
+            if (config.usePersistentSession) "-tt" else "-t"
+        )
+
+        val forwardedPorts = listOf(5173, 5174, 3000, 3001, 3002, 8000, 8080, 5000, 4173, 1313)
+        for (port in forwardedPorts) {
+            args.add("-L")
+            args.add("$port:127.0.0.1:$port")
+        }
+
+        if (config.useCloudflareTunnel) {
+            val cloudflared = NodeRuntime.binDir(context).resolve("cloudflared")
+            if (cloudflared.exists()) {
+                args.add("-o")
+                args.add("ProxyCommand=${cloudflared.absolutePath} access tcp --hostname ${config.host}")
+            }
+        }
+
+        when (config.authType) {
+            SSHAuthType.PRIVATE_KEY -> {
+                val keyPath = config.privateKeyPath ?: config.privateKeyContent?.let { content ->
+                    val keyFile = File(context.filesDir, "ssh_identity_${config.host.hashCode()}").apply {
+                        writeText(content)
+                        setReadable(false, false)
+                        setReadable(true, true)
+                        setWritable(false, false)
+                        setWritable(true, true)
+                    }
+                    keyFile.absolutePath
+                }
+                if (keyPath != null) {
+                    args.add("-i")
+                    args.add(keyPath)
+                    args.add("-o")
+                    args.add("IdentitiesOnly=yes")
+                }
+            }
+            SSHAuthType.PASSWORD -> {
+                args.add("-o")
+                args.add("PreferredAuthentications=password,keyboard-interactive")
+                config.password?.takeIf(String::isNotEmpty)?.let { pass ->
+                    val askPassFile = File(context.filesDir, "ssh_askpass_${config.host.hashCode()}").apply {
+                        writeText("#!/system/bin/sh\ncat << 'EOF_PASS'\n$pass\nEOF_PASS\n")
+                        setReadable(false, false)
+                        setReadable(true, true)
+                        setWritable(false, false)
+                        setWritable(true, true)
+                        setExecutable(true, true)
+                    }
+                    envMap["SSH_ASKPASS"] = askPassFile.absolutePath
+                    envMap["SSH_ASKPASS_REQUIRE"] = "force"
+                    envMap["DISPLAY"] = ":0"
+                }
+            }
+        }
+
+        args.add("${config.username}@${config.host}")
+        if (config.usePersistentSession) {
+            // A single argv element: the local `ssh` process is exec'd directly (no local
+            // shell involved), so this string reaches the remote sshd as one already-formed
+            // command line - no extra quoting needed here, unlike the exec()/SSHJ path's
+            // quoteForEitherShellDialect, which exists to survive an intermediate shell this
+            // path doesn't have.
+            args.add(persistentSessionCommand(workingDirectory))
+        }
+
+        return PtyShellSpec(
+            shellPath = sshBin.absolutePath,
+            args = args.toTypedArray(),
+            cwd = context.filesDir.absolutePath,
+            env = envMap.map { (key, value) -> "$key=$value" }.toTypedArray()
+        )
+    }
+
+    @Synchronized
+    override fun close() {
+        runCatching { client?.disconnect() }
+        runCatching { client?.close() }
+        client = null
+        tunnelProcess?.destroy()
+        tunnelProcess = null
+        // Re-probe on the next connection rather than trusting a shell discovered for a
+        // now-closed connection - cheap to redo, and avoids ever acting on a stale result
+        // if the remote changes underneath a long-lived SSHExecutionEnvironment instance.
+        posixShellPath = null
+        posixShellProbed = false
+    }
+}
+
+class SSHProcessSession(private val session: Session, private val cmd: Session.Command) : ProcessSession {
+    override val pid: Int = -1 // SSHJ doesn't easily expose remote PID
+
+    override val inputStream: InputStream = cmd.inputStream
+    override val errorStream: InputStream = cmd.errorStream
+    override val outputStream: OutputStream = cmd.outputStream
+
+    override fun kill() {
+        cmd.close()
+        session.close()
+    }
+
+    override fun waitFor(): Int {
+        cmd.join()
+        return cmd.exitStatus ?: throw java.io.IOException("Remote command ended without an SSH exit status")
+    }
+
+    override fun isRunning(): Boolean = cmd.isOpen
+
+    override fun close() {
+        runCatching { cmd.close() }
+        runCatching { session.close() }
+    }
+}
+
+class SSHFileSystemAccess(
+    private val clientProvider: () -> SSHClient,
+    private val existingSftp: net.schmizz.sshj.sftp.SFTPClient? = null
+) : FileSystemAccess {
+    private val client get() = clientProvider()
+
+    private inline fun <T> useSftp(block: (net.schmizz.sshj.sftp.SFTPClient) -> T): T {
+        return if (existingSftp != null) {
+            block(existingSftp)
+        } else {
+            val sftp = client.newSFTPClient()
+            try {
+                block(sftp)
+            } finally {
+                runCatching { sftp.close() }
+            }
+        }
+    }
+
+    override fun listEntries(path: String): List<FileSystemEntry> = useSftp { sftp ->
+        sftp.ls(path)
+            .asSequence()
+            .filterNot { it.name == "." || it.name == ".." }
+            .map { FileSystemEntry(it.name, it.path, it.isDirectory, it.attributes.size) }
+            .sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+            .toList()
+    }
+
+    override fun readFile(path: String): String = useSftp { sftp ->
+        val size = sftp.stat(path).size
+        if (size > 5L * 1024L * 1024L) throw java.io.IOException("Remote file is larger than 5 MiB")
+        sftp.open(path).use { file ->
+            file.RemoteFileInputStream().use { input ->
+                val bytes = ByteArrayOutputStream(minOf(size.toInt().coerceAtLeast(0), 64 * 1024))
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (bytes.size() + read > 5 * 1024 * 1024) throw java.io.IOException("Remote file is larger than 5 MiB")
+                    bytes.write(buffer, 0, read)
+                }
+                val data = bytes.toByteArray()
+                if (data.take(4096).any { it == 0.toByte() }) throw java.io.IOException("Remote file appears to be binary")
+                data.toString(StandardCharsets.UTF_8)
+            }
+        }
+    }
+
+    override fun writeFile(path: String, content: String) = useSftp { sftp ->
+        val temporaryPath = "$path.agenticdroid-${System.nanoTime()}.tmp"
+        try {
+            sftp.open(
+                temporaryPath,
+                setOf(
+                    net.schmizz.sshj.sftp.OpenMode.WRITE,
+                    net.schmizz.sshj.sftp.OpenMode.CREAT,
+                    net.schmizz.sshj.sftp.OpenMode.TRUNC
+                )
+            ).use { file ->
+                file.RemoteFileOutputStream().use { output ->
+                    output.write(content.toByteArray(StandardCharsets.UTF_8))
+                }
+            }
+            try {
+                sftp.rename(temporaryPath, path)
+            } catch (first: Exception) {
+                runCatching { sftp.rm(path) }
+                sftp.rename(temporaryPath, path)
+            }
+        } finally {
+            runCatching { sftp.rm(temporaryPath) }
+        }
+    }
+
+    override fun deleteFile(path: String): Boolean = useSftp { sftp ->
+        try {
+            sftp.rm(path)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    override fun exists(path: String): Boolean = useSftp { sftp ->
+        try {
+            sftp.stat(path) != null
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    override fun renameFile(oldPath: String, newPath: String): Boolean = useSftp { sftp ->
+        try {
+            sftp.rename(oldPath, newPath)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    override fun copyFile(srcPath: String, destPath: String): Boolean {
+        // SFTP doesn't have a native 'copy' (server-side). 
+        // We'd have to download and re-upload, or use a shell command.
+        // Let's use a shell command for efficiency if possible.
+        var session: Session? = null
+        return try {
+            session = client.startSession()
+            val cmd = session.exec("cp ${ShellEscaping.quote(srcPath)} ${ShellEscaping.quote(destPath)}")
+            cmd.join()
+            cmd.exitStatus == 0
+        } catch (e: Exception) {
+            false
+        } finally {
+            runCatching { session?.close() }
+        }
+    }
+
+    override fun getFileSize(path: String): Long = useSftp { sftp ->
+        try {
+            sftp.stat(path).size
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    override fun downloadStream(
+        remotePath: String,
+        outputStream: OutputStream,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ): Unit = useSftp { sftp ->
+        val totalSize = runCatching { sftp.stat(remotePath).size }.getOrDefault(-1L)
+        sftp.open(remotePath, setOf(net.schmizz.sshj.sftp.OpenMode.READ)).use { remoteFile ->
+            remoteFile.RemoteFileInputStream().use { input ->
+                copyStreamWithProgress(input, outputStream, totalSize, onProgress)
+            }
+        }
+    }
+
+    override fun downloadFile(
+        remotePath: String,
+        localDest: File,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        localDest.parentFile?.mkdirs()
+        val temp = File(localDest.parentFile ?: localDest, ".agentic-dl-${localDest.name}-${System.nanoTime()}.tmp")
+        try {
+            temp.outputStream().use { out ->
+                downloadStream(remotePath, out, onProgress)
+            }
+            if (localDest.exists()) localDest.delete()
+            if (!temp.renameTo(localDest)) {
+                temp.copyTo(localDest, overwrite = true)
+                temp.delete()
+            }
+        } finally {
+            if (temp.exists()) temp.delete()
+        }
+    }
+
+    override fun uploadFile(
+        localSrc: File,
+        remotePath: String,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        localSrc.inputStream().use { input ->
+            uploadStream(input, remotePath, localSrc.length(), onProgress)
+        }
+    }
+
+    override fun uploadStream(
+        inputStream: InputStream,
+        remotePath: String,
+        totalBytes: Long,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ): Unit = useSftp { sftp ->
+        val temporaryPath = "$remotePath.agenticdroid-${System.nanoTime()}.tmp"
+        try {
+            sftp.open(
+                temporaryPath,
+                setOf(
+                    net.schmizz.sshj.sftp.OpenMode.WRITE,
+                    net.schmizz.sshj.sftp.OpenMode.CREAT,
+                    net.schmizz.sshj.sftp.OpenMode.TRUNC
+                )
+            ).use { remoteFile ->
+                remoteFile.RemoteFileOutputStream().use { output ->
+                    copyStreamWithProgress(inputStream, output, totalBytes, onProgress)
+                }
+            }
+            try {
+                sftp.rename(temporaryPath, remotePath)
+            } catch (first: Exception) {
+                runCatching { sftp.rm(remotePath) }
+                sftp.rename(temporaryPath, remotePath)
+            }
+        } finally {
+            runCatching { sftp.rm(temporaryPath) }
+        }
+    }
+
+    override fun <T> withBatch(block: (FileSystemAccess) -> T): T {
+        if (existingSftp != null) {
+            return block(this)
+        }
+        val sftp = client.newSFTPClient()
+        return try {
+            block(SSHFileSystemAccess(clientProvider, sftp))
+        } finally {
+            runCatching { sftp.close() }
+        }
+    }
+}
+
+data class SSHConfig(
+    val host: String,
+    val port: Int = 22,
+    val username: String,
+    val password: String? = null,
+    /** Complete SHA-256 fingerprint shown by the trusted SSH server administrator. */
+    val hostKeyFingerprint: String,
+    val workingDirectory: String = ".",
+    val authType: SSHAuthType = SSHAuthType.PASSWORD,
+    val privateKeyPath: String? = null,
+    val privateKeyPassphrase: String? = null,
+    val privateKeyContent: String? = null,
+    val useCloudflareTunnel: Boolean = false,
+    /** Wraps the interactive terminal's remote shell in `tmux`/`screen` (see
+     * [SSHExecutionEnvironment.ptyShellSpec]) so a dropped mobile connection - the
+     * dominant real-world failure mode for an SSH client used from a phone - leaves the
+     * remote shell (and whatever's running inside it, e.g. an agent CLI) alive for a
+     * reconnect to resume, instead of killing it along with the local `ssh` process.
+     * Opt-in and POSIX-only: it's sent as a literal remote command line assuming a POSIX
+     * default shell, which a stock Windows OpenSSH remote (cmd.exe by default) won't
+     * parse - same constraint as [SSHExecutionEnvironment]'s non-interactive `exec()`
+     * path before its own POSIX-shell handling, but that fix can't apply here since a
+     * fresh interactive session has nothing to run the discovery probe on yet without
+     * blocking terminal startup on a network round trip. */
+    val usePersistentSession: Boolean = false
+) {
+    init {
+        require(host.isNotBlank()) { "SSH host is required" }
+        require(port in 1..65535) { "SSH port is invalid" }
+        require(username.isNotBlank()) { "SSH username is required" }
+        require(workingDirectory.isNotBlank()) { "Remote workspace is required" }
+        require(hostKeyFingerprint.matches(Regex("^SHA256:[A-Za-z0-9+/]{43}=?$"))) {
+            "A complete SHA-256 host key fingerprint is required"
+        }
+        require(
+            (authType == SSHAuthType.PASSWORD && !password.isNullOrBlank()) ||
+                (authType == SSHAuthType.PRIVATE_KEY && (!privateKeyPath.isNullOrBlank() || !privateKeyContent.isNullOrBlank()))
+        ) { "SSH authentication material is missing" }
+    }
+}
+
+enum class SSHAuthType { PASSWORD, PRIVATE_KEY }

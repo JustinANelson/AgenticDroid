@@ -1,0 +1,447 @@
+{
+  "$schema_note": "Pinned OpenJDK launchers/shared libraries and required image dependencies. Regenerate with tools/fetch_jvm_native_libs.py --discover only for intentional package upgrades.",
+  "source_index": "https://packages-cf.termux.dev/apt/termux-main",
+  "target_abi": "aarch64 (arm64-v8a)",
+  "libraries": [
+    {
+      "bundled_filename": "libattach.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libattach.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libawt.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libawt.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libawt_headless.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libawt_headless.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libdt_socket.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libdt_socket.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libextnet.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libextnet.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libinstrument.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libinstrument.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libj2gss.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libj2gss.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libj2pcsc.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libj2pcsc.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libj2pkcs11.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libj2pkcs11.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjaas.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjaas.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjava.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjava.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjavajpeg.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjavajpeg.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjdk_jar_aarch64.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/jar",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "launcher"
+    },
+    {
+      "bundled_filename": "libjdk_java_aarch64.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/java",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "launcher"
+    },
+    {
+      "bundled_filename": "libjdk_javac_aarch64.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/javac",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "launcher"
+    },
+    {
+      "bundled_filename": "libjdk_javap_aarch64.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/javap",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "launcher"
+    },
+    {
+      "bundled_filename": "libjdk_jlink_aarch64.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/jlink",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "launcher"
+    },
+    {
+      "bundled_filename": "libjdk_keytool_aarch64.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/keytool",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "launcher"
+    },
+    {
+      "bundled_filename": "libjdwp.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjdwp.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjimage.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjimage.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjli.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjli.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjpeg.so",
+      "termux_package": "libjpeg-turbo",
+      "version": "3.2.0",
+      "source_deb_sha256": "e6339075bcde28b4902d5a51f4063164834abfd2fa115e881ae637a34585e54f",
+      "source_path": "data/data/com.termux/files/usr/lib/libjpeg.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "dependency"
+    },
+    {
+      "bundled_filename": "libjsig.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjsig.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjsound.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libjsound.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libjvm.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/server/libjvm.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "liblcms.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/liblcms.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "liblcms2.so",
+      "termux_package": "littlecms",
+      "version": "2.19.1",
+      "source_deb_sha256": "274f732a186563beca204f5d016d30cac8e5c24f7c4395b60881f9613eddf1a1",
+      "source_path": "data/data/com.termux/files/usr/lib/liblcms2.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "dependency"
+    },
+    {
+      "bundled_filename": "libmanagement.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libmanagement.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libmanagement_agent.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libmanagement_agent.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libmanagement_ext.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libmanagement_ext.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libmlib_image.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libmlib_image.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libnet.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libnet.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libnio.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libnio.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libprefs.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libprefs.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "librmi.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/librmi.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libsctp.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libsctp.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libsyslookup.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libsyslookup.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libturbojpeg.so",
+      "termux_package": "libjpeg-turbo",
+      "version": "3.2.0",
+      "source_deb_sha256": "e6339075bcde28b4902d5a51f4063164834abfd2fa115e881ae637a34585e54f",
+      "source_path": "data/data/com.termux/files/usr/lib/libturbojpeg.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "dependency"
+    },
+    {
+      "bundled_filename": "libverify.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libverify.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    },
+    {
+      "bundled_filename": "libzip.so",
+      "termux_package": "openjdk-17",
+      "version": "17.0.20",
+      "source_deb_sha256": "8eb45796aa8a216ac2054847e6ed3c073c3ef44407d9212154824b270b59f7ea",
+      "source_path": "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/lib/libzip.so",
+      "used_by": [
+        "jvm"
+      ],
+      "role": "jdk-library"
+    }
+  ]
+}

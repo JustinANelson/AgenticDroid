@@ -1,0 +1,74 @@
+# Build and cache
+.gradle/
+build/
+**/build/
+.kotlin/
+.tmp/
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# Java / JVM crash logs
+hs_err_pid*
+replay_pid*
+
+# IDE & Editor files
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+captures/
+.externalNativeBuild/
+.cxx/
+.vscode/
+
+# Local configuration & Secrets
+local.properties
+.secrets
+.secrets.*
+!.secrets.example
+*.keystore
+*.jks
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
+# Node / JavaScript
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# AI Agents & IDE Tooling artifacts
+.artifacts/
+.cast/
+.claude/
+.gemini/
+
+# W^X native-lib prototype payload (regenerate via tools/fetch_*_native_libs.py)
+app/src/main/jniLibs/
+
+# Logs & Temporary files
+*.log
+*.tmp
+*.temp
+*.part

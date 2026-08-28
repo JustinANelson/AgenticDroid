@@ -1,0 +1,28 @@
+{
+  "name": "agenticdroid-remote-server",
+  "version": "1.0.0",
+  "description": "Companion server for AgenticDroid mobile app",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JustinANelson/AgenticDroid.git",
+    "directory": "tools"
+  },
+  "bugs": {
+    "url": "https://github.com/JustinANelson/AgenticDroid/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "remote-agent-server.js",
+  "scripts": {
+    "start": "node remote-agent-server.js"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.3.0",
+    "express": "^4.21.0",
+    "node-pty": "^1.1.0-beta.32",
+    "ws": "^8.18.0"
+  }
+}

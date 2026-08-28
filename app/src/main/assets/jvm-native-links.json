@@ -1,0 +1,182 @@
+[
+  {
+    "path": "lib/jvm/java-17-openjdk/bin/jar",
+    "target": "libjdk_jar_aarch64.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/bin/java",
+    "target": "libjdk_java_aarch64.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/bin/javac",
+    "target": "libjdk_javac_aarch64.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/bin/javap",
+    "target": "libjdk_javap_aarch64.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/bin/jlink",
+    "target": "libjdk_jlink_aarch64.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/bin/keytool",
+    "target": "libjdk_keytool_aarch64.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libattach.so",
+    "target": "libattach.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libawt.so",
+    "target": "libawt.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libawt_headless.so",
+    "target": "libawt_headless.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libdt_socket.so",
+    "target": "libdt_socket.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libextnet.so",
+    "target": "libextnet.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libinstrument.so",
+    "target": "libinstrument.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libj2gss.so",
+    "target": "libj2gss.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libj2pcsc.so",
+    "target": "libj2pcsc.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libj2pkcs11.so",
+    "target": "libj2pkcs11.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjaas.so",
+    "target": "libjaas.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjava.so",
+    "target": "libjava.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjavajpeg.so",
+    "target": "libjavajpeg.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjdwp.so",
+    "target": "libjdwp.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjimage.so",
+    "target": "libjimage.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjli.so",
+    "target": "libjli.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjsig.so",
+    "target": "libjsig.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libjsound.so",
+    "target": "libjsound.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/liblcms.so",
+    "target": "liblcms.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libmanagement.so",
+    "target": "libmanagement.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libmanagement_agent.so",
+    "target": "libmanagement_agent.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libmanagement_ext.so",
+    "target": "libmanagement_ext.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libmlib_image.so",
+    "target": "libmlib_image.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libnet.so",
+    "target": "libnet.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libnio.so",
+    "target": "libnio.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libprefs.so",
+    "target": "libprefs.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/librmi.so",
+    "target": "librmi.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libsctp.so",
+    "target": "libsctp.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libsyslookup.so",
+    "target": "libsyslookup.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libverify.so",
+    "target": "libverify.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/libzip.so",
+    "target": "libzip.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/server/libjsig.so",
+    "target": "libjsig.so"
+  },
+  {
+    "path": "lib/jvm/java-17-openjdk/lib/server/libjvm.so",
+    "target": "libjvm.so"
+  },
+  {
+    "path": "lib/libjpeg.so",
+    "target": "libjpeg.so"
+  },
+  {
+    "path": "lib/libjpeg.so.8",
+    "target": "libjpeg.so"
+  },
+  {
+    "path": "lib/libjpeg.so.8.3.2",
+    "target": "libjpeg.so"
+  },
+  {
+    "path": "lib/liblcms2.so",
+    "target": "liblcms2.so"
+  },
+  {
+    "path": "lib/libturbojpeg.so",
+    "target": "libturbojpeg.so"
+  },
+  {
+    "path": "lib/libturbojpeg.so.0",
+    "target": "libturbojpeg.so"
+  },
+  {
+    "path": "lib/libturbojpeg.so.0.5.0",
+    "target": "libturbojpeg.so"
+  }
+]

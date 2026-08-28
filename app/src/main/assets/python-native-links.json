@@ -1,0 +1,498 @@
+[
+  {
+    "path": "bin/python3.14",
+    "target": "libpython_native_aarch64.so"
+  },
+  {
+    "path": "lib/libandroid-posix-semaphore.so",
+    "target": "libandroid-posix-semaphore.so"
+  },
+  {
+    "path": "lib/libcrypt.so",
+    "target": "libcrypt.so"
+  },
+  {
+    "path": "lib/libcurses.so",
+    "target": "libcurses.so"
+  },
+  {
+    "path": "lib/libcurses.so.6",
+    "target": "libcurses.so"
+  },
+  {
+    "path": "lib/libcurses.so.6.5",
+    "target": "libcurses.so"
+  },
+  {
+    "path": "lib/libform.so",
+    "target": "libform.so"
+  },
+  {
+    "path": "lib/libform.so.6",
+    "target": "libform.so"
+  },
+  {
+    "path": "lib/libform.so.6.5",
+    "target": "libform.so"
+  },
+  {
+    "path": "lib/libformw.so",
+    "target": "libformw.so"
+  },
+  {
+    "path": "lib/libformw.so.6",
+    "target": "libformw.so"
+  },
+  {
+    "path": "lib/libformw.so.6.5",
+    "target": "libformw.so"
+  },
+  {
+    "path": "lib/libgdbm.so",
+    "target": "libgdbm.so"
+  },
+  {
+    "path": "lib/libgdbm_compat.so",
+    "target": "libgdbm_compat.so"
+  },
+  {
+    "path": "lib/libhistory.so",
+    "target": "libhistory.so"
+  },
+  {
+    "path": "lib/libhistory.so.8",
+    "target": "libhistory.so"
+  },
+  {
+    "path": "lib/libhistory.so.8.3",
+    "target": "libhistory.so"
+  },
+  {
+    "path": "lib/libmenu.so",
+    "target": "libmenu.so"
+  },
+  {
+    "path": "lib/libmenu.so.6",
+    "target": "libmenu.so"
+  },
+  {
+    "path": "lib/libmenu.so.6.5",
+    "target": "libmenu.so"
+  },
+  {
+    "path": "lib/libmenuw.so",
+    "target": "libmenuw.so"
+  },
+  {
+    "path": "lib/libmenuw.so.6",
+    "target": "libmenuw.so"
+  },
+  {
+    "path": "lib/libmenuw.so.6.5",
+    "target": "libmenuw.so"
+  },
+  {
+    "path": "lib/libncurses.so",
+    "target": "libncurses.so"
+  },
+  {
+    "path": "lib/libncurses.so.6",
+    "target": "libncurses.so"
+  },
+  {
+    "path": "lib/libncurses.so.6.5",
+    "target": "libncurses.so"
+  },
+  {
+    "path": "lib/libncursesw.so",
+    "target": "libncursesw.so"
+  },
+  {
+    "path": "lib/libncursesw.so.6",
+    "target": "libncursesw.so"
+  },
+  {
+    "path": "lib/libncursesw.so.6.5",
+    "target": "libncursesw.so"
+  },
+  {
+    "path": "lib/libpanel.so",
+    "target": "libpanel.so"
+  },
+  {
+    "path": "lib/libpanel.so.6",
+    "target": "libpanel.so"
+  },
+  {
+    "path": "lib/libpanel.so.6.5",
+    "target": "libpanel.so"
+  },
+  {
+    "path": "lib/libpanelw.so",
+    "target": "libpanelw.so"
+  },
+  {
+    "path": "lib/libpanelw.so.6",
+    "target": "libpanelw.so"
+  },
+  {
+    "path": "lib/libpanelw.so.6.5",
+    "target": "libpanelw.so"
+  },
+  {
+    "path": "lib/libpython3.14.so",
+    "target": "libpython3_14.so"
+  },
+  {
+    "path": "lib/libpython3.so",
+    "target": "libpython3_14.so"
+  },
+  {
+    "path": "lib/libreadline.so",
+    "target": "libreadline.so"
+  },
+  {
+    "path": "lib/libreadline.so.8",
+    "target": "libreadline.so"
+  },
+  {
+    "path": "lib/libreadline.so.8.3",
+    "target": "libreadline.so"
+  },
+  {
+    "path": "lib/libtermcap.so",
+    "target": "libtermcap.so"
+  },
+  {
+    "path": "lib/libtermcap.so.6",
+    "target": "libtermcap.so"
+  },
+  {
+    "path": "lib/libtermcap.so.6.5",
+    "target": "libtermcap.so"
+  },
+  {
+    "path": "lib/libtic.so",
+    "target": "libtic.so"
+  },
+  {
+    "path": "lib/libtic.so.6",
+    "target": "libtic.so"
+  },
+  {
+    "path": "lib/libtic.so.6.5",
+    "target": "libtic.so"
+  },
+  {
+    "path": "lib/libtinfo.so",
+    "target": "libtinfo.so"
+  },
+  {
+    "path": "lib/libtinfo.so.6",
+    "target": "libtinfo.so"
+  },
+  {
+    "path": "lib/libtinfo.so.6.5",
+    "target": "libtinfo.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_asyncio.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_asyncio_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_bisect.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_bisect_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_blake2.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_blake2_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_bz2.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_bz2_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_codecs_cn.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_codecs_cn_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_codecs_hk.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_codecs_hk_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_codecs_iso2022.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_codecs_iso2022_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_codecs_jp.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_codecs_jp_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_codecs_kr.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_codecs_kr_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_codecs_tw.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_codecs_tw_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_csv.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_csv_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_ctypes.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_ctypes_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_ctypes_test.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_ctypes_test_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_curses.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_curses_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_curses_panel.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_curses_panel_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_dbm.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_dbm_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_decimal.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_decimal_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_elementtree.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_elementtree_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_gdbm.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_gdbm_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_hashlib.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_hashlib_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_heapq.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_heapq_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_hmac.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_hmac_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_interpchannels.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_interpchannels_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_interpqueues.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_interpqueues_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_interpreters.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_interpreters_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_json.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_json_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_lsprof.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_lsprof_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_lzma.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_lzma_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_md5.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_md5_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_multibytecodec.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_multibytecodec_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_multiprocessing.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_multiprocessing_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_pickle.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_pickle_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_posixshmem.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_posixshmem_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_posixsubprocess.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_posixsubprocess_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_queue.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_queue_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_random.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_random_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_remote_debugging.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_remote_debugging_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_sha1.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_sha1_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_sha2.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_sha2_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_sha3.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_sha3_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_socket.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_socket_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_sqlite3.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_sqlite3_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_ssl.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_ssl_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_statistics.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_statistics_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_struct.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_struct_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testbuffer.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testbuffer_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testcapi.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testcapi_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testclinic.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testclinic_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testclinic_limited.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testclinic_limited_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testimportmultiple.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testimportmultiple_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testinternalcapi.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testinternalcapi_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testlimitedcapi.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testlimitedcapi_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testmultiphase.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testmultiphase_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_testsinglephase.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_testsinglephase_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_xxtestfuzz.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_xxtestfuzz_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_zoneinfo.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_zoneinfo_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/_zstd.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_zstd_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/array.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_array_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/binascii.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_binascii_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/cmath.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_cmath_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/fcntl.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_fcntl_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/grp.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_grp_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/math.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_math_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/mmap.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_mmap_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/pyexpat.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_pyexpat_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/readline.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_readline_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/resource.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_resource_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/select.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_select_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/syslog.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_syslog_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/termios.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_termios_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/unicodedata.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_unicodedata_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/xxlimited.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_xxlimited_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/xxlimited_35.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_xxlimited_35_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/xxsubtype.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_xxsubtype_cpython_314_aarch64_linux_android.so"
+  },
+  {
+    "path": "lib/python3.14/lib-dynload/zlib.cpython-314-aarch64-linux-android.so",
+    "target": "libpyext_zlib_cpython_314_aarch64_linux_android.so"
+  }
+]

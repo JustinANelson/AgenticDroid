@@ -1,0 +1,7 @@
+* @JustinANelson
+
+# Runtime manifests and download/build scripts need explicit provenance review.
+/tools/*_native_libs_manifest.json @JustinANelson
+/tools/fetch_*.py @JustinANelson
+/tools/build_*.py @JustinANelson
+/app/src/main/assets/native-overrides/ @JustinANelson

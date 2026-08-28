@@ -1,0 +1,381 @@
+package com.justnels.agenticdroid.ui.agents
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.justnels.agenticdroid.agents.AgentProfile
+import com.justnels.agenticdroid.agents.AgentVersionInfo
+import com.justnels.agenticdroid.ui.components.HintBox
+import java.util.UUID
+
+@Composable
+fun AgentLauncherScreen(
+    agents: List<AgentProfile>,
+    activeAgent: AgentProfile?,
+    installedAgentIds: Set<String>,
+    isCheckingInstalled: Boolean,
+    agentVersions: Map<String, AgentVersionInfo> = emptyMap(),
+    checkingVersionForAgentId: String? = null,
+    updatingAgentId: String? = null,
+    onCheckVersion: (AgentProfile) -> Unit = {},
+    onUpdateAgent: (AgentProfile) -> Unit = {},
+    hintsShown: Set<String>,
+    onLaunchAgent: (AgentProfile) -> Unit,
+    onStopAgent: () -> Unit,
+    onRunHeadless: (AgentProfile, String) -> Unit = { _, _ -> },
+    onOpenRuns: () -> Unit = {},
+    onAddAgent: (AgentProfile) -> Unit = {},
+    onDeleteAgent: (String) -> Unit = {},
+    isCustomAgent: (String) -> Boolean = { false },
+    onDismissHint: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var promptDialogAgent by remember { mutableStateOf<AgentProfile?>(null) }
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "AI Agents",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            Row {
+                IconButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Custom Agent")
+                }
+                TextButton(onClick = onOpenRuns) {
+                    Icon(Icons.Default.History, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Runs")
+                }
+            }
+        }
+
+        HintBox(
+            hintId = "hint_agent_launcher",
+            title = "Interactive Agents",
+            text = "Tap 'Launch' to start an agent in a live terminal you watch, or 'Run' to send it a single prompt and let it work unattended in the background - it'll notify you when done, even if you close the app. Only one interactive agent can run at a time; background runs don't share that limit.",
+            hintsShown = hintsShown,
+            onDismiss = onDismissHint
+        )
+
+        if (activeAgent != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("${activeAgent.name} is running", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onStopAgent) {
+                        Icon(Icons.Default.Stop, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Stop")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyColumn {
+            items(agents) { agent ->
+                AgentCard(
+                    agent = agent,
+                    isActive = activeAgent?.id == agent.id,
+                    isBlocked = activeAgent != null && activeAgent.id != agent.id,
+                    isInstalled = agent.id in installedAgentIds,
+                    isCheckingInstalled = isCheckingInstalled,
+                    isCustom = isCustomAgent(agent.id),
+                    versionInfo = agentVersions[agent.id],
+                    isCheckingVersion = checkingVersionForAgentId == agent.id,
+                    isUpdating = updatingAgentId == agent.id,
+                    onLaunch = { onLaunchAgent(agent) },
+                    onRun = { promptDialogAgent = agent },
+                    onCheckVersion = { onCheckVersion(agent) },
+                    onUpdate = { onUpdateAgent(agent) },
+                    onDelete = { onDeleteAgent(agent.id) }
+                )
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        AddCustomAgentDialog(
+            onDismiss = { showAddDialog = false },
+            onConfirm = { agent ->
+                onAddAgent(agent)
+                showAddDialog = false
+            }
+        )
+    }
+
+    promptDialogAgent?.let { agent ->
+        HeadlessPromptDialog(
+            agent = agent,
+            onDismiss = { promptDialogAgent = null },
+            onRun = { prompt ->
+                onRunHeadless(agent, prompt)
+                promptDialogAgent = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun HeadlessPromptDialog(
+    agent: AgentProfile,
+    onDismiss: () -> Unit,
+    onRun: (String) -> Unit
+) {
+    var prompt by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Run ${agent.name} in the background") },
+        text = {
+            Column {
+                Text(
+                    "Runs unattended with this single prompt, no back-and-forth. You'll get a notification when it finishes, and the transcript stays available from Runs even if the app is closed in the meantime.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    label = { Text("Prompt") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onRun(prompt) }, enabled = prompt.isNotBlank()) {
+                Text("Run")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun AddCustomAgentDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (AgentProfile) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var command by remember { mutableStateOf("") }
+    var installCommand by remember { mutableStateOf("") }
+    var prepareCommand by remember { mutableStateOf("") }
+    var headlessPromptArgs by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Custom Agent") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = command,
+                    onValueChange = { command = it },
+                    label = { Text("Binary Command (e.g. 'echo')") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = installCommand,
+                    onValueChange = { installCommand = it },
+                    label = { Text("Install Command (e.g. 'npm install -g ...')") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                OutlinedTextField(
+                    value = prepareCommand,
+                    onValueChange = { prepareCommand = it },
+                    label = { Text("Prepare Command (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2
+                )
+                OutlinedTextField(
+                    value = headlessPromptArgs,
+                    onValueChange = { headlessPromptArgs = it },
+                    label = { Text("Headless Run Flag (e.g. '-p', optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(
+                        AgentProfile(
+                            id = UUID.randomUUID().toString(),
+                            name = name,
+                            command = command,
+                            installCommand = installCommand,
+                            prepareCommand = prepareCommand.takeIf { it.isNotBlank() },
+                            headlessPromptArgs = headlessPromptArgs.takeIf { it.isNotBlank() }?.split(" ")
+                        )
+                    )
+                },
+                enabled = name.isNotBlank() && command.isNotBlank() && installCommand.isNotBlank()
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun AgentCard(
+    agent: AgentProfile,
+    isActive: Boolean,
+    isBlocked: Boolean,
+    isInstalled: Boolean,
+    isCheckingInstalled: Boolean,
+    isCustom: Boolean = false,
+    versionInfo: AgentVersionInfo? = null,
+    isCheckingVersion: Boolean = false,
+    isUpdating: Boolean = false,
+    onLaunch: () -> Unit,
+    onRun: () -> Unit = {},
+    onCheckVersion: () -> Unit = {},
+    onUpdate: () -> Unit = {},
+    onDelete: () -> Unit = {}
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = agent.name, style = MaterialTheme.typography.titleLarge)
+                        if (isCustom) {
+                            IconButton(onClick = onDelete) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = "Delete Agent",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Command: ${agent.command}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = when {
+                            isCheckingInstalled -> "Checking..."
+                            isInstalled -> "Installed"
+                            else -> "Not installed"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isInstalled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (versionInfo?.installed != null) {
+                        Text(
+                            text = "Version: ${versionInfo.installed.lineSequence().first().take(60)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (versionInfo?.updateAvailable == true) {
+                        Text(
+                            text = "Update available (latest: ${versionInfo.latest})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Button(onClick = onLaunch, enabled = !isBlocked) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            when {
+                                isActive -> "Resume"
+                                isInstalled -> "Launch"
+                                else -> "Install & Launch"
+                            }
+                        )
+                    }
+                    if (agent.headlessPromptArgs != null && isInstalled) {
+                        TextButton(onClick = onRun, modifier = Modifier.padding(top = 4.dp)) {
+                            Text("Run in background")
+                        }
+                    }
+                }
+            }
+
+            if (isInstalled) {
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(onClick = onCheckVersion, enabled = !isCheckingVersion && !isUpdating) {
+                        Text(if (isCheckingVersion) "Checking..." else "Check for Updates")
+                    }
+                    if (versionInfo?.updateAvailable == true) {
+                        TextButton(onClick = onUpdate, enabled = !isUpdating) {
+                            Text(if (isUpdating) "Updating..." else "Update")
+                        }
+                    }
+                    TextButton(onClick = onUpdate, enabled = !isUpdating) {
+                        Text(if (isUpdating) "Repairing..." else "Repair")
+                    }
+                }
+            }
+        }
+    }
+}
