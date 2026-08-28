@@ -22,6 +22,88 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val INDENT_UNIT = "    "
+
+private fun startOfLine(text: String, offset: Int): Int {
+    if (offset <= 0) return 0
+    val idx = text.lastIndexOf('\n', offset - 1)
+    return if (idx == -1) 0 else idx + 1
+}
+
+private fun endOfLine(text: String, offset: Int): Int {
+    val idx = text.indexOf('\n', offset)
+    return if (idx == -1) text.length else idx
+}
+
+/** Indents every line the selection touches (or just the current line, if collapsed). */
+private fun indentLines(value: TextFieldValue): TextFieldValue {
+    val text = value.text
+    val lineStart = startOfLine(text, value.selection.min)
+    val lineEnd = endOfLine(text, value.selection.max)
+    val affected = text.substring(lineStart, lineEnd)
+    val indented = affected.split("\n").joinToString("\n") { INDENT_UNIT + it }
+    val newText = text.substring(0, lineStart) + indented + text.substring(lineEnd)
+    val newSelStart = value.selection.min + INDENT_UNIT.length
+    val newSelEnd = value.selection.max + (indented.length - affected.length)
+    return TextFieldValue(newText, TextRange(newSelStart, newSelEnd))
+}
+
+/** Removes up to one indent unit (or a leading tab) from every line the selection touches. */
+private fun dedentLines(value: TextFieldValue): TextFieldValue {
+    val text = value.text
+    val lineStart = startOfLine(text, value.selection.min)
+    val lineEnd = endOfLine(text, value.selection.max)
+    val affected = text.substring(lineStart, lineEnd)
+    var removedFromFirstLine = 0
+    val lines = affected.split("\n")
+    val dedented = lines.mapIndexed { index, line ->
+        val removeCount = when {
+            line.startsWith(INDENT_UNIT) -> INDENT_UNIT.length
+            line.startsWith("\t") -> 1
+            else -> line.takeWhile { it == ' ' }.length.coerceAtMost(INDENT_UNIT.length)
+        }
+        if (index == 0) removedFromFirstLine = removeCount
+        line.drop(removeCount)
+    }.joinToString("\n")
+    val newText = text.substring(0, lineStart) + dedented + text.substring(lineEnd)
+    val removedTotal = affected.length - dedented.length
+    val newSelStart = (value.selection.min - removedFromFirstLine).coerceIn(lineStart, lineStart + dedented.length)
+    val newSelEnd = (value.selection.max - removedTotal).coerceAtLeast(newSelStart)
+    return TextFieldValue(newText, TextRange(newSelStart, newSelEnd))
+}
+
+private fun moveCursorHorizontally(value: TextFieldValue, delta: Int): TextFieldValue {
+    val newPos = (value.selection.end + delta).coerceIn(0, value.text.length)
+    return value.copy(selection = TextRange(newPos))
+}
+
+private fun moveCursorVertically(value: TextFieldValue, lineDelta: Int): TextFieldValue {
+    val text = value.text
+    val offset = value.selection.end
+    val curLineStart = startOfLine(text, offset)
+    val column = offset - curLineStart
+    val targetLineStart = if (lineDelta < 0) {
+        if (curLineStart == 0) return value
+        startOfLine(text, curLineStart - 1)
+    } else {
+        val curLineEnd = endOfLine(text, offset)
+        if (curLineEnd >= text.length) return value
+        curLineEnd + 1
+    }
+    val targetLineEnd = endOfLine(text, targetLineStart)
+    val newOffset = (targetLineStart + column).coerceAtMost(targetLineEnd)
+    return value.copy(selection = TextRange(newOffset))
+}
+
+private fun moveToLineStart(value: TextFieldValue): TextFieldValue =
+    value.copy(selection = TextRange(startOfLine(value.text, value.selection.end)))
+
+private fun moveToLineEnd(value: TextFieldValue): TextFieldValue =
+    value.copy(selection = TextRange(endOfLine(value.text, value.selection.end)))
 
 @Composable
 fun CodeEditor(
@@ -59,6 +141,29 @@ fun CodeEditor(
         if (content != textFieldValue.text) {
             textFieldValue = textFieldValue.copy(text = content)
         }
+    }
+
+    // Undo/redo history for the accessory row's Undo/Redo keys. A checkpoint is the value
+    // *before* an edit, so undo restores it and redo re-applies the edit that followed.
+    // Continuous typing coalesces into one checkpoint per pause (typingBurstActive) instead
+    // of one per keystroke, matching how desktop editors group undo steps; every accessory-
+    // row action (bracket insert, indent, arrow-key move doesn't count) is always its own
+    // checkpoint since it's a single deliberate action, not a keystroke stream.
+    val undoStack = remember(fileId) { mutableStateListOf<TextFieldValue>() }
+    val redoStack = remember(fileId) { mutableStateListOf<TextFieldValue>() }
+    var typingBurstActive by remember(fileId) { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    var burstEndJob by remember(fileId) { mutableStateOf<Job?>(null) }
+
+    fun pushCheckpoint(previousValue: TextFieldValue) {
+        undoStack.add(previousValue)
+        if (undoStack.size > 200) undoStack.removeAt(0)
+        redoStack.clear()
+    }
+
+    fun applyEdit(newValue: TextFieldValue) {
+        textFieldValue = newValue
+        if (newValue.text != content) onContentChange(newValue.text)
     }
 
     // Handle pending scroll to line
@@ -126,9 +231,22 @@ fun CodeEditor(
                         value = textFieldValue,
                         onValueChange = {
                             val oldText = textFieldValue.text
+                            val previousValue = textFieldValue
                             textFieldValue = it
                             if (it.text != content) {
                                 onContentChange(it.text)
+
+                                if (it.text != oldText) {
+                                    if (!typingBurstActive) {
+                                        pushCheckpoint(previousValue)
+                                        typingBurstActive = true
+                                    }
+                                    burstEndJob?.cancel()
+                                    burstEndJob = coroutineScope.launch {
+                                        delay(600)
+                                        typingBurstActive = false
+                                    }
+                                }
 
                                 // Detect trigger characters
                                 if (it.text.length > oldText.length && it.selection.start > 0) {
@@ -220,17 +338,58 @@ fun CodeEditor(
                         val c = sub.substringAfterLast('\n').length
                         onFindUsages(l, c)
                     }
+                    "UNDO" -> {
+                        undoStack.removeLastOrNull()?.let { previous ->
+                            redoStack.add(textFieldValue)
+                            typingBurstActive = false
+                            textFieldValue = previous
+                            onContentChange(previous.text)
+                        }
+                    }
+                    "REDO" -> {
+                        redoStack.removeLastOrNull()?.let { next ->
+                            undoStack.add(textFieldValue)
+                            typingBurstActive = false
+                            textFieldValue = next
+                            onContentChange(next.text)
+                        }
+                    }
+                    "TAB" -> {
+                        pushCheckpoint(textFieldValue)
+                        typingBurstActive = false
+                        val selection = textFieldValue.selection
+                        val newText = textFieldValue.text.substring(0, selection.start) + INDENT_UNIT + textFieldValue.text.substring(selection.end)
+                        applyEdit(TextFieldValue(newText, TextRange(selection.start + INDENT_UNIT.length)))
+                    }
+                    "INDENT" -> {
+                        pushCheckpoint(textFieldValue)
+                        typingBurstActive = false
+                        applyEdit(indentLines(textFieldValue))
+                    }
+                    "DEDENT" -> {
+                        pushCheckpoint(textFieldValue)
+                        typingBurstActive = false
+                        applyEdit(dedentLines(textFieldValue))
+                    }
+                    "LEFT" -> textFieldValue = moveCursorHorizontally(textFieldValue, -1)
+                    "RIGHT" -> textFieldValue = moveCursorHorizontally(textFieldValue, 1)
+                    "UP" -> textFieldValue = moveCursorVertically(textFieldValue, -1)
+                    "DOWN" -> textFieldValue = moveCursorVertically(textFieldValue, 1)
+                    "HOME" -> textFieldValue = moveToLineStart(textFieldValue)
+                    "END" -> textFieldValue = moveToLineEnd(textFieldValue)
                     else -> {
+                        pushCheckpoint(textFieldValue)
+                        typingBurstActive = false
                         val currentText = textFieldValue.text
                         val selection = textFieldValue.selection
                         val newText = currentText.substring(0, selection.start) + char + currentText.substring(selection.end)
                         val newSelection = TextRange(selection.start + char.length)
-                        
-                        textFieldValue = TextFieldValue(newText, newSelection)
-                        onContentChange(newText)
+                        applyEdit(TextFieldValue(newText, newSelection))
                     }
                 }
-            }
+            },
+            canUndo = undoStack.isNotEmpty(),
+            canRedo = redoStack.isNotEmpty()
         )
     }
 }
@@ -393,11 +552,36 @@ fun CompletionItemRow(
     }
 }
 
+private data class AccessoryIconKey(
+    val id: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val description: String,
+    val enabled: Boolean = true
+)
+
 @Composable
 fun EditorAccessoryRow(
-    onKeyClick: (String) -> Unit
+    onKeyClick: (String) -> Unit,
+    canUndo: Boolean = false,
+    canRedo: Boolean = false
 ) {
-    val keys = listOf("COMP", "DEF", "USAG", "{", "}", "(", ")", "[", "]", "<", ">", ";", "=", "\"", "'", ":", ".", "/", "\\", "|", "&", "!", "?")
+    val iconKeys = listOf(
+        AccessoryIconKey("UNDO", Icons.AutoMirrored.Filled.Undo, "Undo", enabled = canUndo),
+        AccessoryIconKey("REDO", Icons.AutoMirrored.Filled.Redo, "Redo", enabled = canRedo),
+        AccessoryIconKey("TAB", Icons.Filled.KeyboardTab, "Insert tab"),
+        AccessoryIconKey("DEDENT", Icons.AutoMirrored.Filled.FormatIndentDecrease, "Dedent line(s)"),
+        AccessoryIconKey("INDENT", Icons.AutoMirrored.Filled.FormatIndentIncrease, "Indent line(s)"),
+        AccessoryIconKey("HOME", Icons.Filled.FirstPage, "Line start"),
+        AccessoryIconKey("LEFT", Icons.Filled.KeyboardArrowLeft, "Cursor left"),
+        AccessoryIconKey("UP", Icons.Filled.KeyboardArrowUp, "Cursor up"),
+        AccessoryIconKey("DOWN", Icons.Filled.KeyboardArrowDown, "Cursor down"),
+        AccessoryIconKey("RIGHT", Icons.Filled.KeyboardArrowRight, "Cursor right"),
+        AccessoryIconKey("END", Icons.Filled.LastPage, "Line end")
+    )
+    val symbolKeys = listOf(
+        "COMP", "DEF", "USAG", "{", "}", "(", ")", "[", "]", "<", ">", ";", "=", "\"", "'", ":",
+        ".", "/", "\\", "|", "&", "!", "?", "->", "=>", "$"
+    )
 
     Row(
         modifier = Modifier
@@ -409,7 +593,27 @@ fun EditorAccessoryRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        keys.forEach { key ->
+        iconKeys.forEach { key ->
+            Surface(
+                onClick = { onKeyClick(key.id) },
+                color = if (key.enabled) Color(0xFF3C3C3C) else Color(0xFF2D2D2D),
+                shape = MaterialTheme.shapes.small
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = key.icon,
+                        contentDescription = key.description,
+                        tint = if (key.enabled) Color.White else Color(0xFF6E6E6E),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+        VerticalDivider(modifier = Modifier.height(28.dp), color = Color(0xFF454545))
+        symbolKeys.forEach { key ->
             Surface(
                 onClick = { onKeyClick(key) },
                 color = Color(0xFF3C3C3C),

@@ -1256,6 +1256,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         gitDiffUntracked = emptyList()
     }
 
+    var isDiscardingChanges by mutableStateOf(false)
+        private set
+
+    /** Backs out of a failed agent experiment (or any unwanted edits) by discarding every
+     * pending change - see [com.justnels.agenticdroid.git.GitManager.discardAllChanges]. */
+    fun discardAllChanges() {
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) { isDiscardingChanges = true }
+            val result = gitManager.discardAllChanges()
+            withContext(Dispatchers.Main) {
+                isDiscardingChanges = false
+                if (result is com.justnels.agenticdroid.git.GitResult.Failure) {
+                    gitError = "Failed to discard changes: ${result.message}"
+                } else {
+                    lastGitOutput = "Discarded all pending changes."
+                    gitError = null
+                    dismissDiffReview()
+                }
+            }
+            refreshGitStatus()
+        }
+    }
+
     fun gitCommit(message: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val manager = gitManager

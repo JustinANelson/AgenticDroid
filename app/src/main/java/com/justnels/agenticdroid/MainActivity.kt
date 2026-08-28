@@ -669,7 +669,9 @@ fun MainScreen(viewModel: MainViewModel) {
                             rawDiff = viewModel.gitDiff,
                             untrackedFiles = viewModel.gitDiffUntracked,
                             isLoading = viewModel.isGitDiffLoading,
-                            onDismiss = { viewModel.dismissDiffReview() }
+                            isDiscarding = viewModel.isDiscardingChanges,
+                            onDismiss = { viewModel.dismissDiffReview() },
+                            onDiscardAll = { viewModel.discardAllChanges() }
                         )
                     }
                 }

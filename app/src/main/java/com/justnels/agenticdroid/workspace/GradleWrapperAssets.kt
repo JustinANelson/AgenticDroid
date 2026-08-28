@@ -26,7 +26,7 @@ object GradleWrapperAssets {
     """.trimIndent()
 
     private val GRADLE_PROPERTIES = """
-        org.gradle.jvmargs=-Xmx640m -Dfile.encoding=UTF-8
+        org.gradle.jvmargs=-Xmx640m -XX:+UseSerialGC -Dfile.encoding=UTF-8
         org.gradle.configuration-cache=true
         org.gradle.daemon=false
         kotlin.code.style=official

@@ -125,6 +125,21 @@ class GitManager(
         return executeGit(args)
     }
 
+    /**
+     * Discards every pending change in the working tree: restores tracked files to HEAD,
+     * then deletes untracked files/directories. Irreversible for untracked content (there's
+     * no git history to recover it from) - callers must confirm with the user first. Meant
+     * for backing out of a failed agent experiment before it's committed; anything already
+     * committed is unaffected and can still be reached through the normal git log.
+     */
+    fun discardAllChanges(): GitResult {
+        if (hasCommits()) {
+            val checkoutResult = executeGit(listOf("checkout", "--", "."))
+            if (checkoutResult is GitResult.Failure) return checkoutResult
+        }
+        return executeGit(listOf("clean", "-fd"))
+    }
+
     fun fetch(): GitResult = executeGit(listOf("fetch"))
     fun renameBranch(newName: String): GitResult = executeGit(listOf("branch", "-M", newName))
     fun hasCommits(): Boolean = executeGit(listOf("rev-parse", "HEAD")) is GitResult.Success
