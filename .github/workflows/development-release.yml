@@ -97,7 +97,7 @@ jobs:
 
       - name: Install Android SDK platform and NDK
         if: steps.version.outputs.publish == 'true'
-        run: sdkmanager --install "platforms;android-37" "ndk;27.2.12479018" --channel=3
+        run: sdkmanager --install "platforms;android-37.0" "ndk;27.2.12479018" --channel=3
 
       - name: Cache native closure
         if: steps.version.outputs.publish == 'true'
