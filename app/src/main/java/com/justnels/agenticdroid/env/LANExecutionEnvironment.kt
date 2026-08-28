@@ -7,6 +7,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.ServerSocket
@@ -231,12 +232,60 @@ class LANFileSystemAccess(
     override fun renameFile(oldPath: String, newPath: String): Boolean = false
     override fun copyFile(srcPath: String, destPath: String): Boolean = false
 
+    // readFile/writeFile round-trip through UTF-8 text, which is right for source files but
+    // would corrupt anything binary (a built APK, an image) - route those through the
+    // server's raw-bytes /api/files/download+upload endpoints instead. This also breaks what
+    // would otherwise be infinite recursion: FileSystemAccess.downloadFile()'s default impl
+    // calls downloadStream(), whose default impl calls downloadFile() right back - every
+    // implementation must override at least one of the pair, and this app's other
+    // ExecutionEnvironments already do (see LocalExecutionEnvironment, SSHExecutionEnvironment).
+    override fun downloadFile(
+        remotePath: String,
+        localDest: File,
+        onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
+    ) {
+        localDest.parentFile?.mkdirs()
+        val url = "$baseUrl/api/files/download".toHttpUrl().newBuilder()
+            .addQueryParameter("path", remotePath)
+            .build()
+        val request = Request.Builder().url(url).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code}")
+            val body = response.body ?: throw java.io.IOException("Empty response body")
+            val totalBytes = body.contentLength()
+            val temp = File(localDest.parentFile ?: localDest, ".agentic-dl-${localDest.name}-${System.nanoTime()}.tmp")
+            try {
+                temp.outputStream().use { out -> copyStreamWithProgress(body.byteStream(), out, totalBytes, onProgress) }
+                if (localDest.exists()) localDest.delete()
+                if (!temp.renameTo(localDest)) {
+                    temp.copyTo(localDest, overwrite = true)
+                    temp.delete()
+                }
+            } finally {
+                temp.delete()
+            }
+        }
+    }
+
     override fun uploadStream(
         inputStream: InputStream,
         remotePath: String,
         totalBytes: Long,
         onProgress: ((bytesTransferred: Long, totalBytes: Long) -> Unit)?
     ) {
-        writeFile(remotePath, inputStream.bufferedReader().readText())
+        val body = object : RequestBody() {
+            override fun contentType() = "application/octet-stream".toMediaType()
+            override fun contentLength() = totalBytes
+            override fun writeTo(sink: okio.BufferedSink) {
+                copyStreamWithProgress(inputStream, sink.outputStream(), totalBytes, onProgress)
+            }
+        }
+        val url = "$baseUrl/api/files/upload".toHttpUrl().newBuilder()
+            .addQueryParameter("path", remotePath)
+            .build()
+        val request = Request.Builder().url(url).post(body).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("HTTP ${response.code}")
+        }
     }
 }

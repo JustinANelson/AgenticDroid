@@ -94,6 +94,36 @@ app.get('/api/files/exists', (req, res) => {
     }
 });
 
+// /api/files/read+write round-trip through UTF-8 text (fine for source files, but silently
+// corrupts anything else - a built APK, an image). These two routes move raw bytes instead,
+// for binary transfers like LANExecutionEnvironment's downloadFile/uploadStream.
+app.get('/api/files/download', (req, res) => {
+    const filePath = req.query.path;
+    try {
+        if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', fs.statSync(filePath).size);
+        fs.createReadStream(filePath)
+            .on('error', (e) => res.status(500).end(e.message))
+            .pipe(res);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/files/upload', express.raw({ type: '*/*', limit: '1024mb' }), (req, res) => {
+    const filePath = req.query.path;
+    try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, req.body);
+        res.json({ status: 'success' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/exec', (req, res) => {
     const { command, cwd, env } = req.body;
     // Simple one-shot exec for non-interactive tools

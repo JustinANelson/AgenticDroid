@@ -33,6 +33,8 @@ fun GitScreen(
     modifier: Modifier = Modifier,
     lastOutput: String? = null,
     error: String? = null,
+    isSyncing: Boolean = false,
+    onSync: () -> Unit = {},
     onCommit: (String) -> Unit,
     onPush: (Boolean) -> Unit,
     onPull: (Boolean) -> Unit,
@@ -269,6 +271,27 @@ fun GitScreen(
 
         item {
             Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = onSync,
+                enabled = !isSyncing,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                if (isSyncing) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Syncing...")
+                } else {
+                    Text("Sync (Pull + Push)")
+                }
+            }
+            Text(
+                text = "Fetches, merges the remote in, then pushes your commits - a real conflict stops at pull, same as the Pull button below, and is left for you to resolve.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
 
             OutlinedTextField(
                 value = commitMessage,

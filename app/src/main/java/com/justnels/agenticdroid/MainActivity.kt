@@ -643,6 +643,8 @@ fun MainScreen(viewModel: MainViewModel) {
                         confirmDestructiveGitActions = viewModel.confirmDestructiveGitActions,
                         lastOutput = viewModel.lastGitOutput,
                         error = viewModel.gitError,
+                        isSyncing = viewModel.isSyncing,
+                        onSync = { viewModel.gitSync() },
                         onCommit = { viewModel.gitCommit(it) },
                         onPush = { viewModel.gitPush(it) },
                         onPull = { viewModel.gitPull(it) },

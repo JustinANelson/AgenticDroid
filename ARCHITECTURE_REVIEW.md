@@ -79,6 +79,7 @@ flowchart TB
 The ability to write, debug, test, and compile AgenticDroid **entirely on an Android phone** is the core test of a standalone mobile IDE.
 
 ### 3.1 The Working Chain Today
+
 1. **Source Management:** The app clones its repository via `GitManager` using GitHub OAuth device flow tokens stored securely in the hardware Android Keystore.
 2. **Agentic Assistance:** The developer launches Claude Code, OpenAI Codex, Gemini CLI, Antigravity, or Aider against the local workspace (`filesDir/workspaces/AgenticDroid`). The agent directly reads and modifies source files.
 3. **Editor & Context:** Open tabs are exposed via `ContextBridgeServer` (port 41337) to MCP-compatible agents.
@@ -107,23 +108,27 @@ graph TD
 ```
 
 #### 1. RAM & Memory Pressure
+
 * **Analysis:** Running an LLM CLI (Node + QEMU) simultaneously with Gradle (`kotlinc` + D8 + AAPT2) can push memory consumption past 3 GB. Mid-range phones (6–8 GB RAM) will experience aggressive Low Memory Killer (LMK) terminations.
-* **Mitigation:**
-  * Enforce `org.gradle.jvmargs=-Xmx1024m -XX:+UseSerialGC` in on-device `gradle.properties`.
-  * Disable the Gradle Daemon for on-device builds (`--no-daemon`) to release JVM memory immediately upon build completion.
-  * Implement a "Pre-build pause" that pauses background headless agent runs before kicking off Gradle builds.
+- **Mitigation:**
+  - Enforce `org.gradle.jvmargs=-Xmx1024m -XX:+UseSerialGC` in on-device `gradle.properties`.
+  - Disable the Gradle Daemon for on-device builds (`--no-daemon`) to release JVM memory immediately upon build completion.
+  - Implement a "Pre-build pause" that pauses background headless agent runs before kicking off Gradle builds.
 
 #### 2. Android Phantom Process Killer (Android 12+)
+
 * **Analysis:** Android 12 introduced a phantom process killer that terminates any app with >32 spawned child processes or high background CPU usage. A multi-threaded Gradle build and background agent runs can easily trigger this.
-* **Mitigation:** AgenticDroid already uses a foreground service with persistent notifications (`HeadlessAgentRunService` and `TerminalService`), but should guide power users to disable phantom process monitoring via wireless ADB / Shizuku if available (`settings put global settings_enable_monitor_phantom_procs false`).
+- **Mitigation:** AgenticDroid already uses a foreground service with persistent notifications (`HeadlessAgentRunService` and `TerminalService`), but should guide power users to disable phantom process monitoring via wireless ADB / Shizuku if available (`settings put global settings_enable_monitor_phantom_procs false`).
 
 #### 3. 16 KB Page Alignment (Android 15+)
+
 * **Analysis:** Modern devices starting with Android 15 can use 16 KB page sizes. The bundled Termux `libtermux.so` and certain ELF binaries compiled with 4 KB max-page-size will fail to load with `ELF alignment error`.
-* **Mitigation:** Recompile native wrappers and Termux native components with `-Wl,-z,max-page-size=16384`.
+- **Mitigation:** Recompile native wrappers and Termux native components with `-Wl,-z,max-page-size=16384`.
 
 #### 4. Code Intelligence for Kotlin & Compose
+
 * **Analysis:** Currently, `LspManager.kt` only registers `pyright` for Python files. When working on AgenticDroid in the editor, there is no Kotlin or Java code completion, type inspection, or syntax error highlighting.
-* **Mitigation:** Integrate a lightweight Kotlin/Java Language Server or utilize `kotlinc` diagnostics in background lint passes.
+- **Mitigation:** Integrate a lightweight Kotlin/Java Language Server or utilize `kotlinc` diagnostics in background lint passes.
 
 ---
 
@@ -138,27 +143,31 @@ The remote environment system enables seamless offloading when heavy builds, ful
 | **Transport** | SSH protocol (SSHJ library / OpenSSH binary) | HTTP REST + WebSocket | TCP over HTTP/2 WebSocket tunnel to SSH |
 | **Host Requirements** | Standard SSH daemon (Linux, macOS, Windows) | Node.js + `remote-agent-server.js` | `cloudflared` installed on remote & device |
 | **File Operations** | SFTP (batched via `SSHFileSystemAccess`) | REST endpoints (`/api/files/*`) | SFTP through SSH over tunnel |
-| **Session Persistence**| `tmux` / `screen` auto-reattachment | WebSocket re-connection (PTY alive on host) | `tmux` / `screen` over tunnel |
+| **Session Persistence** | `tmux` / `screen` auto-reattachment | WebSocket re-connection (PTY alive on host) | `tmux` / `screen` over tunnel |
 | **Port Forwarding** | Built-in `-L` forwarding (5173, 3000, 8080, etc.) | N/A (requires reverse proxy or direct LAN) | Built-in via SSH `-L` |
 | **Security** | Host key SHA-256 fingerprint + Keystore keys | **None (Plain HTTP on LAN)** | Zero-trust authentication via Cloudflare |
 
 ### 4.2 Known Edge Cases & Technical Fixes
 
 #### 1. Cloudflare Tunnel Terminal Exit Code 255 / Permission Denied
+
 * **Root Cause:** In `SSHExecutionEnvironment.kt`, when `useCloudflareTunnel` is active, the interactive PTY generates an `ssh` command with `ProxyCommand=cloudflared access tcp --hostname <host>`. If the local `cloudflared` executable in `node-runtime/usr/bin/cloudflared` lacks execute permissions (`chmod 755`), or if `cloudflared` fails to locate credentials in `$HOME/.cloudflared`, `ssh` immediately exits with code `255`.
-* **Fix:** Enforce `cloudflared.setExecutable(true, true)` upon toolchain bootstrap, verify local tunnel port listening readiness before launching the PTY, and capture tunnel stderr for visible diagnostics.
+- **Fix:** Enforce `cloudflared.setExecutable(true, true)` upon toolchain bootstrap, verify local tunnel port listening readiness before launching the PTY, and capture tunnel stderr for visible diagnostics.
 
 #### 2. Git SSL CA Certificate Access Failure
+
 * **Root Cause:** In `GitManager.kt`, Git HTTPS requests against `github.com` fail with `Problem with the SSL CA Cert` when `http.sslCAInfo` or `SSL_CERT_FILE` points to an unpopulated or unreadable cert path.
-* **Fix:** In `NodeRuntime.kt`, ensure `usr/etc/tls/cert.pem` is always extracted and validated. For remote SSH/LAN environments, nullify `sslCertPath` so the remote system's native CA trust store (`/etc/ssl/certs/ca-certificates.crt` or Windows cert store) is used instead of the local Android path.
+- **Fix:** In `NodeRuntime.kt`, ensure `usr/etc/tls/cert.pem` is always extracted and validated. For remote SSH/LAN environments, nullify `sslCertPath` so the remote system's native CA trust store (`/etc/ssl/certs/ca-certificates.crt` or Windows cert store) is used instead of the local Android path.
 
 #### 3. Remote Project Refresh
+
 * **Requirement:** When working on an SSH or LAN environment, files modified on the remote server (or by remote agent runs) do not trigger local Android filesystem watcher events.
-* **Fix:** Add an explicit refresh button and pull-to-refresh gesture in `RemoteBrowserScreen` and `FileTree` that invalidates the cached directory tree via `fetchRemoteTree()` and re-evaluates Git status.
+- **Fix:** Add an explicit refresh button and pull-to-refresh gesture in `RemoteBrowserScreen` and `FileTree` that invalidates the cached directory tree via `fetchRemoteTree()` and re-evaluates Git status.
 
 #### 4. LAN Companion Server Security
+
 * **Vulnerability:** `tools/remote-agent-server.js` currently exposes unrestricted filesystem read/write and arbitrary command execution (`/api/exec`) without authentication.
-* **Fix:** Implement a pairing token header (`X-AgenticDroid-Token`) generated on desktop startup and scanned via QR code on mobile.
+- **Fix:** Implement a pairing token header (`X-AgenticDroid-Token`) generated on desktop startup and scanned via QR code on mobile.
 
 ---
 
@@ -245,17 +254,20 @@ timeline
 ```
 
 ### Phase 1: Core Reliability & Immediate Bug Fixes
+
 1. **Cloudflare Tunnel Fix:** Ensure `cloudflared` binary has execute permissions, verify tunnel readiness via socket probe, and capture stderr for visible user diagnostics.
 2. **Remote Git SSL CA Cert Fix:** Ensure `sslCertPath` is properly handled per environment (use local cert on Android, system cert on remote SSH/LAN).
 3. **Remote Project Refresh:** Add a refresh button and pull-to-refresh in `RemoteBrowserScreen` and `FileTree`.
 4. **LAN Server Hardening:** Add Bearer token authentication to `tools/remote-agent-server.js` and an authorization header in `LANExecutionEnvironment.kt`.
 
 ### Phase 2: Mobile Standalone Development Ergonomics
+
 1. **Developer Accessory Keyboard Bar:** Implement a customizable keyboard accessory bar with common programming characters (`{`, `}`, `(`, `)`, `[`, `]`, `;`, `->`, `=>`, `=`, `!`, `&`, `|`, `\`, `$`, tab, indent, dedent, undo, redo, line navigation).
 2. **On-Device Gradle Memory & Process Tuning:** Default on-device Gradle execution to `--no-daemon -Dorg.gradle.jvmargs="-Xmx1024m -XX:+UseSerialGC"`.
 3. **Agent Transcript & Diff Rollback:** Provide a visual rollback button in `DiffReviewDialog` to discard an agent's changes if an experiment fails.
 
 ### Phase 3: Hybrid Elastic Development (Local + Remote Synergy)
+
 1. **Remote Build & Deploy Action:**
    - In `ProjectRunnerAction`, add a "Build Remotely & Install on Device" action for SSH environments: executes `./gradlew assembleDebug` on the fast remote machine, downloads the resulting APK over SFTP to `cacheDir`, and triggers `ApkInstaller.installApk()` on the phone.
    - This provides the best of both worlds: write code and prompt agents on the go from mobile, with desktop/cloud compilation speeds.
@@ -263,6 +275,7 @@ timeline
    - Allow a project to have both a local path and a linked remote path, with one-tap sync (using `git fetch/merge` or batched SFTP sync).
 
 ### Phase 4: Long-Term Platform Modernization
+
 1. **16 KB Page Alignment Rebuild:** Update `fetch_native_libs.py` and `fetch_jvm_native_libs.py` to pull 16 KB-aligned Termux/Debian binaries for Android 15+ compatibility.
 2. **TargetSdk 35+ Migration:** Complete the packaging of all runner groups into `nativeLibraryDir` via `jniLibs` to eliminate the dependency on `targetSdk = 28`.
 

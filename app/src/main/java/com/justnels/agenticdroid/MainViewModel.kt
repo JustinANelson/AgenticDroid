@@ -206,21 +206,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .getOrNull() ?: return null
         val project = selectedProject
         val secrets = project?.let { projectSecretsStore.getSecrets(it) } ?: emptyMap()
-        val label = when (val active = environmentManager.activeEnvironment) {
-            is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> "${active.config.username}@${active.config.host}"
-            is com.justnels.agenticdroid.env.EnvironmentConfig.LAN -> "LAN Agent: ${active.name}"
-            com.justnels.agenticdroid.env.EnvironmentConfig.Node -> "On-device toolchain"
-            com.justnels.agenticdroid.env.EnvironmentConfig.Local -> "Local"
-        }
         return headlessRunController.startRun(
             agent = agent,
             prompt = prompt,
             env = env,
             workingDirectory = executionWorkingDirectory,
             projectPath = project?.path ?: executionWorkingDirectory,
-            environmentLabel = label,
+            environmentLabel = activeEnvironmentLabel(),
             environmentVariables = secrets
         )
+    }
+
+    private fun activeEnvironmentLabel(): String = when (val active = environmentManager.activeEnvironment) {
+        is com.justnels.agenticdroid.env.EnvironmentConfig.SSH -> "${active.config.username}@${active.config.host}"
+        is com.justnels.agenticdroid.env.EnvironmentConfig.LAN -> "LAN Agent: ${active.name}"
+        com.justnels.agenticdroid.env.EnvironmentConfig.Node -> "On-device toolchain"
+        com.justnels.agenticdroid.env.EnvironmentConfig.Local -> "Local"
     }
 
     var installedAgentIds by mutableStateOf<Set<String>>(emptySet())
@@ -328,6 +329,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var gitLog by mutableStateOf<List<String>>(emptyList())
     var gitError by mutableStateOf<String?>(null)
     var lastGitOutput by mutableStateOf<String?>(null)
+    var isSyncing by mutableStateOf(false)
+        private set
     var gitDiff by mutableStateOf<String?>(null)
         private set
     var gitDiffUntracked by mutableStateOf<List<String>>(emptyList())
@@ -1323,6 +1326,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * One-tap fetch+pull+push - "sync" in the GitHub-Desktop/VS-Code sense, not a
+     * from-scratch merge algorithm. Reuses the exact same GitManager calls (and the same
+     * push retry-with-upstream fallback) as the separate Pull/Push buttons; a real
+     * conflict surfaces via pull's own failure exactly as it would from the Pull button,
+     * and push is skipped in that case rather than pushing a still-unmerged tree.
+     */
+    fun gitSync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val manager = gitManager
+            if (!manager.hasCommits()) {
+                withContext(Dispatchers.Main) { gitError = "Nothing to sync: repository has no commits yet." }
+                return@launch
+            }
+            withContext(Dispatchers.Main) { isSyncing = true }
+            try {
+                val fetchResult = manager.fetch()
+                if (fetchResult is com.justnels.agenticdroid.git.GitResult.Failure) {
+                    withContext(Dispatchers.Main) { gitError = fetchResult.message }
+                    return@launch
+                }
+                val pullResult = manager.pull(rebase = false)
+                if (pullResult is com.justnels.agenticdroid.git.GitResult.Failure) {
+                    withContext(Dispatchers.Main) {
+                        gitError = "Sync stopped at pull (resolve this, then push separately): ${pullResult.message}"
+                    }
+                    return@launch
+                }
+                val currentBranch = manager.getCurrentBranch()
+                var pushResult = manager.push(remote = "origin", branch = currentBranch)
+                if (pushResult is com.justnels.agenticdroid.git.GitResult.Failure &&
+                    (pushResult.message.contains("no upstream branch") || pushResult.message.contains("has no upstream"))
+                ) {
+                    pushResult = manager.push(remote = "origin", branch = currentBranch, setUpstream = true)
+                }
+                withContext(Dispatchers.Main) {
+                    if (pushResult is com.justnels.agenticdroid.git.GitResult.Failure) {
+                        gitError = "Pulled, but push failed: ${pushResult.message}"
+                    } else {
+                        val pullOutput = (pullResult as com.justnels.agenticdroid.git.GitResult.Success).output
+                        val pushOutput = (pushResult as com.justnels.agenticdroid.git.GitResult.Success).output
+                        lastGitOutput = "Synced '$currentBranch'.\n\npull: $pullOutput\n\npush: $pushOutput"
+                        gitError = null
+                    }
+                }
+            } finally {
+                withContext(Dispatchers.Main) { isSyncing = false }
+                refreshGitStatus()
+            }
+        }
+    }
+
     fun gitInit() {
         viewModelScope.launch(Dispatchers.IO) {
             val manager = gitManager
@@ -1781,7 +1836,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun buildAndInstall(buildCommand: String = "./gradlew assembleDebug", secrets: Map<String, String> = emptyMap()) {
         viewModelScope.launch(Dispatchers.IO) {
             isBuilding = true
-            buildStatus = "Running build..."
+            // This build runs wherever the active environment points - Local/Node execute
+            // on-device, but SSH and LAN run it on that remote machine instead, then pull
+            // the resulting APK back over SFTP/HTTP for local sideload. Naming the target
+            // here is the only thing that makes that remote-build-and-install path
+            // discoverable, since buildAndInstall() itself is otherwise identical either way.
+            val environmentLabel = activeEnvironmentLabel()
+            buildStatus = "Running build on $environmentLabel..."
             val env = environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment)
             val path = executionWorkingDirectory
             runCatching { com.justnels.agenticdroid.env.NodeRuntime.ensureGradleUserHomeProperties(getApplication()) }
@@ -1799,7 +1860,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val fs = env.filesystem()
                     val apkFile = findApk(fs, path)
                     if (apkFile != null) {
-                        buildStatus = "Downloading APK..."
+                        buildStatus = if (environmentLabel == "Local" || environmentLabel == "On-device toolchain") {
+                            "Preparing APK..."
+                        } else {
+                            "Downloading APK from $environmentLabel..."
+                        }
                         val app = getApplication<Application>()
                         val localApk = File(app.getExternalFilesDir("downloads"), "latest_build.apk")
                         fs.downloadFile(apkFile.absolutePath, localApk)
