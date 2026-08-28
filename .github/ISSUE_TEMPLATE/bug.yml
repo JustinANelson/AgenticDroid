@@ -1,0 +1,68 @@
+name: Bug report
+description: Report reproducible incorrect behavior without sensitive data
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Do not include tokens, keys, pairing codes, private repository content, personal data, or unredacted logs. Use the private process in SECURITY.md for vulnerabilities.
+  - type: input
+    id: commit
+    attributes:
+      label: AgenticDroid commit or version
+      description: Prefer the full Git commit SHA for source builds.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: Pixel 8, Android 16, arm64-v8a
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Execution environment
+      options:
+        - Local/on-device
+        - SSH
+        - LAN companion
+        - Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Use a minimal test repository and redact private paths and host details.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, private repository data, personal information, hostnames, IP addresses, and local paths.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

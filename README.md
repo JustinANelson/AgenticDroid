@@ -1,46 +1,82 @@
 # AgenticDroid
 
-AgenticDroid is an Android development workspace and terminal that bootstraps a Node, Git,
-and QEMU user-mode toolchain into app-private storage so agent CLIs can run on a phone.
+AgenticDroid is an experimental, mobile-first Android development workspace for running
+coding-agent CLIs, editing repositories, using Git, and building projects on a phone. It can
+execute locally in app-private storage or connect to configured SSH and LAN environments.
 
 > [!WARNING]
-> AgenticDroid is currently **sideload-only**. It intentionally targets API 28 because
-> Android's API 29+ app-data W^X policy prevents its current downloaded-toolchain execution
-> model. Do not present the current flavor as Google Play compatible.
+> AgenticDroid is pre-release, sideload-only software. It can execute commands, modify files,
+> install APKs, and give third-party agents access to source code and configured credentials.
+> Use it only with repositories, devices, accounts, and remote hosts you are prepared to trust.
 
-## Supported environment
+## Project status
 
-- Android 8.0 or newer (`minSdk 26`)
-- `arm64-v8a` or `x86_64` for the bootstrapped QEMU/toolchain path
-- Network access for initial bootstrap and agent installation
-- Several hundred MB of free app storage, depending on installed agents
+The project is under active development. The current Android build:
 
-The upstream Termux terminal native library is not currently 16 KB page-aligned. Devices
-that require 16 KB page alignment are not supported until that dependency is fixed or
-replaced.
+- supports Android 8.0 or newer (`minSdk 26`);
+- ships only for `arm64-v8a`;
+- needs network access and substantial app-private storage to bootstrap toolchains; and
+- is not represented as Google Play compatible. Its downloaded executable/toolchain model
+  remains a policy and distribution constraint.
 
-## Local setup
+There are no supported binary releases yet. In particular, do not publish an APK until the
+native-runtime attribution and corresponding-source checklist in
+[DISTRIBUTION.md](docs/DISTRIBUTION.md) has been completed for that exact artifact.
 
-1. Install JDK 21 and an Android SDK containing API 37.
-2. Add the usual local Android SDK path to `local.properties`.
-3. Create an ignored `.secrets` file when GitHub device login is needed:
+## Capabilities
 
-   ```text
-   gh_client_id: your_public_github_oauth_client_id
-   ```
+- Local terminal sessions and background agent runs
+- Workspace browsing, editing, search, previews, and project templates
+- Git and GitHub workflows with Keystore-backed credential storage
+- Local, SSH, and authenticated LAN execution environments
+- On-device Node.js, Git, Python, OpenJDK, Android SDK, and QEMU-based tooling
+- Project-scoped encrypted secrets and MCP server configuration
 
-   Configure the GitHub OAuth app for device flow. No OAuth client secret belongs in this
-   repository or APK.
-4. Run the local quality gate:
+See [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) and
+[AGENT_RUNTIME_RESEARCH.md](AGENT_RUNTIME_RESEARCH.md) for design history and runtime research.
+Those dated review documents are snapshots; the source and this README are authoritative when
+their status descriptions differ.
 
-   ```powershell
-   .\gradlew.bat testDebugUnitTest lintDebug assembleDebug
-   ```
+## Build from source
+
+### Prerequisites
+
+- Git
+- JDK 21
+- Android SDK with API 37
+- Android NDK `27.2.12479018` only when reconstructing the release native-library closure
+
+Clone the repository and add your SDK path to the ignored `local.properties` file as usual for
+an Android project. Then run the local quality gate:
+
+```powershell
+.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+```
+
+On macOS or Linux, use `./gradlew` instead. Debug builds do not require a GitHub OAuth client ID;
+GitHub device login is simply unavailable when it is omitted.
+
+To enable device login, copy `.secrets.example` to `.secrets` and add the public client ID for
+your own GitHub OAuth app. Enable device flow for that app. Never put an OAuth client secret in
+this repository or an APK.
+
+Release builds require a generated, pinned native-library closure:
+
+```sh
+python3 tools/fetch_native_libs.py
+python3 tools/fetch_python_native_libs.py
+python3 tools/fetch_jvm_native_libs.py
+python3 tools/build_libtermux.py
+./gradlew assembleRelease
+```
+
+The scripts download large external artifacts. Review their pinned manifests and
+[DISTRIBUTION.md](docs/DISTRIBUTION.md) before distributing the output.
 
 ## Release signing
 
-Release signing is loaded only from Gradle properties or environment variables. Never add
-a keystore or passwords to the repository.
+Release signing is loaded only from Gradle properties or environment variables. Never commit a
+keystore or passwords.
 
 | Gradle property | Environment variable |
 |---|---|
@@ -49,48 +85,37 @@ a keystore or passwords to the repository.
 | `agenticdroid.release.keyAlias` | `AGENTICDROID_RELEASE_KEY_ALIAS` |
 | `agenticdroid.release.keyPassword` | `AGENTICDROID_RELEASE_KEY_PASSWORD` |
 
-With all four values configured, run `./gradlew assembleRelease`. Without them, Gradle may
-produce an unsigned developer artifact; it is not a distributable release.
+With all four values configured, `assembleRelease` produces a signed artifact. Without them, any
+release output is an unsigned developer artifact and is not distributable.
 
-## Security model
+## LAN companion server
 
-- GitHub login uses OAuth device flow. Tokens are kept in Keystore-backed encrypted storage,
-  are not embedded in Git remote URLs, and are not compiled into the APK.
-- SSH connections require a host-key fingerprint obtained through a trusted channel. Profiles
-  support encrypted passwords or pasted private keys/passphrases, custom ports, persisted remote
-  workspace roots, and SFTP browsing. A
-  changed fingerprint is a blocking connection failure.
-- Termux and Debian packages are verified against SHA-256 values from their HTTPS package
-  indexes. Alpine musl packages are version/hash-pinned to the supported v3.24 repository,
-  and Antigravity archives are verified against the updater manifest's SHA-512 value.
-- Archive extraction rejects absolute paths, traversal, unsafe link targets, excessive
-  entry counts, and excessive sizes.
-- Cloud backup/device transfer is disabled because workspaces and credentials are sensitive.
+The optional server in `tools/` gives the app filesystem and shell access on another machine.
+It is high privilege by design. It uses a bearer pairing token but plain HTTP/WebSocket transport,
+so run it only on a trusted local network or inside a trusted encrypted tunnel. Use a dedicated
+unprivileged account and a narrow `WORKSPACE_ROOT`; the root contains structured file operations,
+but arbitrary shell commands retain the account's full access. Do not expose the server directly to the internet. See
+[REMOTE_SERVER.md](docs/REMOTE_SERVER.md).
 
-The remaining mutable package indexes are an acknowledged trust boundary. A future release
-should replace them with a project-controlled, signed, versioned manifest for fully
-reproducible bootstrap artifacts.
+## Security and data handling
 
-## SSH fingerprints
+Credentials, project secrets, and pasted SSH key material are encrypted with an app-owned
+Android Keystore key. Workspaces and bootstrapped toolchains remain in app-private storage;
+cloud backup and device transfer are disabled. Agent CLIs and user-initiated Git, SSH, LAN, and
+download operations communicate with third parties and may disclose repository content.
 
-Before adding an SSH environment, obtain the server host-key fingerprint from its
-administrator through a trusted channel. For example, an administrator can run:
+Read [SECURITY.md](SECURITY.md) before reporting a vulnerability and [PRIVACY.md](PRIVACY.md)
+before using the app with sensitive source code.
 
-```sh
-ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
-```
+## Contributing
 
-Paste the complete `SHA256:...` fingerprint into AgenticDroid. Do not accept a fingerprint
-supplied only by the same network connection being verified.
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and follow
+the [Code of Conduct](CODE_OF_CONDUCT.md). Security vulnerabilities must use the private process
+in [SECURITY.md](SECURITY.md), not a public issue.
 
-## Data and reset behavior
+## License
 
-Workspaces, the bundled toolchain, and tokens live in app-private storage. Internal storage is
-required because Android prevents npm symlinks and native Node module loading from emulated
-external storage. On upgrade, legacy external-files workspaces are copied into internal storage
-without `node_modules` (dependencies are restored on demand); the legacy copies are left intact
-as a recovery backup. The app's wipe action removes preferences, credentials, active internal
-workspaces, legacy workspace backups, and the bootstrapped toolchain. Back up source repositories
-through a trusted Git remote before wiping or uninstalling the app.
-
-See [ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md) for the latest architectural review, self-hosting readiness, and development roadmap.
+AgenticDroid's original source is licensed under the [Apache License 2.0](LICENSE). Dependencies,
+generated toolchains, and bundled native binaries retain their own licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The AgenticDroid name and artwork are not
+separately licensed as trademarks.

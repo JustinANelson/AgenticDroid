@@ -179,8 +179,10 @@ class SSHExecutionEnvironment(
             runCatching {
                 process.inputStream.bufferedReader().forEachLine { line ->
                     synchronized(outputTail) {
-                        outputTail.addLast(line)
-                        if (outputTail.size > 20) outputTail.removeFirst()
+                        // Avoid java.util.List SequencedCollection methods introduced in API 35;
+                        // this app supports API 26 and only needs ordinary indexed list calls.
+                        outputTail.add(line)
+                        if (outputTail.size > 20) outputTail.removeAt(0)
                     }
                 }
             }

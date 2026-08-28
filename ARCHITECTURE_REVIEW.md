@@ -1,5 +1,11 @@
 # AgenticDroid Architectural Review: Lightweight Mobile Standalone Agentic IDE
 
+> [!NOTE]
+> This is a dated design/research snapshot, not a release-readiness statement. Several matrix
+> entries describe earlier implementations (for example, LAN authentication and target-SDK
+> status). Use [README.md](README.md), [SECURITY.md](SECURITY.md), and the current source as the
+> authoritative description of shipped behavior.
+
 A comprehensive architectural evaluation and strategic roadmap for AgenticDroid as a **lightweight, mobile-first, standalone agentic IDE** capable of on-device self-hosting and elastic remote execution.
 
 ---

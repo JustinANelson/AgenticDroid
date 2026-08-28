@@ -28,6 +28,7 @@ captures/
 local.properties
 .secrets
 .secrets.*
+!.secrets.example
 *.keystore
 *.jks
 *.key
