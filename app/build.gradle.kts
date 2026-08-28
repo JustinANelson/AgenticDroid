@@ -210,7 +210,7 @@ dependencies {
     // Real org.json impl for JVM unit tests - the Android SDK's org.json classes on the
     // test classpath are stubs that throw "not mocked" on every call (e.g. JSONObject.put
     // in ProjectMetadata.toJson), since they're normally backed by the on-device runtime.
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
