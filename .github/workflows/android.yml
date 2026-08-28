@@ -21,7 +21,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Validate repository metadata and documentation
-        run: python3 tools/check_repository.py
+        run: |
+          python3 tools/check_repository.py
+          python3 -m unittest discover -s tools -p 'test_*.py'
 
   companion:
     name: LAN companion

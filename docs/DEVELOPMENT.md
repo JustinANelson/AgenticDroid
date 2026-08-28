@@ -79,6 +79,53 @@ updates require intentional discovery, source and license review, digest verific
 pull-request inventory. A current Termux index changing is not permission to silently replace a
 pin. See [DISTRIBUTION.md](DISTRIBUTION.md).
 
+## Development version and APK policy
+
+AgenticDroid uses `versionName` and `versionCode` in `app/build.gradle.kts` as the release source
+of truth. Patch changes are reserved for fixes. A maintainer increments the minor version for a
+verified runnable feature set and the major version for an intentionally larger compatibility or
+project milestone. Every version change must also increment `versionCode`.
+
+Use this sequence for a development APK:
+
+1. Merge the feature and contributor checks.
+2. Run **Build development APK** from GitHub Actions. That workflow reconstructs the native
+   closure, signs the debug APK, and uploads it as a temporary workflow artifact.
+3. Install that candidate on a supported arm64 device and exercise the changed feature plus core
+   terminal, agent, workspace, Git, and environment behavior.
+4. After the candidate is verified runnable, move the relevant changelog entries into a dated
+   version section and increment `versionName` and `versionCode` on `master`.
+5. The **Build versioned development APK** workflow detects a major/minor change, repeats the clean
+   build and quality gates, and uploads a versioned APK plus its SHA-256 checksum as a GitHub
+   Actions artifact retained for 30 days.
+
+These are unsupported debug-signed development artifacts, not public or production releases. A
+patch-only version change does not build automatically; a maintainer can use the guarded manual
+workflow input when a replacement development artifact is genuinely needed. Do not promote an APK
+to a GitHub Release until the checklist in `docs/DISTRIBUTION.md` is complete for that artifact.
+
+For development APKs to update one another, configure the repository Actions secret
+`AGENTICDROID_DEVELOPMENT_KEYSTORE_BASE64` with a stable standard Android debug keystore (alias
+`androiddebugkey`, store/key password `android`). Without it, GitHub uses an ephemeral certificate
+and users must uninstall the earlier development APK before installing the next one. The
+development key must never be reused as the future production signing key.
+
+To create and upload that development-only key from PowerShell:
+
+```powershell
+keytool -genkeypair -keystore agenticdroid-development.jks -storetype PKCS12 `
+  -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 `
+  -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+$taskDevelopmentKey = [Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes((Resolve-Path .\agenticdroid-development.jks))
+)
+$taskDevelopmentKey | gh secret set AGENTICDROID_DEVELOPMENT_KEYSTORE_BASE64
+Remove-Variable taskDevelopmentKey
+```
+
+Keep a protected backup if update continuity matters, then remove the working copy. The `.jks`
+pattern is ignored by Git, but that is not a substitute for storing the key outside the checkout.
+
 ## Troubleshooting
 
 - If Gradle cannot find the SDK, check `local.properties` or `ANDROID_SDK_ROOT`.

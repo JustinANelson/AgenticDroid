@@ -13,6 +13,7 @@ binary release, so all interfaces and storage formats remain subject to change.
   distribution documentation.
 - Contributor CI for Android, the LAN companion, and repository-health validation.
 - Scheduled and path-scoped native release-closure verification.
+- Verified major/minor development-version builds provided as debug-signed GitHub Actions artifacts.
 
 ### Security
 

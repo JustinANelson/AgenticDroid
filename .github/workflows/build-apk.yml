@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -25,19 +25,61 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Install Android SDK platform
-        run: sdkmanager --install "platforms;android-37"
+      - name: Install Android SDK platform and NDK
+        run: sdkmanager --install "platforms;android-37" "ndk;27.2.12479018"
+
+      - name: Cache native closure
+        id: native-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: app/src/main/jniLibs/arm64-v8a
+          key: native-libs-${{ hashFiles('app/build.gradle.kts', 'gradle/libs.versions.toml', 'tools/*.json', 'tools/openjdk_launcher/*.patch', 'tools/fetch_native_libs.py', 'tools/fetch_python_native_libs.py', 'tools/fetch_jvm_native_libs.py', 'tools/build_openjdk_launcher.py', 'tools/build_libtermux.py') }}
+
+      - name: Reconstruct native runtime closure
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
+        run: |
+          python3 tools/fetch_native_libs.py
+          python3 tools/fetch_python_native_libs.py
+          python3 tools/fetch_jvm_native_libs.py
+          python3 tools/build_libtermux.py
+
+      - name: Configure stable development signing when available
+        shell: bash
+        env:
+          DEVELOPMENT_KEYSTORE: ${{ secrets.AGENTICDROID_DEVELOPMENT_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -n "$DEVELOPMENT_KEYSTORE" ]]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$DEVELOPMENT_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
+            chmod 600 "$HOME/.android/debug.keystore"
+          else
+            echo "::warning::AGENTICDROID_DEVELOPMENT_KEYSTORE_BASE64 is not configured. This build will use an ephemeral debug certificate and will not update earlier CI builds."
+          fi
 
       - name: Set up Gradle and validate the wrapper
         uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      - name: Test, lint, and build debug APK
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
 
-      - name: Upload unsigned development artifact
+      - name: Verify signature and generate checksum
+        shell: bash
+        run: |
+          apk="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -type f -print -quit)"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$apk"
+          test -n "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+
+      - name: Upload sideloadable development artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: agenticdroid-unsigned-development-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: agenticdroid-debug-sideload-apk
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/*.apk.sha256
           if-no-files-found: error
           retention-days: 7

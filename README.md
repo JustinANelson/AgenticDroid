@@ -23,9 +23,11 @@ The project is under active development. The current Android build:
 - is not represented as Google Play compatible. Its downloaded executable/toolchain model
   remains a policy and distribution constraint.
 
-There are no supported binary releases yet. In particular, do not publish an APK until the
-native-runtime attribution and corresponding-source checklist in
-[DISTRIBUTION.md](docs/DISTRIBUTION.md) has been completed for that exact artifact.
+There are no supported binary releases yet. GitHub Actions provides explicitly marked,
+debug-signed development artifacts for sideload testing after major or minor version changes.
+Do not present those temporary artifacts as production releases or redistribute them. Public APK
+distribution remains blocked until the native-runtime attribution and corresponding-source
+checklist in [DISTRIBUTION.md](docs/DISTRIBUTION.md) has been completed for that exact artifact.
 
 ## Capabilities
 

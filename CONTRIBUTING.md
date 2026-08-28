@@ -37,7 +37,7 @@ also reconstruct the closure using the commands in the README and follow
 
 ## Pull requests
 
-1. Create a topic branch from the latest `main`.
+1. Create a topic branch from the latest `master`.
 2. Keep generated files, local configuration, credentials, signing material, and build output out
    of the commit.
 3. Add or update tests for behavior changes.
