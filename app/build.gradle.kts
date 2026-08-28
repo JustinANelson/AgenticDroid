@@ -24,6 +24,9 @@ val releaseKeystorePath = releaseValue("agenticdroid.release.storeFile", "AGENTI
 val releaseStorePassword = releaseValue("agenticdroid.release.storePassword", "AGENTICDROID_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseValue("agenticdroid.release.keyAlias", "AGENTICDROID_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseValue("agenticdroid.release.keyPassword", "AGENTICDROID_RELEASE_KEY_PASSWORD")
+val developmentKeystorePath = providers.environmentVariable("AGENTICDROID_DEVELOPMENT_STORE_FILE")
+    .orNull
+    ?.takeIf(String::isNotBlank)
 val releaseSigningConfigured = listOf(
     releaseKeystorePath,
     releaseStorePassword,
@@ -66,6 +69,14 @@ android {
     }
 
     signingConfigs {
+        if (developmentKeystorePath != null) {
+            getByName("debug") {
+                storeFile = rootProject.file(developmentKeystorePath)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (releaseSigningConfigured) {
             create("release") {
                 storeFile = rootProject.file(requireNotNull(releaseKeystorePath))

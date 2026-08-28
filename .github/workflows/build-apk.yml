@@ -54,9 +54,12 @@ jobs:
           DEVELOPMENT_KEYSTORE: ${{ secrets.AGENTICDROID_DEVELOPMENT_KEYSTORE_BASE64 }}
         run: |
           if [[ -n "$DEVELOPMENT_KEYSTORE" ]]; then
-            mkdir -p "$HOME/.android"
-            printf '%s' "$DEVELOPMENT_KEYSTORE" | base64 --decode > "$HOME/.android/debug.keystore"
-            chmod 600 "$HOME/.android/debug.keystore"
+            keystore="$RUNNER_TEMP/agenticdroid-development.jks"
+            printf '%s' "$DEVELOPMENT_KEYSTORE" | base64 --decode > "$keystore"
+            chmod 600 "$keystore"
+            fingerprint="$(keytool -list -v -keystore "$keystore" -storepass android -alias androiddebugkey | sed -n 's/.*SHA256: //p' | tr -d ':\r' | tr '[:lower:]' '[:upper:]')"
+            test "$fingerprint" = "D633BFBE0DCEEA00F04A878F1EE9AEF0FFF773708AEF5DCEAA66507E7EDBAEC2"
+            echo "AGENTICDROID_DEVELOPMENT_STORE_FILE=$keystore" >> "$GITHUB_ENV"
           else
             echo "::warning::AGENTICDROID_DEVELOPMENT_KEYSTORE_BASE64 is not configured. This build will use an ephemeral debug certificate and will not update earlier CI builds."
           fi
@@ -75,6 +78,10 @@ jobs:
           test -n "$apk"
           test -n "$apksigner"
           "$apksigner" verify --verbose --print-certs "$apk"
+          certificate="$($apksigner verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p' | tr -d ':\r' | tr '[:lower:]' '[:upper:]')"
+          if [[ -n "${AGENTICDROID_DEVELOPMENT_STORE_FILE:-}" ]]; then
+            test "$certificate" = "D633BFBE0DCEEA00F04A878F1EE9AEF0FFF773708AEF5DCEAA66507E7EDBAEC2"
+          fi
           sha256sum "$apk" > "$apk.sha256"
 
       - name: Upload sideloadable development artifact
