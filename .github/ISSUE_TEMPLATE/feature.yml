@@ -28,3 +28,14 @@ body:
       description: Note new permissions, network services, downloads, credentials, executable code, or dependencies.
     validations:
       required: true
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Contribution interest
+      description: Would you be interested in implementing this after scope agreement?
+      options:
+        - Yes, with maintainer guidance
+        - Yes, independently
+        - No, suggestion only
+    validations:
+      required: true

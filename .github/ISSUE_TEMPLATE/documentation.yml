@@ -1,0 +1,32 @@
+name: Documentation improvement
+description: Report unclear, missing, or incorrect project documentation
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Document or location
+      placeholder: README.md, a file and heading, or a URL
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or incorrect?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+  - type: dropdown
+    id: contribution
+    attributes:
+      label: Would you like to submit the fix?
+      options:
+        - Yes
+        - No
+    validations:
+      required: true

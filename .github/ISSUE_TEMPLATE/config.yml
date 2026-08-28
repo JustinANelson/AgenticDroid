@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions and community support
+    url: https://github.com/JustinANelson/AgenticDroid/discussions
+    about: Ask usage, setup, and early design questions in GitHub Discussions.
   - name: Private security report
     url: https://github.com/JustinANelson/AgenticDroid/security/advisories/new
     about: Report vulnerabilities privately; never disclose exploit details in an issue.
+  - name: Support policy
+    url: https://github.com/JustinANelson/AgenticDroid/blob/master/SUPPORT.md
+    about: Read support scope and the information needed for a useful help request.

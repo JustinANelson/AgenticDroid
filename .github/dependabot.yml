@@ -5,15 +5,31 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      android-build-tooling:
+        patterns:
+          - "com.android.*"
+          - "org.jetbrains.kotlin*"
+      androidx:
+        patterns:
+          - "androidx.*"
 
   - package-ecosystem: npm
     directory: /tools
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      companion-runtime:
+        patterns:
+          - "*"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
