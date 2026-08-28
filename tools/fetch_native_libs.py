@@ -213,6 +213,7 @@ def main() -> None:
 
     print("Fetching current Termux aarch64 package index...")
     pkgs = load_packages_index()
+    package_cache: dict[tuple[str, str, str], bytes] = {}
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     for entry in manifest["libraries"]:
@@ -221,7 +222,10 @@ def main() -> None:
         version = entry["version"]
         sha256 = entry["source_deb_sha256"]
         print(f"  {fname} <- {pkg_name} {version} ...")
-        deb_bytes = download_and_verify(pkgs, pkg_name, sha256, version)
+        cache_key = (pkg_name, version, sha256)
+        if cache_key not in package_cache:
+            package_cache[cache_key] = download_and_verify(pkgs, pkg_name, sha256, version)
+        deb_bytes = package_cache[cache_key]
         content = extract_member(deb_bytes, fname, source_path=entry.get("source_path"))
         out_path = os.path.join(OUTPUT_DIR, fname)
         with open(out_path, "wb") as out:

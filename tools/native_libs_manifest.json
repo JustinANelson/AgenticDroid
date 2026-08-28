@@ -2,13 +2,15 @@
   "$schema_note": "Provenance manifest for app/src/main/jniLibs/arm64-v8a - the native-lib-packaging prototype from AGENT_RUNTIME_RESEARCH.md, covering qemu-user-aarch64 (+ agent CLI guest support), node, git, and aapt2. Regenerate with tools/fetch_native_libs.py. Each entry's DT_NEEDED closure was derived by parsing real ELF dynamic sections recursively against Termux's package index, not by trusting apt Depends: metadata. 'used_by' lists which main binary(ies) actually need each library, per real DT_NEEDED chasing (a library can be shared - e.g. libz.so is needed by all four).",
   "source_index": "https://packages-cf.termux.dev/apt/termux-main",
   "target_abi": "aarch64 (arm64-v8a)",
-  "generated": "2026-08-19",
+  "generated": "2026-08-28",
   "libraries": [
     {
       "bundled_filename": "libaapt2_native_aarch64.so",
       "termux_package": "aapt2",
-      "version": "16.0.0.4-1",
-      "source_deb_sha256": "d35298f13ec26eee362d4e84f534b29b8e5f288b86c89d803ba4fb8ccb9784aa",
+      "version": "16.0.0.4-2",
+      "source_deb_sha256": "ae91c1c1cf743098a4d847e6d44e37a8fd8b83e00548ad7e50e8fbdc4ef0741e",
+      "bundled_sha256": "7ef533e21738c2abe7319e52b756fc8c4023ff66d03da01d9177ce73786b9f2a",
+      "termux_recipe_commit": "d577b896df188b0e2d41ba0e42d61e2873669ef1",
       "source_path": "data/data/com.termux/files/usr/bin/aapt2",
       "used_by": [
         "aapt2"
