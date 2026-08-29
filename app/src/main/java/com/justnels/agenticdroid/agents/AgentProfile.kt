@@ -196,6 +196,9 @@ object DefaultAgents {
         for f in codex codex-code-mode-host; do
           if [ -f "${'$'}natdir/${'$'}f" ] && [ ! -f "${'$'}natdir/${'$'}f.real" ]; then
             mv "${'$'}natdir/${'$'}f" "${'$'}natdir/${'$'}f.real"
+          fi
+          if [ -f "${'$'}natdir/${'$'}f.real" ]; then
+            rm -f "${'$'}natdir/${'$'}f"
             ln -s "${'$'}AGENTICDROID_NATIVE_LIB_DIR/libagent_codex_native_wrapper.so" "${'$'}natdir/${'$'}f"
           fi
         done
