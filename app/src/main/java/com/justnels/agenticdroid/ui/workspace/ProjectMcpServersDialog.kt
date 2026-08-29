@@ -40,7 +40,7 @@ fun ProjectMcpServersDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Written to .mcp.json - read automatically by Claude Code and Codex when launched in this project. Gemini CLI/Antigravity may not use this file.",
+                    text = "Written to .mcp.json - read automatically by Claude Code and Codex when launched in this project. Antigravity may not use this file.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

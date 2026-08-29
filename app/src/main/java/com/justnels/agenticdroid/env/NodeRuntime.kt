@@ -281,7 +281,6 @@ object NodeRuntime {
             "kotlinc-jvm" to "libkotlinc_wrapper.so",
             "codex" to "libagent_codex_wrapper.so",
             "claude" to "libagent_claude_wrapper.so",
-            "gemini" to "libagent_gemini_wrapper.so",
             "agy" to "libagent_antigravity_wrapper.so",
             "aider" to "libagent_aider_wrapper.so"
         )
@@ -533,8 +532,8 @@ object NodeRuntime {
         environment["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
 
         // Node reports process.platform === "android" for any Bionic build, including this
-        // bundled one - and some npm packages (confirmed: clipboardy, a dependency of
-        // Google's Gemini CLI) throw unconditionally at module-load time on that platform
+        // bundled one - and some npm packages (confirmed: clipboardy, formerly a dependency
+        // of Google's Gemini CLI) throw unconditionally at module-load time on that platform
         // unless $TERMUX_VERSION is set, without actually checking Termux is present. Set
         // generically here (not just for one agent) since any future pure-JS agent CLI can
         // hit the same check.

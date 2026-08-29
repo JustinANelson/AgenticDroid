@@ -15,6 +15,10 @@ binary release, so all interfaces and storage formats remain subject to change.
 - Scheduled and path-scoped native release-closure verification.
 - Verified major/minor development-version builds provided as debug-signed GitHub Actions artifacts.
 
+### Removed
+
+- Gemini CLI agent support, following the API's phase-out.
+
 ### Security
 
 - Canonical workspace-path containment for LAN companion filesystem operations.
@@ -25,6 +29,7 @@ binary release, so all interfaces and storage formats remain subject to change.
 - Restored on-device agent installation and environment diagnostics on modern Android by
   reproducibly packaging the required command wrappers and core tools in the APK's executable
   native-library directory.
+- Made Antigravity downloads atomic and reject truncated or non-ELF executables before launch.
 
 Changes should be added to this section in the same pull request that introduces them. Maintainers
 move entries into a dated version section when preparing a release.

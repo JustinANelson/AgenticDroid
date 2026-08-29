@@ -30,6 +30,19 @@ class AgentProfileTest {
     }
 
     @Test
+    fun antigravityInstallRejectsIncompleteNativeExecutables() {
+        val install = DefaultAgents.Antigravity.installCommand
+
+        assertTrue(install.contains("require(\"stream/promises\")"))
+        assertTrue(install.contains("await pipeline("))
+        assertTrue(install.contains(".gz.part"))
+        assertTrue(install.contains("fs.renameSync(tarPart, outTar)"))
+        assertTrue(install.contains("Buffer.from([0x7f, 0x45, 0x4c, 0x46])"))
+        assertTrue(install.contains("incomplete or is not an ELF file"))
+        assertTrue(install.contains("<<'JSEOF' || exit 1"))
+    }
+
+    @Test
     fun installedVersionCommandRedirectsStdinAndChecksExitStatus() {
         // A bare `<command> --version` blocks forever on some agents (confirmed: agy)
         // when reading from a live PTY - stdin must always be /dev/null.
@@ -49,10 +62,6 @@ class AgentProfileTest {
         assertEquals(
             """node "${'$'}NPM_CLI" view @anthropic-ai/claude-code version 2>&1""",
             DefaultAgents.Claude.latestVersionCommand()
-        )
-        assertEquals(
-            """node "${'$'}NPM_CLI" view @google/gemini-cli version 2>&1""",
-            DefaultAgents.Gemini.latestVersionCommand()
         )
         // Antigravity isn't npm-distributed and has no separate version-query endpoint.
         assertNull(DefaultAgents.Antigravity.latestVersionCommand())

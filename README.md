@@ -32,7 +32,7 @@ checklist in [DISTRIBUTION.md](docs/DISTRIBUTION.md) has been completed for that
 ## Capabilities
 
 - Local terminal sessions and background agent runs, with built-in launch profiles for Codex,
-  Claude Code, Gemini CLI, Aider, and Antigravity CLI
+  Claude Code, Aider, and Antigravity CLI
 - Workspace browsing, editing, search, previews, and project templates
 - Git and GitHub workflows with Keystore-backed credential storage
 - Local, SSH, and authenticated LAN execution environments

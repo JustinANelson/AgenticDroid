@@ -46,8 +46,8 @@ enum class RunnerPackageGroup(
             // used at agent-install time to unpack Antigravity CLI's release archive.
             "tar", "libacl", "libandroid-glob", "libandroid-selinux",
             // Everyday CLI accessories agent tool-calls commonly assume exist regardless
-            // of project type - most notably ripgrep, which Claude Code/Codex/Gemini CLI
-            // all shell out to for fast codebase search; without it a search tool call
+            // of project type - most notably ripgrep, which Claude Code/Codex shell out to
+            // for fast codebase search; without it a search tool call
             // either fails or silently falls back to a much slower plain grep.
             "ripgrep", "fd", "jq", "oniguruma", "tree", "unzip", "patch", "diffutils", "socat",
             // sqlite3 CLI binary - libsqlite above is only the shared library it (and

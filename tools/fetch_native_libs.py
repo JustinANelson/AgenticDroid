@@ -81,9 +81,6 @@ case "$(uname -m)" in
 esac
 exec "$QEMU_BIN" -L "$QEMU_SYSROOT" "$NPM_CONFIG_PREFIX/lib/node_modules/$package/claude" "$@"
 """,
-    "libagent_gemini_wrapper.so": """#!/system/bin/sh
-exec node "$NPM_CONFIG_PREFIX/lib/node_modules/@google/gemini-cli/bundle/gemini.js" "$@"
-""",
     "libagent_antigravity_wrapper.so": """#!/system/bin/sh
 exec "$QEMU_BIN" -L "$GLIBC_SYSROOT" "$NPM_CONFIG_PREFIX/vendor/antigravity/antigravity.real" "$@"
 """,

@@ -19,7 +19,7 @@ data class McpServer(
  * Reads/writes a project's `.mcp.json` - the de-facto standard MCP client config file
  * Claude Code and Codex both discover automatically from a project's root directory with
  * no app-specific plumbing needed (they're launched as ordinary CLI processes with a real
- * project directory - see AgentProfile.launchCommand). Gemini CLI and Antigravity may use
+ * project directory - see AgentProfile.launchCommand). Antigravity may use
  * a different config location/format; this only targets the two that share this file.
  *
  * Deliberately a plain (unencrypted) project file, matching how these tools themselves

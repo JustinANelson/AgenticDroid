@@ -176,7 +176,6 @@ tasks.register("checkNativeLibClosure") {
         "libsqlite3_native_aarch64.so",
         "libagent_codex_wrapper.so",
         "libagent_claude_wrapper.so",
-        "libagent_gemini_wrapper.so",
         "libagent_antigravity_wrapper.so",
         "libagent_aider_wrapper.so",
         // Overrides the termux-terminal-emulator AAR's own 4 KB-page-aligned copy at

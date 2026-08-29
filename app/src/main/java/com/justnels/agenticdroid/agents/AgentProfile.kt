@@ -12,7 +12,7 @@ data class AgentProfile(
     val iconResId: Int? = null,
     val defaultArgs: List<String> = emptyList(),
     val environmentVariables: Map<String, String> = emptyMap(),
-    // Set for npm-distributed agents (Codex/Claude/Gemini) so an update check can ask
+    // Set for npm-distributed agents (Codex/Claude) so an update check can ask
     // the registry for the latest published version without installing anything.
     // Antigravity is intentionally left null: it isn't npm-distributed, and its manifest
     // endpoint only ever serves "whatever is current" with no distinct version to query
@@ -230,56 +230,6 @@ object DefaultAgents {
     )
 
     /**
-     * Unlike Claude/Codex/Antigravity, Gemini CLI (@google/gemini-cli) is pure JS/TS end to
-     * end - there's no separate native binary to smuggle past Android's exec restrictions,
-     * so no QEMU wrapping is needed at all. Its own optional native addons (node-pty for a
-     * real PTY when running its own internal shell tool, keytar for OS-keychain credential
-     * storage) publish no linux-arm64 build in the first place (confirmed: their
-     * package.json optionalDependencies only list darwin/win32/linux-x64 variants), so npm
-     * simply can't install them here regardless of Android - gemini-cli already has to
-     * handle that build failing/missing gracefully on any unsupported arch, which is
-     * exactly what optionalDependencies is for.
-     *
-     * One Android-specific landmine, confirmed empirically: a nested dependency
-     * (clipboardy) throws unconditionally at module-load time - not lazily, so it breaks
-     * before gemini even parses argv - when process.platform === "android" (which Node
-     * reports for any Bionic build, including this bundled one) unless $TERMUX_VERSION is
-     * set; it doesn't actually check Termux is present, just that one env var. Set
-     * generically in NodeRuntime.configureEnvironment rather than just here, since any
-     * future pure-JS agent could hit the same check.
-     *
-     * Like Codex, npm's own bin-link starts with `#!/usr/bin/env node`, and Android has no
-     * /usr/bin/env. NodeRuntime therefore shadows it with the APK-packaged Gemini wrapper,
-     * which invokes this package's JavaScript entry point through bundled Node.
-     *
-     * That packaged indirection - and $NPM_CLI/$NPM_CONFIG_PREFIX, which only NodeRuntime's
-     * on-device env setup defines - is Android-only, so (matching Codex/Claude/Antigravity)
-     * this is skipped entirely on a real machine (e.g. reached over an SSH environment):
-     * plain `npm install -g` already produces a working `gemini` on PATH there, since
-     * there's no /usr/bin/env restriction or QEMU/musl indirection to work around.
-     */
-    private fun geminiInstallCommand(): String = """
-        if [ ! -d /system/bin ]; then
-          echo "Detecting non-Android environment, performing standard install..."
-          npm install -g @google/gemini-cli
-          exit $?
-        fi
-        node "${'$'}NPM_CLI" install -g --ignore-scripts @google/gemini-cli >/dev/null 2>&1
-        if ! gemini --version </dev/null >/dev/null 2>&1; then
-          echo "Gemini CLI failed to start after install." >&2
-        fi
-    """.trimIndent()
-
-    val Gemini = AgentProfile(
-        id = "gemini",
-        name = "Gemini CLI",
-        command = "gemini",
-        installCommand = geminiInstallCommand(),
-        npmPackageForVersionCheck = "@google/gemini-cli",
-        headlessPromptArgs = listOf("-p")
-    )
-
-    /**
      * Antigravity CLI isn't distributed via npm at all - it's a single compiled Go
      * binary Google publishes behind a manifest API and fetches with a curl|bash
      * installer (antigravity.google/cli/install.sh). This reimplements just enough of
@@ -328,101 +278,111 @@ object DefaultAgents {
         const fs = require("fs");
         const zlib = require("zlib");
         const crypto = require("crypto");
+        const { pipeline } = require("stream/promises");
         const maxAttempts = 3;
-        function get(url, cb, onError, redirects = 0) {
+
+        function get(url, redirects = 0) {
           const parsed = new URL(url);
-          if (parsed.protocol !== "https:" || redirects > 5) {
-            onError("Refusing unsafe download URL");
-            return;
-          }
-          https.get(url, res => {
-            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-              get(new URL(res.headers.location, parsed).toString(), cb, onError, redirects + 1);
-              return;
-            }
-            if (res.statusCode !== 200) {
-              onError("HTTP " + res.statusCode + " fetching " + url);
-              return;
-            }
-            cb(res);
-          }).on("error", e => onError(String(e)));
+          if (parsed.protocol !== "https:" || redirects > 5)
+            return Promise.reject(new Error("Refusing unsafe download URL"));
+          return new Promise((resolve, reject) => {
+            https.get(url, res => {
+              if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                res.resume();
+                resolve(get(new URL(res.headers.location, parsed).toString(), redirects + 1));
+              } else if (res.statusCode === 200) {
+                resolve(res);
+              } else {
+                res.resume();
+                reject(new Error("HTTP " + res.statusCode + " fetching " + url));
+              }
+            }).on("error", reject);
+          });
         }
+
+        async function readText(response) {
+          let data = "";
+          for await (const chunk of response) data += chunk;
+          return data;
+        }
+
+        async function sha512(path) {
+          const hash = crypto.createHash("sha512");
+          for await (const chunk of fs.createReadStream(path)) hash.update(chunk);
+          return hash.digest("hex");
+        }
+
         const platform = process.argv[2];
         const outTar = process.argv[3];
-        // Retries the whole manifest-fetch + download + checksum pipeline, matching
-        // NodeBootstrapper.downloadFile's 3-attempt/2s-backoff behavior - a plain
-        // one-shot download here would fail the entire agent install on a single
-        // transient network blip while every other download in this app retries.
-        function attempt(n) {
-          const compressed = outTar + ".gz";
-          fs.rmSync(compressed, { force: true });
+
+        async function attempt() {
+          const manifestUrl = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/" + platform + ".json";
+          const compressedPart = outTar + ".gz.part";
+          const tarPart = outTar + ".part";
+          fs.rmSync(compressedPart, { force: true });
+          fs.rmSync(tarPart, { force: true });
           fs.rmSync(outTar, { force: true });
-          function fail(msg) {
-            process.stderr.write(msg + "\n");
-            if (n < maxAttempts) {
+
+          const manifest = JSON.parse(await readText(await get(manifestUrl)));
+          if (!/^[a-f0-9]{128}$/i.test(manifest.sha512 || ""))
+            throw new Error("Manifest did not provide a valid SHA-512 digest");
+
+          await pipeline(await get(manifest.url), fs.createWriteStream(compressedPart, { flags: "wx" }));
+          if ((await sha512(compressedPart)).toLowerCase() !== manifest.sha512.toLowerCase())
+            throw new Error("Antigravity archive checksum mismatch");
+
+          await pipeline(
+            fs.createReadStream(compressedPart),
+            zlib.createGunzip(),
+            fs.createWriteStream(tarPart, { flags: "wx" })
+          );
+          if (fs.statSync(tarPart).size < 1024)
+            throw new Error("Decompressed Antigravity archive is unexpectedly short");
+          fs.renameSync(tarPart, outTar);
+          fs.rmSync(compressedPart, { force: true });
+        }
+
+        (async () => {
+          for (let n = 1; n <= maxAttempts; n++) {
+            try {
+              await attempt();
+              return;
+            } catch (error) {
+              process.stderr.write(String(error) + "\n");
+              if (n === maxAttempts) process.exit(1);
               process.stderr.write("Retrying download (attempt " + (n + 1) + "/" + maxAttempts + ")...\n");
-              setTimeout(() => attempt(n + 1), 2000);
-            } else {
-              process.exit(1);
+              await new Promise(resolve => setTimeout(resolve, 2000));
             }
           }
-          get("https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/" + platform + ".json", res => {
-            let data = "";
-            res.on("data", c => data += c);
-            res.on("end", () => {
-              let manifest;
-              try {
-                manifest = JSON.parse(data);
-              } catch (e) {
-                fail("Invalid Antigravity manifest JSON: " + e);
-                return;
-              }
-              if (!/^[a-f0-9]{128}$/i.test(manifest.sha512 || "")) {
-                fail("Manifest did not provide a valid SHA-512 digest");
-                return;
-              }
-              get(manifest.url, res2 => {
-                const file = fs.createWriteStream(compressed);
-                res2.pipe(file);
-                file.on("finish", () => {
-                  file.close(() => {
-                    const hash = crypto.createHash("sha512");
-                    const input = fs.createReadStream(compressed);
-                    input.on("error", e => fail(String(e)));
-                    input.on("data", chunk => hash.update(chunk));
-                    input.on("end", () => {
-                      const actual = hash.digest("hex");
-                      if (actual.toLowerCase() !== manifest.sha512.toLowerCase()) {
-                        fs.rmSync(compressed, { force: true });
-                        fail("Antigravity archive checksum mismatch");
-                        return;
-                      }
-                      const output = fs.createWriteStream(outTar);
-                      fs.createReadStream(compressed).pipe(zlib.createGunzip()).pipe(output);
-                      output.on("finish", () => fs.rmSync(compressed, { force: true }));
-                      output.on("error", e => fail(String(e)));
-                    });
-                  });
-                });
-                file.on("error", e => fail(String(e)));
-              }, fail);
-            });
-          }, fail);
-        }
-        attempt(1);
+        })();
         JSEOF
-        node "${'$'}vendordir/fetch.js" "${'$'}platform" "${'$'}vendordir/agy.tar"
-        tar -xf "${'$'}vendordir/agy.tar" -C "${'$'}vendordir" antigravity
+        node "${'$'}vendordir/fetch.js" "${'$'}platform" "${'$'}vendordir/agy.tar" || exit 1
+        mkdir "${'$'}vendordir/extract"
+        tar -xf "${'$'}vendordir/agy.tar" -C "${'$'}vendordir/extract" antigravity || exit 1
         rm -f "${'$'}vendordir/agy.tar"
-        if [ ! -f "${'$'}vendordir/antigravity" ]; then
+        if [ ! -f "${'$'}vendordir/extract/antigravity" ]; then
           echo "Failed to download Antigravity CLI's native binary." >&2
           exit 1
         fi
-        mv "${'$'}vendordir/antigravity" "${'$'}vendordir/antigravity.real"
+        node - "${'$'}vendordir/extract/antigravity" <<'JSEOF' || exit 1
+        const fs = require("fs");
+        const path = process.argv[2];
+        const stat = fs.statSync(path);
+        const header = Buffer.alloc(4);
+        const fd = fs.openSync(path, "r");
+        const read = fs.readSync(fd, header, 0, header.length, 0);
+        fs.closeSync(fd);
+        if (stat.size < 64 || read !== 4 || !header.equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) {
+          throw new Error("Extracted Antigravity executable is incomplete or is not an ELF file");
+        }
+        JSEOF
+        mv "${'$'}vendordir/extract/antigravity" "${'$'}vendordir/antigravity.real"
+        rmdir "${'$'}vendordir/extract"
         chmod 755 "${'$'}vendordir/antigravity.real"
         if ! agy --version </dev/null >/dev/null 2>&1; then
           echo "Antigravity's native binary failed to run under QEMU-user" \
                "(check QEMU_BIN/GLIBC_SYSROOT setup - see NodeRuntime/NodeBootstrapper)." >&2
+          exit 1
         fi
     """.trimIndent()
 
@@ -453,5 +413,5 @@ object DefaultAgents {
         installCommand = aiderInstallCommand(),
     )
 
-    val All = listOf(Codex, Claude, Gemini, Aider, Antigravity)
+    val All = listOf(Codex, Claude, Aider, Antigravity)
 }

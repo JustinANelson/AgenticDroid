@@ -62,7 +62,6 @@ env/
 .artifacts/
 .cast/
 .claude/
-.gemini/
 
 # W^X native-lib prototype payload (regenerate via tools/fetch_*_native_libs.py)
 app/src/main/jniLibs/

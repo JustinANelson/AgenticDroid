@@ -20,7 +20,6 @@ class NativeApkClosureTest(unittest.TestCase):
             "libagent_codex_wrapper.so",
             "libagent_codex_native_wrapper.so",
             "libagent_claude_wrapper.so",
-            "libagent_gemini_wrapper.so",
             "libagent_antigravity_wrapper.so",
             "libagent_aider_wrapper.so",
         }
