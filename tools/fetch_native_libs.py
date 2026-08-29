@@ -37,6 +37,59 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MANIFEST_PATH = os.path.join(SCRIPT_DIR, "native_libs_manifest.json")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "app", "src", "main", "jniLibs", "arm64-v8a")
 
+# PackageManager's native-library directory is executable at modern Android target SDKs,
+# while files created under app-private writable storage are not.  These tiny launchers
+# therefore belong to the reproducible APK closure just as much as the ELF files below.
+# They deliberately contain no installation-specific absolute paths; NodeRuntime supplies
+# every path through the process environment.
+NATIVE_WRAPPERS = {
+    "libnpm_wrapper.so": '#!/system/bin/sh\nexec node "$NPM_CLI" "$@"\n',
+    "libnpx_wrapper.so": '#!/system/bin/sh\nexec node "${NPM_CLI%/*}/npx-cli.js" "$@"\n',
+    "libpip_wrapper.so": '#!/system/bin/sh\nexec python3 -m pip "$@"\n',
+    "libpip3_wrapper.so": '#!/system/bin/sh\nexec python3 -m pip "$@"\n',
+    "libjdk_jar_wrapper.so": '#!/system/bin/sh\nexec "$JAVA_HOME/bin/jar" "$@"\n',
+    "libjdk_java_wrapper.so": '#!/system/bin/sh\nexec "$JAVA_HOME/bin/java" "$@"\n',
+    "libjdk_javac_wrapper.so": '#!/system/bin/sh\nexec "$JAVA_HOME/bin/javac" "$@"\n',
+    "libjdk_javap_wrapper.so": '#!/system/bin/sh\nexec "$JAVA_HOME/bin/javap" "$@"\n',
+    "libjdk_jlink_wrapper.so": '#!/system/bin/sh\nexec "$JAVA_HOME/bin/jlink" "$@"\n',
+    "libjdk_keytool_wrapper.so": '#!/system/bin/sh\nexec "$JAVA_HOME/bin/keytool" "$@"\n',
+    "libkotlinc_wrapper.so": """#!/system/bin/sh
+exec "$JAVA_HOME/bin/java" ${JAVA_OPTS:--Xmx512M -Xms128M} \\
+  -cp "$KOTLIN_HOME/lib/kotlin-preloader.jar" \\
+  org.jetbrains.kotlin.preloading.Preloader \\
+  -cp "$KOTLIN_HOME/lib/kotlin-compiler.jar" \\
+  org.jetbrains.kotlin.cli.jvm.K2JVMCompiler "$@"
+""",
+    "libagent_codex_wrapper.so": """#!/system/bin/sh
+exec node "$NPM_CONFIG_PREFIX/lib/node_modules/@openai/codex/bin/codex.js" "$@"
+""",
+    "libagent_codex_native_wrapper.so": """#!/system/bin/sh
+case "$(uname -m)" in
+  aarch64) arch="arm64"; triple="aarch64-unknown-linux-musl" ;;
+  x86_64) arch="x64"; triple="x86_64-unknown-linux-musl" ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+name="${0##*/}"
+native="$NPM_CONFIG_PREFIX/lib/node_modules/@openai/codex-linux-$arch/vendor/$triple/bin/$name.real"
+exec "$QEMU_BIN" -L "$QEMU_SYSROOT" "$native" "$@"
+""",
+    "libagent_claude_wrapper.so": """#!/system/bin/sh
+case "$(uname -m)" in
+  aarch64) package="@anthropic-ai/claude-code-linux-arm64-musl" ;;
+  x86_64) package="@anthropic-ai/claude-code-linux-x64-musl" ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+exec "$QEMU_BIN" -L "$QEMU_SYSROOT" "$NPM_CONFIG_PREFIX/lib/node_modules/$package/claude" "$@"
+""",
+    "libagent_gemini_wrapper.so": """#!/system/bin/sh
+exec node "$NPM_CONFIG_PREFIX/lib/node_modules/@google/gemini-cli/bundle/gemini.js" "$@"
+""",
+    "libagent_antigravity_wrapper.so": """#!/system/bin/sh
+exec "$QEMU_BIN" -L "$GLIBC_SYSROOT" "$NPM_CONFIG_PREFIX/vendor/antigravity/antigravity.real" "$@"
+""",
+    "libagent_aider_wrapper.so": '#!/system/bin/sh\nexec python3 -m aider "$@"\n',
+}
+
 
 def load_packages_index() -> dict:
     """Fetches Termux's aarch64 Packages index fresh, so package Filename/SHA256
@@ -231,7 +284,13 @@ def main() -> None:
         with open(out_path, "wb") as out:
             out.write(content)
 
-    print(f"\nWrote {len(manifest['libraries'])} files to {os.path.abspath(OUTPUT_DIR)}")
+    for fname, content in NATIVE_WRAPPERS.items():
+        out_path = os.path.join(OUTPUT_DIR, fname)
+        with open(out_path, "w", encoding="utf-8", newline="\n") as out:
+            out.write(content)
+
+    total = len(manifest["libraries"]) + len(NATIVE_WRAPPERS)
+    print(f"\nWrote {total} files to {os.path.abspath(OUTPUT_DIR)}")
 
 
 if __name__ == "__main__":

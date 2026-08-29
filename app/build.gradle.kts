@@ -133,6 +133,7 @@ android {
                 "**/libpip3_wrapper.so",
                 "**/libkotlinc_wrapper.so",
                 "**/libjdk_*_wrapper.so",
+                "**/libagent_*_wrapper.so",
             )
         }
         resources {
@@ -166,6 +167,18 @@ tasks.register("checkNativeLibClosure") {
         "libnode_native_aarch64.so",
         "libgit_native_aarch64.so",
         "libaapt2_native_aarch64.so",
+        "libnpm_wrapper.so",
+        "libnpx_wrapper.so",
+        "libcurl_native_aarch64.so",
+        "librg_native_aarch64.so",
+        "libjq_native_aarch64.so",
+        "libfd_native_aarch64.so",
+        "libsqlite3_native_aarch64.so",
+        "libagent_codex_wrapper.so",
+        "libagent_claude_wrapper.so",
+        "libagent_gemini_wrapper.so",
+        "libagent_antigravity_wrapper.so",
+        "libagent_aider_wrapper.so",
         // Overrides the termux-terminal-emulator AAR's own 4 KB-page-aligned copy at
         // the same path (see packaging.jniLibs.pickFirsts) - without this file present,
         // the AAR's copy wins instead and fails Play's 16 KB native-library requirement.
@@ -186,7 +199,9 @@ tasks.register("checkNativeLibClosure") {
 }
 
 afterEvaluate {
-    tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }.configureEach {
+    tasks.matching {
+        it.name == "assembleDebug" || it.name == "assembleRelease" || it.name == "bundleRelease"
+    }.configureEach {
         dependsOn("checkNativeLibClosure")
     }
 }

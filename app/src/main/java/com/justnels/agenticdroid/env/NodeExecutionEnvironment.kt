@@ -41,7 +41,7 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
             "java", "javac", "jar", "keytool", "javap", "jlink" ->
                 NodeRuntime.jdkCommandBinary(context, firstWord)
             "kotlinc", "kotlinc-jvm" -> NodeRuntime.kotlincBinary(context)
-            else -> null
+            else -> NodeRuntime.pathCommandBinary(context, firstWord)
         }?.takeIf { it.exists() }
 
         val binary = nativeLibResolved ?: listOf(
@@ -49,7 +49,7 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
             File(NodeRuntime.globalBinDir(context), firstWord),
             File(File(NodeRuntime.homeDir(context), ".local/bin"), firstWord)
         ).firstOrNull { it.exists() }
-        
+
         val fullCommand = if (binary != null) {
             if (rest.isEmpty()) "\"${binary.absolutePath}\"" else "\"${binary.absolutePath}\" $rest"
         } else {
@@ -57,7 +57,7 @@ class NodeExecutionEnvironment(private val context: Context) : ExecutionEnvironm
         }
 
         android.util.Log.d("NodeExec", "Executing command: $fullCommand")
-        
+
         val process = ProcessBuilder("/system/bin/sh", "-c", fullCommand)
             .directory(File(workingDirectory))
             .apply {

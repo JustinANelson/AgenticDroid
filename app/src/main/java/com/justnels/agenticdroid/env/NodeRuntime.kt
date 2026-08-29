@@ -187,6 +187,8 @@ object NodeRuntime {
         "liblzma.so.5" to "liblzma.so",
         "libnettle.so.8" to "libnettle.so",
         "libpython3.14.so" to "libpython3_14.so",
+        "libncursesw.so.6" to "libncursesw.so",
+        "libreadline.so.8" to "libreadline.so",
         "libssl.so.3" to "libssl.so",
         "libz.so.1" to "libz.so",
         "libzstd.so.1" to "libzstd.so"
@@ -258,6 +260,12 @@ object NodeRuntime {
             "aapt2" to "libaapt2_native_${qemuArch()}.so",
             "npm" to "libnpm_wrapper.so",
             "npx" to "libnpx_wrapper.so",
+            "curl" to "libcurl_native_${qemuArch()}.so",
+            "rg" to "librg_native_${qemuArch()}.so",
+            "jq" to "libjq_native_${qemuArch()}.so",
+            "fd" to "libfd_native_${qemuArch()}.so",
+            "sqlite3" to "libsqlite3_native_${qemuArch()}.so",
+            "tar" to "libtar_native_${qemuArch()}.so",
             "python" to "libpython_native_${qemuArch()}.so",
             "python3" to "libpython_native_${qemuArch()}.so",
             "python3.14" to "libpython_native_${qemuArch()}.so",
@@ -270,8 +278,17 @@ object NodeRuntime {
             "javap" to "libjdk_javap_wrapper.so",
             "jlink" to "libjdk_jlink_wrapper.so",
             "kotlinc" to "libkotlinc_wrapper.so",
-            "kotlinc-jvm" to "libkotlinc_wrapper.so"
+            "kotlinc-jvm" to "libkotlinc_wrapper.so",
+            "codex" to "libagent_codex_wrapper.so",
+            "claude" to "libagent_claude_wrapper.so",
+            "gemini" to "libagent_gemini_wrapper.so",
+            "agy" to "libagent_antigravity_wrapper.so",
+            "aider" to "libagent_aider_wrapper.so"
         )
+
+    /** Resolves a PATH command to its PackageManager-installed executable copy. */
+    fun pathCommandBinary(context: Context, command: String): File? =
+        pathAliasTargets[command]?.let { nativeLibBinary(context, it) }
 
     /** Replaces Python's downloaded launcher, libpython names, and every standard-library
      * extension module with symlinks to their PackageManager-installed copies. The mapping
@@ -495,14 +512,14 @@ object NodeRuntime {
         environment["SSL_CERT_FILE"] = certFile
         environment["CURL_CA_BUNDLE"] = certFile
         environment["GIT_SSL_CAINFO"] = certFile
-        
+
         // GitHub CLI configuration directory
         environment["GH_CONFIG_DIR"] = File(userHome, ".config/gh").absolutePath
-        
+
         // Python configuration
         environment["PYTHONHOME"] = usrDir(context).absolutePath
         environment["PYTHONUSERBASE"] = File(userHome, ".local").absolutePath
-        
+
         // Java & Gradle JVM configurations
         if (javaHome.exists()) {
             environment["JAVA_HOME"] = javaHome.absolutePath
@@ -514,7 +531,7 @@ object NodeRuntime {
         environment["ANDROID_USER_HOME"] = androidUserHome.absolutePath
         environment["ANDROID_SDK_HOME"] = userHome.absolutePath
         environment["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
-        
+
         // Node reports process.platform === "android" for any Bionic build, including this
         // bundled one - and some npm packages (confirmed: clipboardy, a dependency of
         // Google's Gemini CLI) throw unconditionally at module-load time on that platform
@@ -527,32 +544,13 @@ object NodeRuntime {
         environment["QEMU_SYSROOT"] = usrDir(context).absolutePath
         environment["GLIBC_SYSROOT"] = glibcSysrootDir(context).absolutePath
         environment["NPM_CLI"] = npmCli(context).absolutePath
-        ensureGitRemoteHelperLinks(context)
-        environment["JAVA_TOOL_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
-        environment["_JAVA_OPTIONS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
-        environment["GRADLE_OPTS"] = "-Djava.io.tmpdir=${tmpDir.absolutePath}"
-        environment["ANDROID_USER_HOME"] = androidUserHome.absolutePath
-        environment["ANDROID_SDK_HOME"] = userHome.absolutePath
-        environment["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
-        
-        // Node reports process.platform === "android" for any Bionic build, including this
-        // bundled one - and some npm packages (confirmed: clipboardy, a dependency of
-        // Google's Gemini CLI) throw unconditionally at module-load time on that platform
-        // unless $TERMUX_VERSION is set, without actually checking Termux is present. Set
-        // generically here (not just for one agent) since any future pure-JS agent CLI can
-        // hit the same check.
-        environment["TERMUX_VERSION"] = "0.118.0"
-        environment["NPM_CONFIG_PREFIX"] = globalDir(context).absolutePath
-        environment["QEMU_BIN"] = qemuBinary(context).absolutePath
-        environment["QEMU_SYSROOT"] = usrDir(context).absolutePath
-        environment["GLIBC_SYSROOT"] = glibcSysrootDir(context).absolutePath
-        environment["NPM_CLI"] = npmCli(context).absolutePath
+        environment["AGENTICDROID_NATIVE_LIB_DIR"] = context.applicationInfo.nativeLibraryDir
         ensureGitRemoteHelperLinks(context)
         environment["GIT_EXEC_PATH"] = libexecGitCoreDir(context).absolutePath
         environment["TMPDIR"] = tmpDir.absolutePath
         environment["TEMP"] = tmpDir.absolutePath
         environment["TMP"] = tmpDir.absolutePath
-        
+
         // Git's Bionic build has Termux's /data/data/com.termux/... path compiled in
         // as its system config location, which is unreadable from our sandbox.
         // Tell it to ignore the system config and use our own global config instead.

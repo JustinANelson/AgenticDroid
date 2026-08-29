@@ -1,5 +1,5 @@
 {
-  "$schema_note": "Provenance manifest for app/src/main/jniLibs/arm64-v8a - the native-lib-packaging prototype from AGENT_RUNTIME_RESEARCH.md, covering qemu-user-aarch64 (+ agent CLI guest support), node, git, and aapt2. Regenerate with tools/fetch_native_libs.py. Each entry's DT_NEEDED closure was derived by parsing real ELF dynamic sections recursively against Termux's package index, not by trusting apt Depends: metadata. 'used_by' lists which main binary(ies) actually need each library, per real DT_NEEDED chasing (a library can be shared - e.g. libz.so is needed by all four).",
+  "$schema_note": "Provenance manifest for app/src/main/jniLibs/arm64-v8a - the native-lib-packaging prototype from AGENT_RUNTIME_RESEARCH.md, covering qemu-user-aarch64 (+ agent CLI guest support), node, git, aapt2, and core diagnostic tools. Regenerate with tools/fetch_native_libs.py. Each entry's DT_NEEDED closure was derived by parsing real ELF dynamic sections recursively against Termux's package index, not by trusting apt Depends: metadata. 'used_by' lists which main binary or binaries actually need each library.",
   "source_index": "https://packages-cf.termux.dev/apt/termux-main",
   "target_abi": "aarch64 (arm64-v8a)",
   "generated": "2026-08-28",
@@ -16,6 +16,109 @@
         "aapt2"
       ],
       "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libcurl_native_aarch64.so",
+      "termux_package": "curl",
+      "version": "8.21.0",
+      "source_deb_sha256": "6274522e6f172678ffbb70aa9fc82bb547117f3ba56f337735a44d19aaee9f40",
+      "source_path": "data/data/com.termux/files/usr/bin/curl",
+      "used_by": ["curl"],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libfd_native_aarch64.so",
+      "termux_package": "fd",
+      "version": "10.5.0",
+      "source_deb_sha256": "402e0b0b2bc1791414585450ac35541fc646f278bdce2b0145f4085fed54bb04",
+      "source_path": "data/data/com.termux/files/usr/bin/fd",
+      "used_by": ["fd"],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libjq_native_aarch64.so",
+      "termux_package": "jq",
+      "version": "1.8.2",
+      "source_deb_sha256": "0eac323797c5d70c35f5fb935c58b5fd7528937584a1aebbd5c5b965d1663afa",
+      "source_path": "data/data/com.termux/files/usr/bin/jq",
+      "used_by": ["jq"],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libjq.so",
+      "termux_package": "jq",
+      "version": "1.8.2",
+      "source_deb_sha256": "0eac323797c5d70c35f5fb935c58b5fd7528937584a1aebbd5c5b965d1663afa",
+      "used_by": ["jq"]
+    },
+    {
+      "bundled_filename": "libonig.so",
+      "termux_package": "oniguruma",
+      "version": "6.9.10-1",
+      "source_deb_sha256": "93675574c560cd2f75b32f0bd2fdaa693419dd6ac0e6c71c26ce5fd928cae1c5",
+      "used_by": ["jq"]
+    },
+    {
+      "bundled_filename": "librg_native_aarch64.so",
+      "termux_package": "ripgrep",
+      "version": "15.2.0",
+      "source_deb_sha256": "38e28bc297000517b24702568a483eca7dc3323eb6bdccc9033f031776bdcc6c",
+      "source_path": "data/data/com.termux/files/usr/bin/rg",
+      "used_by": ["ripgrep"],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libsqlite3_native_aarch64.so",
+      "termux_package": "sqlite",
+      "version": "3.53.4",
+      "source_deb_sha256": "155c3e1450512568c9f777843f33dc0c29525f7366aae9ad4dd119bca5872f5c",
+      "source_path": "data/data/com.termux/files/usr/bin/sqlite3",
+      "used_by": ["sqlite3"],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libtar_native_aarch64.so",
+      "termux_package": "tar",
+      "version": "1.35-3",
+      "source_deb_sha256": "a3847bc259b8654f621d36fa6345b1d6e93932e60e315e526eac2e3ecc5549ec",
+      "source_path": "data/data/com.termux/files/usr/bin/tar",
+      "used_by": ["tar"],
+      "role": "main-binary"
+    },
+    {
+      "bundled_filename": "libacl.so",
+      "termux_package": "libacl",
+      "version": "2.4.0",
+      "source_deb_sha256": "cb620e33405e74b566cb05740dca488705cf0c475ec7f795fa333412211b6d92",
+      "used_by": ["tar"]
+    },
+    {
+      "bundled_filename": "libandroid-glob.so",
+      "termux_package": "libandroid-glob",
+      "version": "0.6-3",
+      "source_deb_sha256": "2276ae8adedf0db76c2f4ffc94cc4cceb2f4f5d78e021b54e2e046d1233e7826",
+      "used_by": ["tar"]
+    },
+    {
+      "bundled_filename": "libandroid-selinux.so",
+      "termux_package": "libandroid-selinux",
+      "version": "14.0.0.11-1",
+      "source_deb_sha256": "00afd8c34087c2864737b51fd9d104dc5e955f6ec3c0f50c0c7ef5b4a56866b9",
+      "used_by": ["tar"]
+    },
+    {
+      "bundled_filename": "libreadline.so",
+      "termux_package": "readline",
+      "version": "8.3.3",
+      "source_deb_sha256": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1",
+      "used_by": ["sqlite3"]
+    },
+    {
+      "bundled_filename": "libncursesw.so",
+      "termux_package": "ncurses",
+      "version": "6.6.20260307+really6.5.20250830",
+      "source_deb_sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "used_by": ["sqlite3"]
     },
     {
       "bundled_filename": "libabsl_base.so",

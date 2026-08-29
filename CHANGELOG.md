@@ -20,5 +20,11 @@ binary release, so all interfaces and storage formats remain subject to change.
 - Canonical workspace-path containment for LAN companion filesystem operations.
 - Explicit Android backup and device-transfer exclusions.
 
+### Fixed
+
+- Restored on-device agent installation and environment diagnostics on modern Android by
+  reproducibly packaging the required command wrappers and core tools in the APK's executable
+  native-library directory.
+
 Changes should be added to this section in the same pull request that introduces them. Maintainers
 move entries into a dated version section when preparing a release.

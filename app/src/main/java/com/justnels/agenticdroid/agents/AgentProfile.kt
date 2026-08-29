@@ -136,15 +136,7 @@ object DefaultAgents {
           *) echo "Unsupported architecture: ${'$'}arch" >&2; exit 1 ;;
         esac
         node "${'$'}NPM_CLI" install -g --force "${'$'}natpkg" >/dev/null 2>&1
-        natdir="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/${'$'}natpkg"
-        globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
-        mkdir -p "${'$'}globalbin"
-        rm -f "${'$'}globalbin/$binaryName"
-        printf '#!/system/bin/sh\nexec "%s" -L "%s" "%s/$binaryName" "${'$'}@"\n' \
-          "${'$'}QEMU_BIN" "${'$'}QEMU_SYSROOT" "${'$'}natdir" > "${'$'}globalbin/$binaryName"
-        chmod 755 "${'$'}globalbin/$binaryName"
-        if ! "${'$'}globalbin/$binaryName" --version </dev/null >/dev/null 2>&1; then
-          rm -f "${'$'}globalbin/$binaryName"
+        if ! $binaryName --version </dev/null >/dev/null 2>&1; then
           echo "$binaryName's native binary failed to run under QEMU-user" \
                "(check QEMU_BIN/QEMU_SYSROOT setup - see NodeRuntime/NodeBootstrapper)." >&2
           echo "Use an SSH environment to run $binaryName on a real machine in the" \
@@ -186,12 +178,6 @@ object DefaultAgents {
           exit $?
         fi
         node "${'$'}NPM_CLI" install -g --ignore-scripts @openai/codex >/dev/null 2>&1
-        codexjs="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/@openai/codex/bin/codex.js"
-        globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
-        mkdir -p "${'$'}globalbin"
-        rm -f "${'$'}globalbin/codex"
-        printf '#!/system/bin/sh\nexec node "%s" "${'$'}@"\n' "${'$'}codexjs" > "${'$'}globalbin/codex"
-        chmod 755 "${'$'}globalbin/codex"
         arch="${'$'}(uname -m)"
         case "${'$'}arch" in
           aarch64) codexarch="arm64"; triple="aarch64-unknown-linux-musl" ;;
@@ -210,9 +196,7 @@ object DefaultAgents {
         for f in codex codex-code-mode-host; do
           if [ -f "${'$'}natdir/${'$'}f" ] && [ ! -f "${'$'}natdir/${'$'}f.real" ]; then
             mv "${'$'}natdir/${'$'}f" "${'$'}natdir/${'$'}f.real"
-            printf '#!/system/bin/sh\nexec "%s" -L "%s" "%s/'"${'$'}f"'.real" "${'$'}@"\n' \
-              "${'$'}QEMU_BIN" "${'$'}QEMU_SYSROOT" "${'$'}natdir" > "${'$'}natdir/${'$'}f"
-            chmod 755 "${'$'}natdir/${'$'}f"
+            ln -s "${'$'}AGENTICDROID_NATIVE_LIB_DIR/libagent_codex_native_wrapper.so" "${'$'}natdir/${'$'}f"
           fi
         done
         if ! codex --version </dev/null >/dev/null 2>&1; then
@@ -261,13 +245,11 @@ object DefaultAgents {
      * generically in NodeRuntime.configureEnvironment rather than just here, since any
      * future pure-JS agent could hit the same check.
      *
-     * Like Codex, npm's own bin-link (global/bin/gemini) is a symlink to a script starting
-     * with `#!/usr/bin/env node`, and Android has no /usr/bin/env - so this regenerates it
-     * as a plain #!/system/bin/sh wrapper that execs node directly, matching how
-     * NodeBootstrapper already handles npm/npx and how Codex's install command handles its
-     * own JS entry point.
+     * Like Codex, npm's own bin-link starts with `#!/usr/bin/env node`, and Android has no
+     * /usr/bin/env. NodeRuntime therefore shadows it with the APK-packaged Gemini wrapper,
+     * which invokes this package's JavaScript entry point through bundled Node.
      *
-     * That regeneration - and $NPM_CLI/$NPM_CONFIG_PREFIX, which only NodeRuntime's
+     * That packaged indirection - and $NPM_CLI/$NPM_CONFIG_PREFIX, which only NodeRuntime's
      * on-device env setup defines - is Android-only, so (matching Codex/Claude/Antigravity)
      * this is skipped entirely on a real machine (e.g. reached over an SSH environment):
      * plain `npm install -g` already produces a working `gemini` on PATH there, since
@@ -280,14 +262,7 @@ object DefaultAgents {
           exit $?
         fi
         node "${'$'}NPM_CLI" install -g --ignore-scripts @google/gemini-cli >/dev/null 2>&1
-        geminijs="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/@google/gemini-cli/bundle/gemini.js"
-        globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
-        mkdir -p "${'$'}globalbin"
-        rm -f "${'$'}globalbin/gemini"
-        printf '#!/system/bin/sh\nexec node "%s" "${'$'}@"\n' "${'$'}geminijs" > "${'$'}globalbin/gemini"
-        chmod 755 "${'$'}globalbin/gemini"
         if ! gemini --version </dev/null >/dev/null 2>&1; then
-          rm -f "${'$'}globalbin/gemini"
           echo "Gemini CLI failed to start after install." >&2
         fi
     """.trimIndent()
@@ -442,14 +417,7 @@ object DefaultAgents {
         fi
         mv "${'$'}vendordir/antigravity" "${'$'}vendordir/antigravity.real"
         chmod 755 "${'$'}vendordir/antigravity.real"
-        globalbin="${'$'}NPM_CONFIG_PREFIX/bin"
-        mkdir -p "${'$'}globalbin"
-        rm -f "${'$'}globalbin/agy"
-        printf '#!/system/bin/sh\nexec "%s" -L "%s" "%s/antigravity.real" "${'$'}@"\n' \
-          "${'$'}QEMU_BIN" "${'$'}GLIBC_SYSROOT" "${'$'}vendordir" > "${'$'}globalbin/agy"
-        chmod 755 "${'$'}globalbin/agy"
-        if ! "${'$'}globalbin/agy" --version </dev/null >/dev/null 2>&1; then
-          rm -f "${'$'}globalbin/agy"
+        if ! agy --version </dev/null >/dev/null 2>&1; then
           echo "Antigravity's native binary failed to run under QEMU-user" \
                "(check QEMU_BIN/GLIBC_SYSROOT setup - see NodeRuntime/NodeBootstrapper)." >&2
         fi
@@ -468,7 +436,7 @@ object DefaultAgents {
      * with pip. This install command assumes `pip` is available (see PYTHON runner group).
      */
     private fun aiderInstallCommand(): String = """
-        if ! command -v pip >/dev/null 2>&1 && ! command -v pip3 >/dev/null 2>&1; then
+        if ! python3 --version </dev/null >/dev/null 2>&1; then
           echo "Aider requires Python and pip. Please install the Python toolchain in Settings -> Environments." >&2
           exit 1
         fi
