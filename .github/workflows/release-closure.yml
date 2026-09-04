@@ -41,7 +41,7 @@ jobs:
         run: sdkmanager --install "platforms;android-37.0" "ndk;27.2.12479018" --channel=3
       - name: Cache native closure
         id: native-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: app/src/main/jniLibs/arm64-v8a
           key: native-libs-${{ hashFiles('app/build.gradle.kts', 'gradle/libs.versions.toml', 'tools/*.json', 'tools/openjdk_launcher/*.patch', 'tools/fetch_native_libs.py', 'tools/fetch_python_native_libs.py', 'tools/fetch_jvm_native_libs.py', 'tools/build_openjdk_launcher.py', 'tools/build_libtermux.py') }}
@@ -55,6 +55,6 @@ jobs:
           python3 tools/fetch_jvm_native_libs.py
           python3 tools/build_libtermux.py
       - name: Set up Gradle and validate the wrapper
-        uses: gradle/actions/setup-gradle@4733eaac7c1b0da527e4206b7671e0061de1ce37 # v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       - name: Assemble unsigned release artifact
         run: ./gradlew assembleRelease --stacktrace
