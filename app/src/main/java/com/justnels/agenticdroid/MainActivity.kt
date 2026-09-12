@@ -701,6 +701,9 @@ fun MainScreen(viewModel: MainViewModel) {
                             updatingAgentId = viewModel.updatingAgentId,
                             onCheckVersion = { agent -> viewModel.checkAgentVersion(agent) },
                             onUpdateAgent = { agent -> viewModel.updateAgent(agent) },
+                            compatResults = viewModel.compatResults,
+                            checkingCompatForAgentId = viewModel.checkingCompatForAgentId,
+                            onCheckCompat = { agent -> viewModel.checkAgentCompat(agent) },
                             hintsShown = viewModel.hintsShown,
                             onLaunchAgent = { agent ->
                                 // Guard against typing a launch script into an already-running

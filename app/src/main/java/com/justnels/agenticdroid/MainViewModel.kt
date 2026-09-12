@@ -262,22 +262,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var updatingAgentId by mutableStateOf<String?>(null)
         private set
 
+    val compatCheckStore = com.justnels.agenticdroid.agents.compat.CompatCheckStore(application)
+    var compatResults by mutableStateOf(
+        compatCheckStore.listAll().associateBy { it.agentId }
+    )
+        private set
+    var checkingCompatForAgentId by mutableStateOf<String?>(null)
+        private set
+
+    /** Runs the agent's `--version` self-test once, both to read/display its installed
+     * version and (via [com.justnels.agenticdroid.agents.compat.AgentCompatChecker]) to
+     * record a persisted compatibility result from that same invocation - see
+     * AgentCompatChecker's doc for why the two are the same underlying check. */
     fun checkAgentVersion(agent: com.justnels.agenticdroid.agents.AgentProfile) {
         val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
             .getOrNull() ?: return
         val path = executionWorkingDirectory
         checkingVersionForAgentId = agent.id
         viewModelScope.launch(Dispatchers.IO) {
-            val installed = runCatching {
-                env.exec(agent.installedVersionCommand(), path).capture(timeoutMillis = 20_000)
-            }.getOrNull()?.takeIf { it.exitCode == 0 }?.stdout?.trim()?.takeIf { it.isNotBlank() }
+            val outcome = com.justnels.agenticdroid.agents.compat.AgentCompatChecker.check(
+                agent, env, path, environmentLabel = activeEnvironmentLabel()
+            )
+            compatCheckStore.record(outcome.result)
             val latest = agent.latestVersionCommand()?.let { cmd ->
                 runCatching { env.exec(cmd, path).capture(timeoutMillis = 20_000) }
                     .getOrNull()?.takeIf { it.exitCode == 0 }?.stdout?.trim()?.takeIf { it.isNotBlank() }
             }
             withContext(Dispatchers.Main) {
-                agentVersions = agentVersions + (agent.id to com.justnels.agenticdroid.agents.AgentVersionInfo(installed, latest))
+                agentVersions = agentVersions + (agent.id to com.justnels.agenticdroid.agents.AgentVersionInfo(outcome.versionText, latest))
+                compatResults = compatResults + (agent.id to outcome.result)
                 checkingVersionForAgentId = null
+            }
+        }
+    }
+
+    /** Same underlying check as [checkAgentVersion], without the extra npm registry lookup
+     * - for a user who just wants to know "is this agent still working" without also
+     * checking for updates. */
+    fun checkAgentCompat(agent: com.justnels.agenticdroid.agents.AgentProfile) {
+        val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
+            .getOrNull() ?: return
+        val path = executionWorkingDirectory
+        checkingCompatForAgentId = agent.id
+        viewModelScope.launch(Dispatchers.IO) {
+            val outcome = com.justnels.agenticdroid.agents.compat.AgentCompatChecker.check(
+                agent, env, path, environmentLabel = activeEnvironmentLabel()
+            )
+            compatCheckStore.record(outcome.result)
+            withContext(Dispatchers.Main) {
+                compatResults = compatResults + (agent.id to outcome.result)
+                checkingCompatForAgentId = null
             }
         }
     }

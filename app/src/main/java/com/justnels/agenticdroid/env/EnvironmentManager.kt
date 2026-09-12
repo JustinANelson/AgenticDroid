@@ -4,12 +4,16 @@ import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.work.WorkManager
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.WorkInfo
 import androidx.work.Data
 import androidx.work.Constraints
 import androidx.work.NetworkType
+import com.justnels.agenticdroid.agents.compat.CompatCheckWorker
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import androidx.lifecycle.asFlow
 import kotlinx.coroutines.flow.Flow
 import androidx.compose.runtime.mutableStateListOf
@@ -150,6 +154,17 @@ class EnvironmentManager(private val context: Context) {
                 }
             }
         }
+
+        // Safe to call on every construction: KEEP leaves an already-scheduled periodic
+        // check alone, so this just ensures one exists rather than re-scheduling it. The
+        // worker itself no-ops until the Node environment is actually bootstrapped and
+        // active - see CompatCheckWorker.
+        val compatCheckRequest = PeriodicWorkRequestBuilder<CompatCheckWorker>(1, TimeUnit.DAYS)
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            CompatCheckWorker.WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, compatCheckRequest
+        )
     }
 
     fun activateEnvironment(config: EnvironmentConfig) {

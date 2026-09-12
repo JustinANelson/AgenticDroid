@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.justnels.agenticdroid.agents.AgentProfile
 import com.justnels.agenticdroid.agents.AgentVersionInfo
+import com.justnels.agenticdroid.agents.compat.CompatCheckResult
+import com.justnels.agenticdroid.agents.compat.CompatStatus
 import com.justnels.agenticdroid.ui.components.HintBox
 import java.util.UUID
 
@@ -34,6 +36,9 @@ fun AgentLauncherScreen(
     updatingAgentId: String? = null,
     onCheckVersion: (AgentProfile) -> Unit = {},
     onUpdateAgent: (AgentProfile) -> Unit = {},
+    compatResults: Map<String, CompatCheckResult> = emptyMap(),
+    checkingCompatForAgentId: String? = null,
+    onCheckCompat: (AgentProfile) -> Unit = {},
     hintsShown: Set<String>,
     onLaunchAgent: (AgentProfile) -> Unit,
     onStopAgent: () -> Unit,
@@ -116,10 +121,13 @@ fun AgentLauncherScreen(
                     versionInfo = agentVersions[agent.id],
                     isCheckingVersion = checkingVersionForAgentId == agent.id,
                     isUpdating = updatingAgentId == agent.id,
+                    compatResult = compatResults[agent.id],
+                    isCheckingCompat = checkingCompatForAgentId == agent.id,
                     onLaunch = { onLaunchAgent(agent) },
                     onRun = { promptDialogAgent = agent },
                     onCheckVersion = { onCheckVersion(agent) },
                     onUpdate = { onUpdateAgent(agent) },
+                    onCheckCompat = { onCheckCompat(agent) },
                     onDelete = { onDeleteAgent(agent.id) }
                 )
             }
@@ -278,10 +286,13 @@ fun AgentCard(
     versionInfo: AgentVersionInfo? = null,
     isCheckingVersion: Boolean = false,
     isUpdating: Boolean = false,
+    compatResult: CompatCheckResult? = null,
+    isCheckingCompat: Boolean = false,
     onLaunch: () -> Unit,
     onRun: () -> Unit = {},
     onCheckVersion: () -> Unit = {},
     onUpdate: () -> Unit = {},
+    onCheckCompat: () -> Unit = {},
     onDelete: () -> Unit = {}
 ) {
     Card(
@@ -336,6 +347,24 @@ fun AgentCard(
                             color = MaterialTheme.colorScheme.error
                         )
                     }
+                    if (compatResult != null) {
+                        val ago = android.text.format.DateUtils.getRelativeTimeSpanString(
+                            compatResult.checkedAt, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS
+                        )
+                        Text(
+                            text = if (compatResult.status == CompatStatus.OK) {
+                                "Compatible · checked $ago"
+                            } else {
+                                "⚠ Compatibility check failed · checked $ago"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (compatResult.status == CompatStatus.OK) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            }
+                        )
+                    }
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
@@ -365,6 +394,9 @@ fun AgentCard(
                 ) {
                     TextButton(onClick = onCheckVersion, enabled = !isCheckingVersion && !isUpdating) {
                         Text(if (isCheckingVersion) "Checking..." else "Check for Updates")
+                    }
+                    TextButton(onClick = onCheckCompat, enabled = !isCheckingCompat && !isUpdating) {
+                        Text(if (isCheckingCompat) "Checking..." else "Check compatibility")
                     }
                     if (versionInfo?.updateAvailable == true) {
                         TextButton(onClick = onUpdate, enabled = !isUpdating) {
