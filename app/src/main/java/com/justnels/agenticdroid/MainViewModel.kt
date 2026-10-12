@@ -223,11 +223,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val secrets = project?.let { projectSecretsStore.getSecrets(it) } ?: emptyMap()
         val workingDirectory = executionWorkingDirectory
         val environmentLabel = activeEnvironmentLabel()
+        val guidedAgent = project?.takeIf { !it.isRemote }?.let {
+            agent.withHeadlessGuidance(
+                com.justnels.agenticdroid.workspace.AgentGuidance.render(
+                    workspaceManager.getProjectType(it), workspaceManager.getProjectActions(it)
+                )
+            )
+        } ?: agent
         viewModelScope.launch(Dispatchers.IO) {
             provisionAndroidSdkIfNeeded(workingDirectory)
             withContext(Dispatchers.Main) {
                 headlessRunController.startRun(
-                    agent = agent,
+                    agent = guidedAgent,
                     prompt = prompt,
                     env = env,
                     workingDirectory = workingDirectory,

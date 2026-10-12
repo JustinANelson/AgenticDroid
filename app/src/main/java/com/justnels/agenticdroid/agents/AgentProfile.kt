@@ -35,8 +35,27 @@ data class AgentProfile(
     // non-zero exit aborts the run with [headlessAuthHelp] instead of failing mid-run with
     // an opaque provider error. Null for agents with no cheap offline credential check.
     val headlessAuthCheckCommand: String? = null,
-    val headlessAuthHelp: String? = null
+    val headlessAuthHelp: String? = null,
+    // Flag that appends text to the agent's system prompt (e.g. Claude's
+    // `--append-system-prompt`), used to hand it environment guidance without writing files
+    // into the project. Null when the agent has no such flag.
+    val headlessSystemPromptFlag: String? = null,
+    // True when the headless args make the CLI emit Claude-style stream-json on stdout,
+    // which [ClaudeStreamFormatter] renders into a readable log.
+    val headlessStreamJson: Boolean = false
 ) {
+    /** A copy whose unattended runs carry [guidance] in the system prompt, or this profile
+     * unchanged if it has no [headlessSystemPromptFlag]. */
+    fun withHeadlessGuidance(guidance: String): AgentProfile {
+        val flag = headlessSystemPromptFlag ?: return this
+        val extra = listOf(flag, guidance)
+        return copy(
+            headlessEditArgs = headlessEditArgs + extra,
+            headlessFullAccessArgs = if (headlessFullAccessArgs.isEmpty()) emptyList()
+                else headlessFullAccessArgs + extra
+        )
+    }
+
     /**
      * Starts an existing agent immediately, or installs it first when it is absent.
      * The profiles below are application-owned constants, so these shell fragments
@@ -266,8 +285,10 @@ object DefaultAgents {
         environmentVariables = mapOf("DISABLE_AUTOUPDATER" to "1"),
         npmPackageForVersionCheck = "@anthropic-ai/claude-code",
         headlessPromptArgs = listOf("-p"),
-        headlessEditArgs = listOf("--permission-mode", "acceptEdits"),
-        headlessFullAccessArgs = listOf("--permission-mode", "bypassPermissions"),
+        headlessEditArgs = listOf("--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits"),
+        headlessFullAccessArgs = listOf("--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"),
+        headlessStreamJson = true,
+        headlessSystemPromptFlag = "--append-system-prompt",
         headlessAuthCheckCommand =
             """[ -n "${'$'}ANTHROPIC_API_KEY" ] || [ -n "${'$'}CLAUDE_CODE_OAUTH_TOKEN" ] || [ -s "${'$'}HOME/.claude/.credentials.json" ]""",
         headlessAuthHelp = "Claude Code isn't signed in. Launch it once interactively and complete " +

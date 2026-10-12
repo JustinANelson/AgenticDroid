@@ -53,7 +53,9 @@ class WorkspaceManager(private val rootDir: File) {
         return try {
             template.scaffold(projectDir, name)
             // Save initial metadata with project type
-            saveProjectMetadata(Project(name, projectDir.absolutePath), ProjectMetadata(type = template.projectType))
+            val project = Project(name, projectDir.absolutePath)
+            saveProjectMetadata(project, ProjectMetadata(type = template.projectType))
+            AgentGuidance.seedFiles(projectDir, template.projectType, getProjectActions(project))
             true
         } catch (e: Exception) {
             projectDir.deleteRecursively()

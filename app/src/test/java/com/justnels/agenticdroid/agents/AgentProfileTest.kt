@@ -77,9 +77,9 @@ class AgentProfileTest {
     @Test
     fun claudeHeadlessRunsGrantEditsAndOptionallyShellWithPromptLast() {
         val edits = DefaultAgents.Claude.headlessArgv("fix it")!!
-        assertEquals(listOf("claude", "-p", "--permission-mode", "acceptEdits", "fix it"), edits)
+        assertEquals(listOf("claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "fix it"), edits)
         val full = DefaultAgents.Claude.headlessArgv("fix it", allowShell = true)!!
-        assertEquals(listOf("claude", "-p", "--permission-mode", "bypassPermissions", "fix it"), full)
+        assertEquals(listOf("claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "fix it"), full)
         assertEquals(listOf("codex", "exec", "fix it"), DefaultAgents.Codex.headlessArgv("fix it", true))
     }
 

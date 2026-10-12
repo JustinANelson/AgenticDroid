@@ -156,7 +156,8 @@ class HeadlessAgentRunService : Service() {
                     }
                 }
                 val result = DrainToLog.drain(
-                    session.inputStream, session.errorStream, session::waitFor, store.logFile(id), MAX_LOG_BYTES
+                    if (agent.headlessStreamJson) ClaudeStreamFormatter.wrap(session.inputStream) else session.inputStream,
+                    session.errorStream, session::waitFor, store.logFile(id), MAX_LOG_BYTES
                 )
                 watchdog.cancel()
                 exitCode = result.exitCode
