@@ -83,8 +83,8 @@
     {
       "bundled_filename": "libhistory.so",
       "termux_package": "readline",
-      "version": "8.3.3",
-      "source_deb_sha256": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1",
+      "version": "8.3.6",
+      "source_deb_sha256": "616cc73009bc0223f61caed8dd09455714455aa5ea5e180126e2f69c4c775136",
       "source_path": "data/data/com.termux/files/usr/lib/libhistory.so",
       "used_by": [
         "python"
@@ -1007,8 +1007,8 @@
     {
       "bundled_filename": "libreadline.so",
       "termux_package": "readline",
-      "version": "8.3.3",
-      "source_deb_sha256": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1",
+      "version": "8.3.6",
+      "source_deb_sha256": "616cc73009bc0223f61caed8dd09455714455aa5ea5e180126e2f69c4c775136",
       "source_path": "data/data/com.termux/files/usr/lib/libreadline.so",
       "used_by": [
         "python"

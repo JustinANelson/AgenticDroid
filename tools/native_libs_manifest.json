@@ -20,8 +20,8 @@
     {
       "bundled_filename": "libcurl_native_aarch64.so",
       "termux_package": "curl",
-      "version": "8.21.0",
-      "source_deb_sha256": "6274522e6f172678ffbb70aa9fc82bb547117f3ba56f337735a44d19aaee9f40",
+      "version": "8.22.0",
+      "source_deb_sha256": "19d2aedca5456cecfd3202d48dee7bd2f44584ffc036aa9fde4174c31d0b4af6",
       "source_path": "data/data/com.termux/files/usr/bin/curl",
       "used_by": ["curl"],
       "role": "main-binary"
@@ -70,8 +70,8 @@
     {
       "bundled_filename": "libsqlite3_native_aarch64.so",
       "termux_package": "sqlite",
-      "version": "3.53.4",
-      "source_deb_sha256": "155c3e1450512568c9f777843f33dc0c29525f7366aae9ad4dd119bca5872f5c",
+      "version": "3.54.0",
+      "source_deb_sha256": "aef8a4ea49e4758244011f12989bbe9b030482cfecb29102680d4739cb8e7623",
       "source_path": "data/data/com.termux/files/usr/bin/sqlite3",
       "used_by": ["sqlite3"],
       "role": "main-binary"
@@ -109,8 +109,8 @@
     {
       "bundled_filename": "libreadline.so",
       "termux_package": "readline",
-      "version": "8.3.3",
-      "source_deb_sha256": "e50fb67f40753247dbb83efb17c7fbee0ac868ffcb5b5555d44d76ec8d90b4b1",
+      "version": "8.3.6",
+      "source_deb_sha256": "616cc73009bc0223f61caed8dd09455714455aa5ea5e180126e2f69c4c775136",
       "used_by": ["sqlite3"]
     },
     {
@@ -798,8 +798,8 @@
     {
       "bundled_filename": "libc++_shared.so",
       "termux_package": "ndk-multilib",
-      "version": "29-1",
-      "source_deb_sha256": "67425d11353491fdf324f2ffc37e646c3a3113e18e2d54858a470c743699f720",
+      "version": "30",
+      "source_deb_sha256": "bf5ed9c7176786bf71d8c2a64e7395aaa54f7469229ace5de7bd14e8b68819c8",
       "used_by": [
         "qemu-user-aarch64",
         "nodejs",
@@ -818,8 +818,8 @@
     {
       "bundled_filename": "libcrypto.so",
       "termux_package": "openssl",
-      "version": "1:3.6.3",
-      "source_deb_sha256": "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa",
+      "version": "1:3.6.5",
+      "source_deb_sha256": "a2fb7856875e63ef6b90442752e05974813372c3ca86d2513a78ea43c67a0f8b",
       "used_by": [
         "qemu-user-aarch64",
         "nodejs",
@@ -829,8 +829,8 @@
     {
       "bundled_filename": "libcurl.so",
       "termux_package": "libcurl",
-      "version": "8.21.0",
-      "source_deb_sha256": "ad644c7e16183d40eaf0f55df339021a69b25cc9b390e9634251e681be1ddcb8",
+      "version": "8.22.0",
+      "source_deb_sha256": "e780d925d977c32a3cfe6a2c7d340f0726618786deee98b0cb8b601efb93a8c9",
       "used_by": [
         "git"
       ]
@@ -838,8 +838,8 @@
     {
       "bundled_filename": "libdw.so",
       "termux_package": "libdw",
-      "version": "0.193-1",
-      "source_deb_sha256": "9b24d896aba9aa306b19c2dff9697074194ab6abeb9821b7f59ff5fe7e466b68",
+      "version": "0.196",
+      "source_deb_sha256": "2486ab488174ac4a1520f9d5e3e7dbf41a9c54733489e10c2ca24e2de26508f8",
       "used_by": [
         "qemu-user-aarch64"
       ]
@@ -847,8 +847,8 @@
     {
       "bundled_filename": "libelf.so",
       "termux_package": "libelf",
-      "version": "0.193-1",
-      "source_deb_sha256": "98fba46ed571c59d38269e5e0c36a7555335ed3546dc9eb0ea5889763e66e621",
+      "version": "0.196",
+      "source_deb_sha256": "cbb0be8f278ae737fdb1e00ffee29444833fe90a051d485d262bcf5b4403a713",
       "used_by": [
         "qemu-user-aarch64"
       ]
@@ -874,8 +874,8 @@
     {
       "bundled_filename": "libexpat.so",
       "termux_package": "libexpat",
-      "version": "2.8.3",
-      "source_deb_sha256": "86dac6db293a44dc2689d4a28fdba96e38fccd378a9c9ef17b4e840b4cf4d81c",
+      "version": "2.9.0",
+      "source_deb_sha256": "f8a104e8227c9c181f6818658a3ee2fa4c107fac94219b068144fc6591086cdb",
       "used_by": [
         "aapt2"
       ]
@@ -883,8 +883,8 @@
     {
       "bundled_filename": "libffi.so",
       "termux_package": "libffi",
-      "version": "3.5.2",
-      "source_deb_sha256": "8c8c1d6ffb049d8496a21c1202d9b4dc9145140886fdbb45716684565f4ed3f5",
+      "version": "3.8.0",
+      "source_deb_sha256": "4f255badf74cd31f6a2801c17fa1444199c84c834b517b7c843e2fe9ebe91d77",
       "used_by": [
         "qemu-user-aarch64",
         "nodejs"
@@ -893,8 +893,8 @@
     {
       "bundled_filename": "libfmt.so",
       "termux_package": "fmt",
-      "version": "1:11.2.0",
-      "source_deb_sha256": "0377ac55cc99e409a5a2ba55a7cacf86fc1f79f330c2998801e293e95cac1996",
+      "version": "1:11.2.0-1",
+      "source_deb_sha256": "dad595afcb3b1096d725c6772c0c5531764caa5841affba3c533c6298a32ab08",
       "used_by": [
         "aapt2"
       ]
@@ -902,8 +902,8 @@
     {
       "bundled_filename": "libgit_native_aarch64.so",
       "termux_package": "git",
-      "version": "2.55.0",
-      "source_deb_sha256": "21b16fa06837e5bf94ad257da532c40eb049c120d21f6cb60a6411c0bcee7197",
+      "version": "2.56.0",
+      "source_deb_sha256": "dcdd22c5fdf7bdb5b825a03a17441d43858ed8515fea57fbb37eb42e733ca82f",
       "source_path": "data/data/com.termux/files/usr/bin/git",
       "used_by": [
         "git"
@@ -913,8 +913,8 @@
     {
       "bundled_filename": "libgit_remote_https_native_aarch64.so",
       "termux_package": "git",
-      "version": "2.55.0",
-      "source_deb_sha256": "21b16fa06837e5bf94ad257da532c40eb049c120d21f6cb60a6411c0bcee7197",
+      "version": "2.56.0",
+      "source_deb_sha256": "dcdd22c5fdf7bdb5b825a03a17441d43858ed8515fea57fbb37eb42e733ca82f",
       "source_path": "data/data/com.termux/files/usr/libexec/git-core/git-remote-https",
       "used_by": [
         "git"
@@ -924,8 +924,8 @@
     {
       "bundled_filename": "libglib-2.0.so",
       "termux_package": "glib",
-      "version": "2.88.3",
-      "source_deb_sha256": "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc",
+      "version": "2.90.1",
+      "source_deb_sha256": "132d8ce961d96a7252fd4bc2228bddd385b1b17b706a46caae6d541ae0e4b2c0",
       "used_by": [
         "qemu-user-aarch64"
       ]
@@ -933,8 +933,8 @@
     {
       "bundled_filename": "libgmodule-2.0.so",
       "termux_package": "glib",
-      "version": "2.88.3",
-      "source_deb_sha256": "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc",
+      "version": "2.90.1",
+      "source_deb_sha256": "132d8ce961d96a7252fd4bc2228bddd385b1b17b706a46caae6d541ae0e4b2c0",
       "used_by": [
         "qemu-user-aarch64"
       ]
@@ -960,8 +960,8 @@
     {
       "bundled_filename": "libgobject-2.0.so",
       "termux_package": "glib",
-      "version": "2.88.3",
-      "source_deb_sha256": "b1bfc40c4cfde83470de9efac1e546fdf643b77a966c20a8612bddc7c59cd3dc",
+      "version": "2.90.1",
+      "source_deb_sha256": "132d8ce961d96a7252fd4bc2228bddd385b1b17b706a46caae6d541ae0e4b2c0",
       "used_by": [
         "qemu-user-aarch64"
       ]
@@ -978,8 +978,8 @@
     {
       "bundled_filename": "libiconv.so",
       "termux_package": "libiconv",
-      "version": "1.18-1",
-      "source_deb_sha256": "b19e6f348034bb48d2a5590b5cb242769f682c476717374d134d004cc663dc84",
+      "version": "1.19",
+      "source_deb_sha256": "fe9481b1dc101c6c3552943f25435109fd522aecc615ae49594f9fbee863bb37",
       "used_by": [
         "qemu-user-aarch64",
         "git"
@@ -1033,8 +1033,8 @@
     {
       "bundled_filename": "liblzma.so",
       "termux_package": "liblzma",
-      "version": "5.8.3",
-      "source_deb_sha256": "594925a313879f590fbd24050305551a78eadd9a9319f6e612389b1a521113c6",
+      "version": "5.8.4",
+      "source_deb_sha256": "44e95e6e60dddb3705e60a344a4f009a1085a210797342b721eaff41b44033c0",
       "used_by": [
         "qemu-user-aarch64"
       ]
@@ -1107,8 +1107,8 @@
     {
       "bundled_filename": "libpcre2-8.so",
       "termux_package": "pcre2",
-      "version": "10.47",
-      "source_deb_sha256": "51f915d22de639bfca6ec029ae613987bbe3bc73626eede13319fd2e95f50b63",
+      "version": "10.49",
+      "source_deb_sha256": "c27995e5f52b8ecc9b8b3e662eb08e49f82a18bfd3f34343936acc7b23964724",
       "used_by": [
         "qemu-user-aarch64",
         "git"
@@ -1126,8 +1126,8 @@
     {
       "bundled_filename": "libpng16.so",
       "termux_package": "libpng",
-      "version": "1.6.58",
-      "source_deb_sha256": "e47937405c72734867513cf0c63d27f36400d462666b65dfada984667d7228c4",
+      "version": "1.6.59",
+      "source_deb_sha256": "32d61f0b1a60cf7283aa3a80e288737493df2c6b84c8c749606b77c94a10f2b2",
       "used_by": [
         "aapt2"
       ]
@@ -1144,8 +1144,8 @@
     {
       "bundled_filename": "libqemu_user_aarch64.so",
       "termux_package": "qemu-user-aarch64",
-      "version": "1:11.0.3",
-      "source_deb_sha256": "afc75a6e1ace9e9d989101b3b94d997560e27550b200b427f81e5e99117fd4ee",
+      "version": "1:11.1.2",
+      "source_deb_sha256": "f7e20278bf78953e0ce5d7c2ea7f18bcafffc6b670bc96fd04feb58a58b8543d",
       "source_path": "data/data/com.termux/files/usr/bin/qemu-aarch64",
       "used_by": [
         "qemu-user-aarch64"
@@ -1155,8 +1155,8 @@
     {
       "bundled_filename": "libsqlite3.so",
       "termux_package": "libsqlite",
-      "version": "3.53.4",
-      "source_deb_sha256": "0e909ce0d50fe123305446cd22e0c5edf535d40344b9b065fbdcdee52f53198d",
+      "version": "3.54.0",
+      "source_deb_sha256": "9adf91e118fcf4d449f0fb9668485d895916c4f76c2407da17ba114406f43a58",
       "used_by": [
         "nodejs"
       ]
@@ -1173,8 +1173,8 @@
     {
       "bundled_filename": "libssl.so",
       "termux_package": "openssl",
-      "version": "1:3.6.3",
-      "source_deb_sha256": "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa",
+      "version": "1:3.6.5",
+      "source_deb_sha256": "a2fb7856875e63ef6b90442752e05974813372c3ca86d2513a78ea43c67a0f8b",
       "used_by": [
         "qemu-user-aarch64",
         "nodejs"
@@ -1192,8 +1192,8 @@
     {
       "bundled_filename": "libunbound.so",
       "termux_package": "libunbound",
-      "version": "1.26.0",
-      "source_deb_sha256": "b7dc8206c8aa22463938b2691f15358b5a656f04100e24ad799b50df0a7a0a1a",
+      "version": "1.26.1",
+      "source_deb_sha256": "cbf8d03d16e2cb3f8f640b39f1d0c06dbb6bbb26fdefeeaed97187256bae59d7",
       "used_by": [
         "qemu-user-aarch64"
       ]
