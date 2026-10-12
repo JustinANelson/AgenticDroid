@@ -20,3 +20,4 @@ gradlew text eol=lf
 *.jar binary
 *.so binary
 *.webp binary
+*.patch text eol=lf
