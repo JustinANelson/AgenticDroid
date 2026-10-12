@@ -79,6 +79,28 @@ updates require intentional discovery, source and license review, digest verific
 pull-request inventory. A current Termux index changing is not permission to silently replace a
 pin. See [DISTRIBUTION.md](DISTRIBUTION.md).
 
+### Package mirror
+
+Termux's index serves only the *current* build of each package, so a pinned digest stops being
+fetchable whenever Termux republishes it. The maintainer keeps a private, content-addressed mirror
+of the exact pinned `.deb` files (`<package>-<sha256>.deb`) in the private
+`AgenticDroid-native-mirror` repository. The fetch scripts use it when `NATIVE_MIRROR_URL` is set
+(and `NATIVE_MIRROR_TOKEN`, a fine-grained token with read-only *Contents* access to that
+repository only), fall back to Termux for anything not mirrored, and verify every file against the
+manifest SHA-256 either way. CI reads the token from the `NATIVE_MIRROR_TOKEN` secret and still
+works without it.
+
+After intentionally refreshing pins, mirror them while Termux still serves those files:
+
+```sh
+python3 tools/mirror_native_closure.py stage --out build/native-mirror
+# copy only the new files into the private mirror repository and push; never replace existing ones
+NATIVE_MIRROR_URL=... NATIVE_MIRROR_TOKEN=... python3 tools/mirror_native_closure.py check
+```
+
+Do not make the mirror public: it contains copyleft binaries and public redistribution is blocked
+until the steps in [DISTRIBUTION.md](DISTRIBUTION.md) are complete.
+
 ## Development version and APK policy
 
 AgenticDroid uses `versionName` and `versionCode` in `app/build.gradle.kts` as the release source

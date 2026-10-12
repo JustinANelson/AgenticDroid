@@ -124,7 +124,7 @@ def discover() -> None:
 
 def reproduce() -> None:
     manifest = json.load(open(MANIFEST_PATH, encoding="utf-8"))
-    index = common.load_packages_index()
+    index = common.load_packages_index(optional=bool(common.MIRROR_URL))
     os.makedirs(common.OUTPUT_DIR, exist_ok=True)
     for entry in manifest["libraries"]:
         print(f"Fetching {entry['bundled_filename']}...")

@@ -33,6 +33,14 @@ import tarfile
 import urllib.request
 
 BASE_URL = "https://packages-cf.termux.dev/apt/termux-main"
+# Optional content-addressed mirror of the pinned .deb files (see
+# tools/mirror_native_closure.py and docs/DEVELOPMENT.md). Termux's index only serves the
+# *current* build of each package, so pins go stale whenever it republishes; a mirror keeps
+# the exact pinned bytes fetchable. Every mirrored file is still verified against the
+# manifest's SHA-256, so the mirror is never trusted - only used as a faster/more durable
+# source. Termux remains the fallback when a file is not mirrored.
+MIRROR_URL = os.environ.get("NATIVE_MIRROR_URL", "").rstrip("/")
+MIRROR_TOKEN = os.environ.get("NATIVE_MIRROR_TOKEN", "")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MANIFEST_PATH = os.path.join(SCRIPT_DIR, "native_libs_manifest.json")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "app", "src", "main", "jniLibs", "arm64-v8a")
@@ -88,13 +96,48 @@ exec "$QEMU_BIN" -L "$GLIBC_SYSROOT" "$NPM_CONFIG_PREFIX/vendor/antigravity/anti
 }
 
 
-def load_packages_index() -> dict:
+def mirror_filename(pkg_name: str, sha256: str) -> str:
+    return f"{pkg_name}-{sha256}.deb"
+
+
+def fetch_from_mirror(pkg_name: str, expected_sha256: str) -> bytes | None:
+    """The pinned .deb from [MIRROR_URL], or None if no mirror is configured or it does not
+    hold this file. A file that *is* served but fails verification is a hard error."""
+    if not MIRROR_URL:
+        return None
+    url = f"{MIRROR_URL}/{mirror_filename(pkg_name, expected_sha256)}"
+    headers = {"User-Agent": "curl/8.0"}
+    if MIRROR_TOKEN:
+        headers["Authorization"] = f"Bearer {MIRROR_TOKEN}"
+    try:
+        data = urllib.request.urlopen(urllib.request.Request(url, headers=headers)).read()
+    except OSError as e:  # URLError/HTTPError (incl. 404) and file:// misses
+        print(f"   mirror miss for {pkg_name}: {e}", file=sys.stderr)
+        return None
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != expected_sha256:
+        raise RuntimeError(
+            f"SHA-256 mismatch for mirrored {pkg_name}: expected {expected_sha256}, got {actual}. "
+            "Refusing to use this download - do not silently accept a changed artifact."
+        )
+    return data
+
+
+def load_packages_index(optional: bool = False) -> dict:
     """Fetches Termux's aarch64 Packages index fresh, so package Filename/SHA256
-    fields are current even if a package has since been superseded on the CDN."""
+    fields are current even if a package has since been superseded on the CDN.
+    With [optional] (used when a mirror is configured) an unreachable index yields an
+    empty dict instead of failing, so mirrored builds do not need Termux at all."""
     url = f"{BASE_URL}/dists/stable/main/binary-aarch64/Packages.gz"
     req = urllib.request.Request(url, headers={"User-Agent": "curl/8.0"})
     import gzip
-    raw = gzip.decompress(urllib.request.urlopen(req).read()).decode("utf-8", "replace")
+    try:
+        raw = gzip.decompress(urllib.request.urlopen(req).read()).decode("utf-8", "replace")
+    except OSError as e:
+        if not optional:
+            raise
+        print(f"!! Termux index unavailable ({e}); relying on the mirror.", file=sys.stderr)
+        return {}
     pkgs: dict[str, dict[str, str]] = {}
     cur: dict[str, str] = {}
     for line in raw.splitlines():
@@ -132,9 +175,14 @@ def canonicalize(name: str) -> str:
 
 
 def download_and_verify(pkgs: dict, pkg_name: str, expected_sha256: str, expected_version: str) -> bytes:
+    mirrored = fetch_from_mirror(pkg_name, expected_sha256)
+    if mirrored is not None:
+        return mirrored
     meta = pkgs.get(pkg_name)
     if meta is None:
-        raise RuntimeError(f"package {pkg_name!r} not found in current Termux index")
+        raise RuntimeError(
+            f"package {pkg_name!r} is not in the mirror and not in the current Termux index"
+        )
     if meta["Version"] != expected_version:
         print(
             f"!! WARNING: {pkg_name} is now at version {meta['Version']}, manifest pins "
@@ -262,7 +310,7 @@ def main() -> None:
         manifest = json.load(f)
 
     print("Fetching current Termux aarch64 package index...")
-    pkgs = load_packages_index()
+    pkgs = load_packages_index(optional=bool(MIRROR_URL))
     package_cache: dict[tuple[str, str, str], bytes] = {}
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)

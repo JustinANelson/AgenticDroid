@@ -41,6 +41,10 @@ jobs:
       - name: Reconstruct native runtime closure
         if: steps.native-cache.outputs.cache-hit != 'true'
         env:
+          # Private mirror of the pinned packages (optional; falls back to Termux when the
+          # secret is unset). Every file is still verified against the manifest SHA-256.
+          NATIVE_MIRROR_URL: https://raw.githubusercontent.com/JustinANelson/AgenticDroid-native-mirror/main
+          NATIVE_MIRROR_TOKEN: ${{ secrets.NATIVE_MIRROR_TOKEN }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
         run: |
           python3 tools/fetch_native_libs.py

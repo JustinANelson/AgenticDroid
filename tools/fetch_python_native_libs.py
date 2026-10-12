@@ -218,7 +218,7 @@ def reproduce() -> None:
     if not os.path.isfile(MANIFEST_PATH):
         raise RuntimeError("manifest missing; run once with --discover")
     manifest = json.load(open(MANIFEST_PATH, encoding="utf-8"))
-    index = common.load_packages_index()
+    index = common.load_packages_index(optional=bool(common.MIRROR_URL))
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     for entry in manifest["libraries"]:
         print(f"Fetching {entry['bundled_filename']}...")
