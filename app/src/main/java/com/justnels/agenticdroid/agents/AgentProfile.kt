@@ -22,7 +22,20 @@ data class AgentProfile(
     // non-interactive "run this prompt and exit" mode (e.g. listOf("-p") for Claude,
     // listOf("exec") for Codex) - null for agents with no such mode (Aider, Antigravity),
     // which [HeadlessAgentRunService] uses to decide whether "Run" is offered at all.
-    val headlessPromptArgs: List<String>? = null
+    val headlessPromptArgs: List<String>? = null,
+    // Extra flags appended for every unattended run. A headless CLI has nobody to answer
+    // permission prompts, so without these it silently denies every edit (e.g. `claude -p`
+    // defaults to read-only) and the run can't accomplish anything.
+    val headlessEditArgs: List<String> = emptyList(),
+    // Flags that additionally let an unattended run execute shell commands (builds, tests,
+    // package installs) - only added when the user opts in for that run, since it hands the
+    // agent unreviewed command execution. Falls back to [headlessEditArgs] when empty.
+    val headlessFullAccessArgs: List<String> = emptyList(),
+    // Shell snippet run (same environment, secrets included) before a headless run; a
+    // non-zero exit aborts the run with [headlessAuthHelp] instead of failing mid-run with
+    // an opaque provider error. Null for agents with no cheap offline credential check.
+    val headlessAuthCheckCommand: String? = null,
+    val headlessAuthHelp: String? = null
 ) {
     /**
      * Starts an existing agent immediately, or installs it first when it is absent.
@@ -40,9 +53,13 @@ data class AgentProfile(
     fun launchCommand(): String {
         val invocation = (listOf(command) + defaultArgs).joinToString(" ")
         val startAgent = prepareCommand?.let { "$it && exec $invocation" } ?: "exec $invocation"
+        val exports = environmentVariables.entries.joinToString("") { (k, v) ->
+            "export $k=${com.justnels.agenticdroid.env.ShellEscaping.quote(v)}; "
+        }
+        // Exported inside the subshell so they don't leak into the persistent outer session.
         return """
         (
-        if command -v $command >/dev/null 2>&1 && $command --version </dev/null >/dev/null 2>&1; then
+        ${exports}if command -v $command >/dev/null 2>&1 && $command --version </dev/null >/dev/null 2>&1; then
           $startAgent
         else
           echo "Installing or repairing $name..."
@@ -66,8 +83,16 @@ data class AgentProfile(
      * `--no-alt-screen`) tune the interactive TUI this mode never opens. Passed directly
      * to [com.justnels.agenticdroid.env.ExecutionEnvironment.exec]'s argv overload, which
      * shell-quotes each element itself. */
-    fun headlessArgv(prompt: String): List<String>? =
-        headlessPromptArgs?.let { listOf(command) + it + listOf(prompt) }
+    fun headlessArgv(prompt: String, allowShell: Boolean = false): List<String>? =
+        headlessPromptArgs?.let {
+            val permissionArgs = if (allowShell && headlessFullAccessArgs.isNotEmpty()) {
+                headlessFullAccessArgs
+            } else {
+                headlessEditArgs
+            }
+            // Permission flags go before the prompt so a variadic flag can never swallow it.
+            listOf(command) + it + permissionArgs + listOf(prompt)
+        }
 
     /** stdin is redirected from /dev/null since a bare `--version` on some of these
      * (confirmed: agy) blocks forever reading from a live PTY instead of exiting - see
@@ -128,19 +153,30 @@ object DefaultAgents {
           npm install -g $npmPackage
           exit $?
         fi
-        node "${'$'}NPM_CLI" install -g --ignore-scripts $npmPackage >/dev/null 2>&1
+        npmlog="${'$'}TMPDIR/agent-install-$binaryName.log"
+        npmrun() {
+          if ! node "${'$'}NPM_CLI" "${'$'}@" >"${'$'}npmlog" 2>&1; then
+            echo "npm ${'$'}* failed:" >&2
+            tail -n 15 "${'$'}npmlog" >&2
+            return 1
+          fi
+        }
+        npmrun install -g --ignore-scripts $npmPackage || exit 1
         arch="${'$'}(uname -m)"
         case "${'$'}arch" in
           aarch64) natpkg="$npmPackage-linux-arm64-musl" ;;
           x86_64) natpkg="$npmPackage-linux-x64-musl" ;;
           *) echo "Unsupported architecture: ${'$'}arch" >&2; exit 1 ;;
         esac
-        node "${'$'}NPM_CLI" install -g --force "${'$'}natpkg" >/dev/null 2>&1
+        shimjson="${'$'}NPM_CONFIG_PREFIX/lib/node_modules/$npmPackage/package.json"
+        shimver="${'$'}(node -e 'process.stdout.write(require(process.argv[1]).version || "")' "${'$'}shimjson" 2>/dev/null)"
+        # Pin the native binary to the exact shim version: an unpinned install can resolve a
+        # newer native build than the JS shim expects.
+        npmrun install -g --force "${'$'}natpkg${'$'}{shimver:+@${'$'}shimver}" || exit 1
         if ! $binaryName --version </dev/null >/dev/null 2>&1; then
-          echo "$binaryName's native binary failed to run under QEMU-user" \
-               "(check QEMU_BIN/QEMU_SYSROOT setup - see NodeRuntime/NodeBootstrapper)." >&2
-          echo "Use an SSH environment to run $binaryName on a real machine in the" \
-               "meantime." >&2
+          echo "$binaryName's native binary failed to run under QEMU-user"                "(check QEMU_BIN/QEMU_SYSROOT setup - see NodeRuntime/NodeBootstrapper)." >&2
+          echo "Use an SSH environment to run $binaryName on a real machine in the"                "meantime." >&2
+          exit 1
         fi
     """.trimIndent()
 
@@ -225,8 +261,18 @@ object DefaultAgents {
         command = "claude",
         installCommand = npmMuslAgentInstallCommand("@anthropic-ai/claude-code", "claude"),
         defaultArgs = listOf("--ax-screen-reader"),
+        // The native binary is wrapped for QEMU; Claude's built-in updater would try to
+        // overwrite it in place. Updates go through the app's own updateCommand instead.
+        environmentVariables = mapOf("DISABLE_AUTOUPDATER" to "1"),
         npmPackageForVersionCheck = "@anthropic-ai/claude-code",
-        headlessPromptArgs = listOf("-p")
+        headlessPromptArgs = listOf("-p"),
+        headlessEditArgs = listOf("--permission-mode", "acceptEdits"),
+        headlessFullAccessArgs = listOf("--permission-mode", "bypassPermissions"),
+        headlessAuthCheckCommand =
+            """[ -n "${'$'}ANTHROPIC_API_KEY" ] || [ -n "${'$'}CLAUDE_CODE_OAUTH_TOKEN" ] || [ -s "${'$'}HOME/.claude/.credentials.json" ]""",
+        headlessAuthHelp = "Claude Code isn't signed in. Launch it once interactively and complete " +
+            "login, or add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`) " +
+            "to this project's secrets."
     )
 
     /**

@@ -2,10 +2,13 @@ package com.justnels.agenticdroid.agents
 
 import org.json.JSONObject
 
-/** Lifecycle state of a [HeadlessAgentRun]. RUNNING is the only state a live process is
- * still attached to; the rest are terminal and only differ in how the run ended. */
+/** Lifecycle state of a [HeadlessAgentRun]. [isActive] distinguishes states that can still
+ * have an owning process from terminal outcomes retained in history. */
 enum class HeadlessRunStatus {
-    RUNNING, SUCCEEDED, FAILED, KILLED, TIMED_OUT
+    STARTING, RUNNING, WAITING_FOR_USER, SUCCEEDED, FAILED, KILLED, TIMED_OUT, INTERRUPTED;
+
+    val isActive: Boolean
+        get() = this == STARTING || this == RUNNING || this == WAITING_FOR_USER
 }
 
 /**

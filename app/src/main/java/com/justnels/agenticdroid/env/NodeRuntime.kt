@@ -530,6 +530,13 @@ object NodeRuntime {
         environment["ANDROID_USER_HOME"] = androidUserHome.absolutePath
         environment["ANDROID_SDK_HOME"] = userHome.absolutePath
         environment["GRADLE_USER_HOME"] = gradleUserHome.absolutePath
+        // Harmless for non-Android projects; lets AGP (and any agent-spawned Gradle build)
+        // find the on-device SDK without a per-project local.properties.
+        val sdkRoot = AndroidSdkBootstrapper.sdkRootDir(context).also { it.mkdirs() }
+        AndroidSdkBootstrapper.ensureLicenseAccepted(context)
+        environment["ANDROID_HOME"] = sdkRoot.absolutePath
+        environment["ANDROID_SDK_ROOT"] = sdkRoot.absolutePath
+        runCatching { ensureGradleUserHomeProperties(context) }
 
         // Node reports process.platform === "android" for any Bionic build, including this
         // bundled one - and some npm packages (confirmed: clipboardy, formerly a dependency

@@ -7,7 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
@@ -40,9 +40,22 @@ fun AgentRunsScreen(
     onRefresh: () -> Unit,
     readLog: (String) -> String,
     onBack: () -> Unit,
+    initialSelectedId: String? = null,
+    navigationRequestKey: Int = 0,
+    onInitialSelectionConsumed: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var selectedId by remember { mutableStateOf<String?>(null) }
+    var selectedId by remember { mutableStateOf(initialSelectedId) }
+
+    LaunchedEffect(navigationRequestKey) {
+        if (navigationRequestKey > 0) {
+            // A null ID deliberately means "show the run list"; it must clear an old
+            // detail selection when a summary notification is tapped while the activity
+            // is already open.
+            selectedId = initialSelectedId
+            onInitialSelectionConsumed()
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -66,7 +79,7 @@ fun AgentRunsScreen(
     Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Text(text = "Agent Runs", style = MaterialTheme.typography.headlineMedium)
         }
@@ -171,7 +184,7 @@ private fun AgentRunDetailView(
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(run.agentName, style = MaterialTheme.typography.titleLarge)
@@ -238,10 +251,13 @@ private fun AgentRunDetailView(
 private fun StatusBadge(status: HeadlessRunStatus) {
     val (label, color) = when (status) {
         HeadlessRunStatus.RUNNING -> "Running" to MaterialTheme.colorScheme.primary
+        HeadlessRunStatus.STARTING -> "Starting" to MaterialTheme.colorScheme.primary
+        HeadlessRunStatus.WAITING_FOR_USER -> "Needs input" to MaterialTheme.colorScheme.secondary
         HeadlessRunStatus.SUCCEEDED -> "Succeeded" to MaterialTheme.colorScheme.tertiary
         HeadlessRunStatus.FAILED -> "Failed" to MaterialTheme.colorScheme.error
         HeadlessRunStatus.KILLED -> "Stopped" to MaterialTheme.colorScheme.onSurfaceVariant
         HeadlessRunStatus.TIMED_OUT -> "Timed out" to MaterialTheme.colorScheme.error
+        HeadlessRunStatus.INTERRUPTED -> "Interrupted" to MaterialTheme.colorScheme.error
     }
     Text(text = label, style = MaterialTheme.typography.labelMedium, color = color)
 }

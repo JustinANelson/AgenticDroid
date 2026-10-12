@@ -50,7 +50,8 @@ fun TerminalScreen(
     viewModel: TerminalViewModel,
     hintsShown: Set<String> = emptySet(),
     onDismissHint: (String) -> Unit = {},
-    keepScreenOn: Boolean = true
+    keepScreenOn: Boolean = true,
+    onTerminalReady: () -> Unit = {}
 ) {
     val session = viewModel.session
     val textSizePx = with(LocalDensity.current) { 14.sp.toPx().toInt() }
@@ -106,12 +107,14 @@ fun TerminalScreen(
                         // on its own, so we have to explicitly forward the redraw.
                         viewModel.onScreenUpdate = { onScreenUpdated() }
                         attachSession(session)
+                        onTerminalReady()
                     }
                 },
                 update = { view ->
                     view.keepScreenOn = keepScreenOn
                     viewModel.onScreenUpdate = { view.onScreenUpdated() }
                     view.attachSession(session)
+                    onTerminalReady()
                 }
             )
         }

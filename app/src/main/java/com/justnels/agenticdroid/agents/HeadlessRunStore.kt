@@ -36,6 +36,24 @@ class HeadlessRunStore(baseDir: File) {
         writeIndex(existing + run)
     }
 
+    /** Marks records whose owning process disappeared as interrupted. A foreground service
+     * cannot keep its child process alive after Android kills the app process, so leaving
+     * these records as RUNNING would promise a process that no longer exists. */
+    fun reconcileInterrupted(now: Long = System.currentTimeMillis()): Int = synchronized(lock) {
+        val existing = listAllUnsorted()
+        var changed = 0
+        val reconciled = existing.map { run ->
+            if (run.status.isActive) {
+                changed++
+                run.copy(status = HeadlessRunStatus.INTERRUPTED, finishedAt = now)
+            } else {
+                run
+            }
+        }
+        if (changed > 0) writeIndex(reconciled)
+        changed
+    }
+
     fun delete(id: String) = synchronized(lock) {
         writeIndex(listAllUnsorted().filterNot { it.id == id })
         logFile(id).delete()

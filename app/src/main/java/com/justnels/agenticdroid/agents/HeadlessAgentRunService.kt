@@ -14,9 +14,11 @@ import com.justnels.agenticdroid.MainActivity
 import com.justnels.agenticdroid.R
 import com.justnels.agenticdroid.env.ExecutionEnvironment
 import com.justnels.agenticdroid.env.ProcessSession
+import com.justnels.agenticdroid.env.capture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -52,9 +54,11 @@ class HeadlessAgentRunService : Service() {
             workingDirectory: String,
             projectPath: String,
             environmentLabel: String,
-            environmentVariables: Map<String, String> = emptyMap()
+            environmentVariables: Map<String, String> = emptyMap(),
+            allowShell: Boolean = false
         ): String? = this@HeadlessAgentRunService.startRun(
-            agent, prompt, env, workingDirectory, projectPath, environmentLabel, environmentVariables
+            agent, prompt, env, workingDirectory, projectPath, environmentLabel, environmentVariables,
+            allowShell
         )
 
         fun killRun(id: String) = this@HeadlessAgentRunService.killRun(id)
@@ -70,12 +74,18 @@ class HeadlessAgentRunService : Service() {
     override fun onCreate() {
         super.onCreate()
         store = HeadlessRunStore(this)
+        store.reconcileInterrupted()
         createNotificationChannels()
     }
 
     override fun onBind(intent: Intent): IBinder = binder
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_KILL_RUN) {
+            intent.getStringExtra(EXTRA_RUN_ID)?.let(::killRun)
+        }
+        return START_NOT_STICKY
+    }
 
     /** Returns the new run's ID, or null if this [agent] has no headless invocation. */
     private fun startRun(
@@ -85,9 +95,10 @@ class HeadlessAgentRunService : Service() {
         workingDirectory: String,
         projectPath: String,
         environmentLabel: String,
-        environmentVariables: Map<String, String>
+        environmentVariables: Map<String, String>,
+        allowShell: Boolean
     ): String? {
-        val argv = agent.headlessArgv(prompt) ?: return null
+        val argv = agent.headlessArgv(prompt, allowShell) ?: return null
         val id = UUID.randomUUID().toString()
         val run = HeadlessAgentRun(
             id = id,
@@ -97,7 +108,8 @@ class HeadlessAgentRunService : Service() {
             projectPath = projectPath,
             workingDirectory = workingDirectory,
             environmentLabel = environmentLabel,
-            startedAt = System.currentTimeMillis()
+            startedAt = System.currentTimeMillis(),
+            status = HeadlessRunStatus.STARTING
         )
         store.save(run)
         val killedFlag = AtomicBoolean(false)
@@ -108,13 +120,29 @@ class HeadlessAgentRunService : Service() {
         // for a run that's actually starting - it would otherwise immediately
         // stopForeground+stopSelf the service, undoing the promotion this whole feature
         // depends on to survive the app being backgrounded.
-        val job = serviceScope.launch {
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             var timedOut = false
             var exitCode: Int? = null
             var truncated = false
             try {
-                val session = env.exec(argv, workingDirectory, agent.environmentVariables + environmentVariables)
+                val runEnvironment = agent.environmentVariables + environmentVariables
+                val authCheck = agent.headlessAuthCheckCommand
+                if (authCheck != null) {
+                    // Fail fast with an actionable message instead of a mid-run provider
+                    // error (or, worse, an unattended run that hangs on a login prompt).
+                    val check = runCatching {
+                        env.exec(authCheck, workingDirectory, runEnvironment).capture(30_000)
+                    }.getOrNull()
+                    if (check != null && check.exitCode != 0) {
+                        store.logFile(id).appendText(
+                            "[${agent.headlessAuthHelp ?: "${agent.name} credentials not found."}]\n"
+                        )
+                        return@launch
+                    }
+                }
+                val session = env.exec(argv, workingDirectory, runEnvironment)
                 activeSessions[id] = session
+                store.save(run.copy(status = HeadlessRunStatus.RUNNING))
                 // Never written to - closed immediately so a CLI that checks/reads stdin
                 // (confirmed elsewhere in this app: `agy --version` hangs on an unclosed,
                 // never-fed stdin) doesn't block forever waiting for input that will never
@@ -159,6 +187,7 @@ class HeadlessAgentRunService : Service() {
         activeJobs[id] = job
         startForeground(SUMMARY_NOTIFICATION_ID, buildSummaryNotification())
         updateSummaryNotification()
+        job.start()
         return id
     }
 
@@ -183,18 +212,31 @@ class HeadlessAgentRunService : Service() {
 
     private fun buildSummaryNotification(): Notification {
         val count = activeJobs.size
+        val soleRunId = activeJobs.keys.singleOrNull()
+        val soleRun = soleRunId?.let { id -> store.listAll().firstOrNull { it.id == id } }
         val contentIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
+            this, OPEN_RUNS_REQUEST_CODE, openRunsIntent(soleRunId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val text = if (count <= 1) "1 agent run in progress" else "$count agent runs in progress"
-        return NotificationCompat.Builder(this, SUMMARY_CHANNEL_ID)
-            .setContentTitle("AgenticDroid")
+        val builder = NotificationCompat.Builder(this, SUMMARY_CHANNEL_ID)
+            .setContentTitle(soleRun?.let { "${it.agentName} is running" } ?: "AgenticDroid")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_terminal_notification)
             .setContentIntent(contentIntent)
             .setOngoing(true)
-            .build()
+        if (soleRunId != null) {
+            val stopIntent = PendingIntent.getService(
+                this,
+                soleRunId.hashCode(),
+                Intent(this, HeadlessAgentRunService::class.java)
+                    .setAction(ACTION_KILL_RUN)
+                    .putExtra(EXTRA_RUN_ID, soleRunId),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(R.drawable.ic_terminal_notification, "Stop", stopIntent)
+        }
+        return builder.build()
     }
 
     private fun updateSummaryNotification() {
@@ -216,7 +258,7 @@ class HeadlessAgentRunService : Service() {
             else -> "${run.agentName} run failed"
         }
         val contentIntent = PendingIntent.getActivity(
-            this, run.id.hashCode(), Intent(this, MainActivity::class.java),
+            this, run.id.hashCode(), openRunsIntent(run.id),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL_ID)
@@ -224,6 +266,7 @@ class HeadlessAgentRunService : Service() {
             .setContentText(run.prompt.take(120))
             .setSmallIcon(R.drawable.ic_terminal_notification)
             .setContentIntent(contentIntent)
+            .addAction(R.drawable.ic_terminal_notification, "View run", contentIntent)
             .setAutoCancel(true)
             .build()
         runCatching { manager.notify(run.id.hashCode(), notification) }
@@ -236,10 +279,20 @@ class HeadlessAgentRunService : Service() {
     }
 
     companion object {
+        const val EXTRA_RUN_ID = "com.justnels.agenticdroid.extra.AGENT_RUN_ID"
+        private const val ACTION_KILL_RUN = "com.justnels.agenticdroid.action.KILL_AGENT_RUN"
         private const val SUMMARY_NOTIFICATION_ID = 2001
         private const val SUMMARY_CHANNEL_ID = "headless_agent_run"
         private const val RESULT_CHANNEL_ID = "headless_agent_run_result"
+        private const val OPEN_RUNS_REQUEST_CODE = 2100
         private const val MAX_LOG_BYTES = 4L * 1024 * 1024
         private const val MAX_RUN_DURATION_MILLIS = 6L * 60 * 60 * 1000
     }
+
+    private fun openRunsIntent(runId: String? = null): Intent =
+        Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_OPEN_AGENT_RUNS, true)
+            runId?.let { putExtra(EXTRA_RUN_ID, it) }
+        }
 }

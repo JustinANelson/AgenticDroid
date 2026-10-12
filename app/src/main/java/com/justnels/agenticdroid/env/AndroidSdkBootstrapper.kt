@@ -48,6 +48,39 @@ object AndroidSdkBootstrapper {
     private fun androidJar(context: Context, platformHash: String): File =
         File(platformDir(context, platformHash), "android.jar")
 
+    /**
+     * Platform hashes (e.g. "android-37") that the Gradle build files directly under
+     * [projectDir] (root, or one module level down) compile against. Empty for any
+     * non-Android project, so callers can invoke this unconditionally. Looks ahead so the
+     * SDK is provisioned *before* a build or an unattended agent run, rather than relying
+     * on parsing a failed build's output.
+     */
+    fun requiredPlatformHashes(projectDir: File): Set<String> {
+        val buildFiles = buildList {
+            for (name in listOf("build.gradle.kts", "build.gradle")) add(File(projectDir, name))
+            projectDir.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }?.forEach { module ->
+                for (name in listOf("build.gradle.kts", "build.gradle")) add(File(module, name))
+            }
+        }
+        return buildFiles.filter(File::isFile)
+            .flatMap { parseCompileSdkHashes(runCatching { it.readText() }.getOrDefault("")) }
+            .toSet()
+    }
+
+    internal fun parseCompileSdkHashes(buildScript: String): List<String> {
+        val levels = Regex("""compileSdk(?:Version)?\s*(?:=\s*)?(?:\(\s*)?(\d+)""")
+            .findAll(buildScript).map { it.groupValues[1] }.toList() +
+            Regex("""compileSdk\s*\{[^}]*?release\(\s*(\d+)""")
+                .findAll(buildScript).map { it.groupValues[1] }.toList()
+        return levels.distinct().map { "android-$it" }
+    }
+
+    /** Provisions any missing platform [requiredPlatformHashes] reports for [projectDir]. */
+    suspend fun ensureForProject(context: Context, projectDir: File, onProgress: (String) -> Unit) {
+        val missing = requiredPlatformHashes(projectDir).filterNot { isPlatformInstalled(context, it) }
+        for (hash in missing) installPlatform(context, hash, onProgress)
+    }
+
     fun isPlatformInstalled(context: Context, platformHash: String): Boolean =
         androidJar(context, platformHash).isFile
 

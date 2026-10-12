@@ -12,13 +12,15 @@ fun IntegratedAgentScreen(
     modifier: Modifier = Modifier,
     hintsShown: Set<String> = emptySet(),
     onDismissHint: (String) -> Unit = {},
-    keepScreenOn: Boolean = true
+    keepScreenOn: Boolean = true,
+    onTerminalReady: () -> Unit = {}
 ) {
     TerminalScreen(
         modifier = modifier.fillMaxSize(),
         viewModel = terminalViewModel,
         hintsShown = hintsShown,
         onDismissHint = onDismissHint,
-        keepScreenOn = keepScreenOn
+        keepScreenOn = keepScreenOn,
+        onTerminalReady = onTerminalReady
     )
 }

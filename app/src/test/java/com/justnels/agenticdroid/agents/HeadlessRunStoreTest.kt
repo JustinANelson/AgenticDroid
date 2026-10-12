@@ -73,4 +73,29 @@ class HeadlessRunStoreTest {
 
         assertEquals("6789", store.readLog("run-1", maxBytes = 4))
     }
+
+    @Test
+    fun reconcileInterruptedOnlyClosesActiveRuns() {
+        val store = newStore()
+        store.save(sampleRun("starting").copy(status = HeadlessRunStatus.STARTING))
+        store.save(sampleRun("running"))
+        store.save(sampleRun("waiting").copy(status = HeadlessRunStatus.WAITING_FOR_USER))
+        store.save(
+            sampleRun("finished").copy(
+                status = HeadlessRunStatus.SUCCEEDED,
+                finishedAt = 1500L,
+                exitCode = 0
+            )
+        )
+
+        assertEquals(3, store.reconcileInterrupted(now = 2000L))
+
+        val runs = store.listAll().associateBy { it.id }
+        listOf("starting", "running", "waiting").forEach { id ->
+            assertEquals(HeadlessRunStatus.INTERRUPTED, runs.getValue(id).status)
+            assertEquals(2000L, runs.getValue(id).finishedAt)
+        }
+        assertEquals(HeadlessRunStatus.SUCCEEDED, runs.getValue("finished").status)
+        assertEquals(1500L, runs.getValue("finished").finishedAt)
+    }
 }

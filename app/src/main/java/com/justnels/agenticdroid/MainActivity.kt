@@ -1,6 +1,7 @@
 package com.justnels.agenticdroid
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.LocalActivity
@@ -37,22 +38,48 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     private lateinit var viewModel: MainViewModel
+    private var openAgentRunsRequest by mutableStateOf<Intent?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        captureAgentRunsRequest(intent)
         
         setContent {
             viewModel = viewModel()
             MaterialTheme {
-                MainScreen(viewModel)
+                MainScreen(
+                    viewModel = viewModel,
+                    openAgentRunsRequest = openAgentRunsRequest,
+                    onOpenAgentRunsRequestConsumed = { openAgentRunsRequest = null }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureAgentRunsRequest(intent)
+    }
+
+    private fun captureAgentRunsRequest(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_AGENT_RUNS, false) == true) {
+            openAgentRunsRequest = intent
+        }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_AGENT_RUNS = "com.justnels.agenticdroid.extra.OPEN_AGENT_RUNS"
     }
 
 }
 
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    openAgentRunsRequest: Intent? = null,
+    onOpenAgentRunsRequestConsumed: () -> Unit = {}
+) {
     val environmentManager = viewModel.environmentManager
     
     // Dynamically update terminal when active environment changes
@@ -62,6 +89,14 @@ fun MainScreen(viewModel: MainViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val application = context.applicationContext as android.app.Application
     val activity = LocalActivity.current
+    LaunchedEffect(openAgentRunsRequest) {
+        openAgentRunsRequest?.let { request ->
+            viewModel.openAgentRuns(
+                request.getStringExtra(com.justnels.agenticdroid.agents.HeadlessAgentRunService.EXTRA_RUN_ID)
+            )
+            onOpenAgentRunsRequestConsumed()
+        }
+    }
     val installApkLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.installApkFromUri(uri)
     }
@@ -107,6 +142,19 @@ fun MainScreen(viewModel: MainViewModel) {
             confirmButton = { TextButton(onClick = viewModel::dismissFileError) { Text("OK") } }
         )
     }
+
+    viewModel.agentRunError?.let { error ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAgentRunError,
+            title = { Text("Agent run could not start") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = viewModel::dismissAgentRunError) { Text("OK") }
+            }
+        )
+    }
+
+    var pendingInteractiveAgent by remember { mutableStateOf<com.justnels.agenticdroid.agents.AgentProfile?>(null) }
 
     Scaffold(
         bottomBar = {
@@ -715,10 +763,7 @@ fun MainScreen(viewModel: MainViewModel) {
                                 // launched. Visiting Terminal once first, or retrying Launch,
                                 // works around it until the underlying race is found.
                                 if (viewModel.activeAgent == null) {
-                                    terminalViewModel.sendCommand(
-                                        viewModel.withProjectSecretsPrelude(viewModel.selectedProject, agent.launchCommand())
-                                    )
-                                    viewModel.onAgentLaunched(agent)
+                                    pendingInteractiveAgent = agent
                                 }
                                 viewModel.currentScreen = Screen.AgentSession
                             },
@@ -726,12 +771,12 @@ fun MainScreen(viewModel: MainViewModel) {
                                 terminalViewModel.sendRawInput("\u0003")
                                 viewModel.onAgentStopped()
                             },
-                            onRunHeadless = { agent, prompt ->
+                            onRunHeadless = { agent, prompt, allowShell ->
                                 ensureNotificationPermission()
-                                viewModel.startHeadlessAgentRun(agent, prompt)
-                                viewModel.currentScreen = Screen.AgentRuns
+                                viewModel.startHeadlessAgentRun(agent, prompt, allowShell)
+                                viewModel.openAgentRuns()
                             },
-                            onOpenRuns = { viewModel.currentScreen = Screen.AgentRuns },
+                            onOpenRuns = { viewModel.openAgentRuns() },
                             onAddAgent = { viewModel.addCustomAgent(it) },
                             onDeleteAgent = { viewModel.removeCustomAgent(it) },
                             isCustomAgent = { viewModel.isCustomAgent(it) },
@@ -744,7 +789,19 @@ fun MainScreen(viewModel: MainViewModel) {
                         terminalViewModel = terminalViewModel,
                         hintsShown = viewModel.hintsShown,
                         onDismissHint = { viewModel.markHintShown(it) },
-                        keepScreenOn = viewModel.keepScreenOnDuringTerminal
+                        keepScreenOn = viewModel.keepScreenOnDuringTerminal,
+                        onTerminalReady = {
+                            pendingInteractiveAgent?.let { agent ->
+                                pendingInteractiveAgent = null
+                                terminalViewModel.sendCommand(
+                                    viewModel.withProjectSecretsPrelude(
+                                        viewModel.selectedProject,
+                                        agent.launchCommand()
+                                    )
+                                )
+                                viewModel.onAgentLaunched(agent)
+                            }
+                        }
                     )
                 }
                 Screen.AgentRuns -> {
@@ -755,7 +812,10 @@ fun MainScreen(viewModel: MainViewModel) {
                         onDelete = { id -> viewModel.headlessRunController.deleteRun(id) },
                         onRefresh = { viewModel.headlessRunController.refresh() },
                         readLog = { id -> viewModel.headlessRunController.readLog(id) },
-                        onBack = { viewModel.currentScreen = Screen.Agents }
+                        onBack = { viewModel.currentScreen = Screen.Agents },
+                        initialSelectedId = viewModel.requestedAgentRunId,
+                        navigationRequestKey = viewModel.agentRunsNavigationRequest,
+                        onInitialSelectionConsumed = viewModel::consumeRequestedAgentRun
                     )
                 }
                 Screen.Settings -> {

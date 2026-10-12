@@ -42,7 +42,7 @@ fun AgentLauncherScreen(
     hintsShown: Set<String>,
     onLaunchAgent: (AgentProfile) -> Unit,
     onStopAgent: () -> Unit,
-    onRunHeadless: (AgentProfile, String) -> Unit = { _, _ -> },
+    onRunHeadless: (AgentProfile, String, Boolean) -> Unit = { _, _, _ -> },
     onOpenRuns: () -> Unit = {},
     onAddAgent: (AgentProfile) -> Unit = {},
     onDeleteAgent: (String) -> Unit = {},
@@ -148,8 +148,8 @@ fun AgentLauncherScreen(
         HeadlessPromptDialog(
             agent = agent,
             onDismiss = { promptDialogAgent = null },
-            onRun = { prompt ->
-                onRunHeadless(agent, prompt)
+            onRun = { prompt, allowShell ->
+                onRunHeadless(agent, prompt, allowShell)
                 promptDialogAgent = null
             }
         )
@@ -160,9 +160,10 @@ fun AgentLauncherScreen(
 private fun HeadlessPromptDialog(
     agent: AgentProfile,
     onDismiss: () -> Unit,
-    onRun: (String) -> Unit
+    onRun: (String, Boolean) -> Unit
 ) {
     var prompt by remember { mutableStateOf("") }
+    var allowShell by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Run ${agent.name} in the background") },
@@ -181,10 +182,26 @@ private fun HeadlessPromptDialog(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 3
                 )
+                if (agent.headlessFullAccessArgs.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = allowShell, onCheckedChange = { allowShell = it })
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("Allow commands without asking", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                if (allowShell) "Can run builds, tests, installs and any shell command. Needed to build or test the project."
+                                else "File edits only. Shell commands are denied, so it can't build or run tests.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = { onRun(prompt) }, enabled = prompt.isNotBlank()) {
+            TextButton(onClick = { onRun(prompt, allowShell) }, enabled = prompt.isNotBlank()) {
                 Text("Run")
             }
         },

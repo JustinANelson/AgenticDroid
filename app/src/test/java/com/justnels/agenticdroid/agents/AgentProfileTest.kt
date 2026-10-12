@@ -73,4 +73,21 @@ class AgentProfileTest {
             assertEquals(agent.installCommand, agent.updateCommand())
         }
     }
+
+    @Test
+    fun claudeHeadlessRunsGrantEditsAndOptionallyShellWithPromptLast() {
+        val edits = DefaultAgents.Claude.headlessArgv("fix it")!!
+        assertEquals(listOf("claude", "-p", "--permission-mode", "acceptEdits", "fix it"), edits)
+        val full = DefaultAgents.Claude.headlessArgv("fix it", allowShell = true)!!
+        assertEquals(listOf("claude", "-p", "--permission-mode", "bypassPermissions", "fix it"), full)
+        assertEquals(listOf("codex", "exec", "fix it"), DefaultAgents.Codex.headlessArgv("fix it", true))
+    }
+
+    @Test
+    fun claudeDisablesSelfUpdaterAndPinsNativeBinaryToShimVersion() {
+        val launch = DefaultAgents.Claude.launchCommand()
+        assertTrue(launch.contains("export DISABLE_AUTOUPDATER='1'; "))
+        assertTrue(DefaultAgents.Claude.installCommand.contains("shimver"))
+        assertTrue(DefaultAgents.Claude.headlessAuthCheckCommand!!.contains("ANTHROPIC_API_KEY"))
+    }
 }

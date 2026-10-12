@@ -22,6 +22,19 @@ class HeadlessRunController(private val application: Application) {
     private val fallbackStore = HeadlessRunStore(application)
     private var binder: HeadlessAgentRunService.HeadlessRunBinder? = null
     private var bound = false
+    private val pendingStarts = mutableListOf<PendingStart>()
+
+    private data class PendingStart(
+        val agent: AgentProfile,
+        val prompt: String,
+        val env: ExecutionEnvironment,
+        val workingDirectory: String,
+        val projectPath: String,
+        val environmentLabel: String,
+        val environmentVariables: Map<String, String>,
+        val allowShell: Boolean,
+        val onResult: (Result<String>) -> Unit
+    )
 
     var runs by mutableStateOf<List<HeadlessAgentRun>>(emptyList())
         private set
@@ -29,6 +42,9 @@ class HeadlessRunController(private val application: Application) {
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = service as HeadlessAgentRunService.HeadlessRunBinder
+            val queued = pendingStarts.toList()
+            pendingStarts.clear()
+            queued.forEach(::startWithBinder)
             refresh()
         }
 
@@ -48,8 +64,9 @@ class HeadlessRunController(private val application: Application) {
         runs = binder?.listRuns() ?: fallbackStore.listAll()
     }
 
-    /** Returns the new run's ID, or null if [agent] has no headless mode
-     * ([AgentProfile.headlessPromptArgs] unset). */
+    /** Starts immediately when bound, otherwise queues until Android connects the service.
+     * This avoids silently dropping a launch tapped during the normal asynchronous binding
+     * window at app startup. */
     fun startRun(
         agent: AgentProfile,
         prompt: String,
@@ -57,16 +74,51 @@ class HeadlessRunController(private val application: Application) {
         workingDirectory: String,
         projectPath: String,
         environmentLabel: String,
-        environmentVariables: Map<String, String> = emptyMap()
-    ): String? {
+        environmentVariables: Map<String, String> = emptyMap(),
+        allowShell: Boolean = false,
+        onResult: (Result<String>) -> Unit = {}
+    ) {
+        val request = PendingStart(
+            agent, prompt, env, workingDirectory, projectPath, environmentLabel,
+            environmentVariables, allowShell, onResult
+        )
+        val currentBinder = binder
+        if (currentBinder != null) {
+            startWithBinder(request)
+            return
+        }
+        pendingStarts += request
         if (!bound) {
             bound = application.bindService(
                 Intent(application, HeadlessAgentRunService::class.java), connection, Context.BIND_AUTO_CREATE
             )
+            if (!bound) {
+                pendingStarts.remove(request)
+                onResult(Result.failure(IllegalStateException("Agent run service could not be started")))
+            }
         }
-        val id = binder?.startRun(agent, prompt, env, workingDirectory, projectPath, environmentLabel, environmentVariables)
+    }
+
+    private fun startWithBinder(request: PendingStart) {
+        val service = binder
+        if (service == null) {
+            request.onResult(Result.failure(IllegalStateException("Agent run service disconnected")))
+            return
+        }
+        val result = runCatching {
+            service.startRun(
+                request.agent,
+                request.prompt,
+                request.env,
+                request.workingDirectory,
+                request.projectPath,
+                request.environmentLabel,
+                request.environmentVariables,
+                request.allowShell
+            ) ?: error("${request.agent.name} does not support background runs")
+        }
         refresh()
-        return id
+        request.onResult(result)
     }
 
     fun killRun(id: String) {
@@ -85,6 +137,9 @@ class HeadlessRunController(private val application: Application) {
     fun isRunning(id: String): Boolean = binder?.isRunning(id) ?: false
 
     fun unbind() {
+        pendingStarts.toList().also { pendingStarts.clear() }.forEach {
+            it.onResult(Result.failure(IllegalStateException("Agent run controller closed before launch")))
+        }
         if (bound) {
             runCatching { application.unbindService(connection) }
             bound = false

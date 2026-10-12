@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -176,6 +177,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var activeAgent by mutableStateOf<com.justnels.agenticdroid.agents.AgentProfile?>(null)
         private set
 
+    var agentRunError by mutableStateOf<String?>(null)
+        private set
+
+    var requestedAgentRunId by mutableStateOf<String?>(null)
+        private set
+
+    var agentRunsNavigationRequest by mutableIntStateOf(0)
+        private set
+
     fun onAgentLaunched(agent: com.justnels.agenticdroid.agents.AgentProfile) {
         activeAgent = agent
     }
@@ -197,24 +207,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Starts [agent] unattended (see [HeadlessAgentRunService]) against the currently
-     * active environment/project rather than the live terminal PTY - returns the new
-     * run's ID, or null if [agent] has no headless mode
-     * ([com.justnels.agenticdroid.agents.AgentProfile.headlessPromptArgs] unset) or the
-     * active environment couldn't be opened. */
-    fun startHeadlessAgentRun(agent: com.justnels.agenticdroid.agents.AgentProfile, prompt: String): String? {
+     * active environment/project rather than the live terminal PTY. Binding-time and
+     * launch failures are surfaced through [agentRunError]. */
+    fun startHeadlessAgentRun(
+        agent: com.justnels.agenticdroid.agents.AgentProfile,
+        prompt: String,
+        allowShell: Boolean = false
+    ) {
         val env = runCatching { environmentManager.getExecutionEnvironment(environmentManager.activeEnvironment) }
-            .getOrNull() ?: return null
+            .getOrElse {
+                agentRunError = "Could not open the selected environment: ${it.message ?: "unknown error"}"
+                return
+            }
         val project = selectedProject
         val secrets = project?.let { projectSecretsStore.getSecrets(it) } ?: emptyMap()
-        return headlessRunController.startRun(
-            agent = agent,
-            prompt = prompt,
-            env = env,
-            workingDirectory = executionWorkingDirectory,
-            projectPath = project?.path ?: executionWorkingDirectory,
-            environmentLabel = activeEnvironmentLabel(),
-            environmentVariables = secrets
-        )
+        val workingDirectory = executionWorkingDirectory
+        val environmentLabel = activeEnvironmentLabel()
+        viewModelScope.launch(Dispatchers.IO) {
+            provisionAndroidSdkIfNeeded(workingDirectory)
+            withContext(Dispatchers.Main) {
+                headlessRunController.startRun(
+                    agent = agent,
+                    prompt = prompt,
+                    env = env,
+                    workingDirectory = workingDirectory,
+                    projectPath = project?.path ?: workingDirectory,
+                    environmentLabel = environmentLabel,
+                    environmentVariables = secrets,
+                    allowShell = allowShell,
+                    onResult = { result ->
+                        result.exceptionOrNull()?.let {
+                            agentRunError = it.message ?: "The background agent run could not be started."
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    /** Downloads any Android SDK platform the project at [path] compiles against, when the
+     * active environment is the on-device toolchain. No-op for every other project type and
+     * environment, so callers can invoke it unconditionally before builds and agent runs. */
+    private suspend fun provisionAndroidSdkIfNeeded(path: String, onProgress: (String) -> Unit = {}) {
+        if (environmentManager.activeEnvironment != com.justnels.agenticdroid.env.EnvironmentConfig.Node) return
+        runCatching {
+            com.justnels.agenticdroid.env.AndroidSdkBootstrapper.ensureForProject(
+                getApplication(), File(path), onProgress
+            )
+        }.onFailure { agentRunError = "Could not prepare the Android SDK: ${it.message}" }
+    }
+
+    fun dismissAgentRunError() {
+        agentRunError = null
+    }
+
+    fun openAgentRuns(runId: String? = null) {
+        requestedAgentRunId = runId
+        agentRunsNavigationRequest++
+        currentScreen = Screen.AgentRuns
+    }
+
+    fun consumeRequestedAgentRun() {
+        requestedAgentRunId = null
     }
 
     private fun activeEnvironmentLabel(): String = when (val active = environmentManager.activeEnvironment) {
@@ -1904,9 +1958,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val path = executionWorkingDirectory
             runCatching { com.justnels.agenticdroid.env.NodeRuntime.ensureGradleUserHomeProperties(getApplication()) }
             try {
-                val session = env.exec(buildCommand, path, secrets)
-                activeBuildSession = session
-                val result = session.capture(timeoutMillis = 30 * 60 * 1000L, maxOutputBytes = 4 * 1024 * 1024)
+                provisionAndroidSdkIfNeeded(path) { buildStatus = it }
+                buildStatus = "Running build on $environmentLabel..."
+                var result = runBuild(env, buildCommand, path, secrets)
+                // Safety net for what the up-front scan can't see (e.g. a compileSdk set
+                // through a version catalog): AGP names the platform it's missing.
+                if (result.exitCode != 0 &&
+                    environmentManager.activeEnvironment == com.justnels.agenticdroid.env.EnvironmentConfig.Node
+                ) {
+                    val missing = com.justnels.agenticdroid.env.AndroidSdkBootstrapper
+                        .parsePlatformHashFromBuildError(result.stdout + result.stderr)
+                    if (missing != null && !com.justnels.agenticdroid.env.AndroidSdkBootstrapper
+                            .isPlatformInstalled(getApplication(), missing)
+                    ) {
+                        com.justnels.agenticdroid.env.AndroidSdkBootstrapper
+                            .installPlatform(getApplication(), missing) { buildStatus = it }
+                        buildStatus = "Retrying build on $environmentLabel..."
+                        result = runBuild(env, buildCommand, path, secrets)
+                    }
+                }
                 buildLog = buildString {
                     append(result.stdout)
                     append(result.stderr)
@@ -1952,6 +2022,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isBuilding = false
             }
         }
+    }
+
+    private fun runBuild(
+        env: com.justnels.agenticdroid.env.ExecutionEnvironment,
+        command: String,
+        path: String,
+        secrets: Map<String, String>
+    ): com.justnels.agenticdroid.env.ProcessResult {
+        val session = env.exec(command, path, secrets)
+        activeBuildSession = session
+        return session.capture(timeoutMillis = 30 * 60 * 1000L, maxOutputBytes = 4 * 1024 * 1024)
     }
 
     fun cancelBuild() {
